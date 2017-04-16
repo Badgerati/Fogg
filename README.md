@@ -1,6 +1,7 @@
 # Fogg
 
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](https://raw.githubusercontent.com/Badgerati/Fogg/master/LICENSE.txt)
+[![MIT licensed](https://img.shields.io/badge/version-Alpha-red.svg)](https://github.com/Badgerati/Fogg)
 
 Fogg is a PowerShell tool to aide and simplify the creation, deployment and provisioning of infrastructure (IaaS) in Azure using Azure Resource Manager (does not support Classic).
 
