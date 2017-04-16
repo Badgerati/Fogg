@@ -57,7 +57,7 @@ The above configuration will be used by Fogg to deploy one public Windows 2016 V
 To use Fogg and the config file above, you will also need things such as an Azure Subscription, Resource Group, Virtual Network/Subnet addresses and other things. In general, the call to Fogg would look as follows:
 
 ```powershell
-fogg -SubscriptionName "AzureSub" -ResourceGroupName "test-rg" -Location "westeurope" -VNetAddress "10.1.0.0/24" -SubnetAddresses @{"vm"="10.1.0.0/16"} -ConfigPath "<path_to_above_config>"
+fogg -SubscriptionName "AzureSub" -ResourceGroupName "basic-rg" -Location "westeurope" -VNetAddress "10.1.0.0/24" -SubnetAddresses @{"vm"="10.1.0.0/16"} -ConfigPath "<path_to_above_config>"
 ```
 
 This will tell Fogg to use the above config against your Subscription in Azure. Fogg will then:
@@ -65,17 +65,17 @@ This will tell Fogg to use the above config against your Subscription in Azure. 
 * Validate the config file
 * Request for you Azure Subscription credentials
 * Request for administrator credentials to deploy the VMs
-* Create a Resource Group called `test-rg` in Location `westeurope`
-* Create a Storage Account called `teststdsa` (or `test-std-sa` for Standard Storage)
-* Create a Virtual Network called `test-vnet` for address `10.1.0.0/24`
-* Create a Network Security Group (`test-vm-nsg`) and Subnet (`test-vm-snet`) for address `10.1.0.0/16`
-* A Virtual Machine called `test-vm1` will then be deployed under the `test-vm-snet` Subnet
+* Create a Resource Group called `basic-rg` in Location `westeurope`
+* Create a Storage Account called `basicstdsa` (or `basic-std-sa` for Standard Storage)
+* Create a Virtual Network called `basic-vnet` for address `10.1.0.0/24`
+* Create a Network Security Group (`basic-vm-nsg`) and Subnet (`basic-vm-snet`) for address `10.1.0.0/16`
+* A Virtual Machine called `basic-vm1` will then be deployed under the `basic-vm-snet` Subnet
 
 To create a Foggfile of the above, stored at the root of the repo (can be else where as a `-FoggfilePath` can be supplied), would look like the folllowing:
 
 ```json
 {
-    "ResourceGroupName": "test-rg",
+    "ResourceGroupName": "basic-rg",
     "Location": "westeurope",
     "ConfigPath": "<path_to_above_config>",
     "VNetAddress": "10.1.0.0/24",
@@ -166,6 +166,21 @@ This includes creating firewall rules, load balancers, public IPs, and provision
                 "access": "Allow"
             }
         ]
+    }
+}
+```
+
+The Foggfile could be the following:
+
+```json
+{
+    "ResourceGroupName": "adv-rg",
+    "Location": "westeurope",
+    "ConfigPath": "<path_to_above_config>",
+    "VNetAddress": "10.2.0.0/24",
+    "SubnetAddresses": {
+        "web": "10.2.0.0/16",
+        "file": "10.2.1.0/16"
     }
 }
 ```
