@@ -1,0 +1,66 @@
+{
+    "vms": [
+        {
+            "tag": "web",
+            "count": 2,
+            "dsc": [
+                "remoting",
+                "web"
+            ],
+            "usePublicIP": true,
+            "port": 80,
+            "firewall": {
+                "inbound": [
+                    {
+                        "name": "HTTP",
+                        "priority": 101,
+                        "source": "*:*",
+                        "destination": "@{subnet}:80",
+                        "access": "Allow"
+                    }
+                ]
+            }
+        },
+        {
+            "tag": "file",
+            "count": 1,
+            "dsc": [
+                "remoting"
+            ],
+            "usePublicIP": true,
+            "firewall": {
+                "inbound": [
+                    {
+                        "name": "AnyPort",
+                        "priority": 101,
+                        "source": "@{subnet|web}:*",
+                        "destination": "@{subnet}:*",
+                        "access": "Allow"
+                    }
+                ]
+            }
+        }
+    ],
+    "os": {
+        "size": "Standard_DS1_v2",
+        "type": "Windows",
+        "publisher": "MicrosoftWindowsServer",
+        "offer": "WindowsServer",
+        "skus": "2016-Datacenter"
+    },
+    "dsc": {
+        "remoting": ".\\Remoting.ps1",
+        "web": ".\\WebServer.ps1"
+    },
+    "firewall": {
+        "inbound": [
+            {
+                "name": "RDP",
+                "priority": 4095,
+                "source": "*:*",
+                "destination": "@{subnet}:3389",
+                "access": "Allow"
+            }
+        ]
+    }
+}

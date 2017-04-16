@@ -1,0 +1,11 @@
+{
+    "ResourceGroupName": "adv-rg",
+    "SubscriptionName": "<SUB_NAME_HERE>",
+    "Location": "westeurope",
+    "ConfigPath": ".\\config.json",
+    "VNetAddress": "10.2.0.0/24",
+    "SubnetAddresses": {
+        "web": "10.2.0.0/16",
+        "file": "10.2.1.0/16"
+    }
+}
