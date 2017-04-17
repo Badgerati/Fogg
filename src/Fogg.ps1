@@ -231,6 +231,20 @@ try
                 }
             }
         }
+
+        # attempt to output any public IP addresses
+        $ips = Get-AzureRmPublicIpAddress -ResourceGroupName $FoggObject.ResourceGroupName
+
+        if (!(Test-ArrayEmpty $ips))
+        {
+            Write-Information "Public IP Addresses:"
+
+            $ips | ForEach-Object {
+                Write-Host "> $($_.Name): $($_.IpAddress)"
+            }
+
+            Write-Host ([string]::Empty)
+        }
     }
     catch [exception]
     {
