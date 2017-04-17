@@ -3,9 +3,9 @@
     "SubscriptionName": "<SUB_NAME_HERE>",
     "Location": "westeurope",
     "ConfigPath": ".\\config.json",
-    "VNetAddress": "10.2.0.0/24",
+    "VNetAddress": "10.2.0.0/16",
     "SubnetAddresses": {
-        "web": "10.2.0.0/16",
-        "file": "10.2.1.0/16"
+        "web": "10.2.0.0/24",
+        "file": "10.2.1.0/24"
     }
 }
