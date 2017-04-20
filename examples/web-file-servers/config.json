@@ -3,7 +3,7 @@
         {
             "tag": "web",
             "count": 2,
-            "dsc": [
+            "provisioners": [
                 "remoting",
                 "web"
             ],
@@ -24,7 +24,7 @@
         {
             "tag": "file",
             "count": 1,
-            "dsc": [
+            "provisioners": [
                 "remoting"
             ],
             "usePublicIP": true,
@@ -48,9 +48,9 @@
         "offer": "WindowsServer",
         "skus": "2016-Datacenter"
     },
-    "dsc": {
-        "remoting": ".\\Remoting.ps1",
-        "web": ".\\WebServer.ps1"
+    "provisioners": {
+        "remoting": "dsc: .\\Remoting.ps1",
+        "web": "dsc: .\\WebServer.ps1"
     },
     "firewall": {
         "inbound": [

@@ -146,16 +146,18 @@ function Test-VMs
     # loop through each VM verifying
     foreach ($vm in $VMs)
     {
+        $tag = $vm.tag
+
         # ensure each VM has a tag
-        if (Test-Empty $vm.tag)
+        if (Test-Empty $tag)
         {
             throw 'All VM sections in Fogg Azure configuration file require a tag name'
         }
 
         # ensure that each VM section has a subnet map
-        if (!$FoggObject.SubnetAddressMap.Contains($vm.tag))
+        if (!$FoggObject.SubnetAddressMap.Contains($tag))
         {
-            throw "No subnet address mapped for the $($vm.tag) VM section"
+            throw "No subnet address mapped for the $($tag) VM section"
         }
 
         # ensure VM count is not null or negative/0
@@ -173,13 +175,29 @@ function Test-VMs
         # if there's more than one VM (load balanced) a port is required
         if ($vm.count -gt 1 -and (Test-Empty $vm.port))
         {
-            throw "A valid port value is required for the $($vm.tag) VM section for load balancing"
+            throw "A valid port value is required for the $($tag) VM section for load balancing"
         }
 
         # ensure that each VM has an OS setting if global OS does not exist
         if (!$hasOS -and $vm.os -eq $null)
         {
-            throw "VM section $($vm.tag) is missing OS settings section"
+            throw "VM section $($tag) is missing OS settings section"
+        }
+
+        # ensure that the provisioner keys exist
+        if (!$FoggObject.HasProvisionScripts -and !(Test-ArrayEmpty $vm.provisioners))
+        {
+            throw "VM section $($tag) specifies provisioners, but there is not Provisioner section"
+        }
+
+        if ($FoggObject.HasProvisionScripts -and !(Test-ArrayEmpty $vm.provisioners))
+        {
+            $vm.provisioners | ForEach-Object {
+                if (!(Test-ProvisionerExists -FoggObject $FoggObject -ProvisionerName $_))
+                {
+                    throw "Provisioner key not specified in Provisioners section: $($_)"
+                }
+            }
         }
     }
 
@@ -236,7 +254,29 @@ function Test-VMOS
 }
 
 
-function Test-DSCPaths
+function Test-ProvisionerExists
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        $FoggObject,
+
+        [Parameter(Mandatory=$true)]
+        $ProvisionerName
+    )
+
+    if (!$FoggObject.HasProvisionScripts)
+    {
+        return $false
+    }
+
+    $dsc = $FoggObject.ProvisionMap['dsc'].ContainsKey($ProvisionerName)
+    $custom =  $FoggObject.ProvisionMap['custom'].ContainsKey($ProvisionerName)
+
+    return ($dsc -or $custom)
+}
+
+
+function Test-Provisioners
 {
     param (
         [Parameter(Mandatory=$true)]
@@ -248,26 +288,42 @@ function Test-DSCPaths
 
     if (Test-Empty $Paths)
     {
-        $FoggObject.HasDscScripts = $false
+        $FoggObject.HasProvisionScripts = $false
         return
     }
 
-    Write-Information "Verifying DSC Scripts"
+    $FoggObject.HasProvisionScripts = $true
+    Write-Information "Verifying Provision Scripts"
 
-    $FoggObject.HasDscScripts = $true
-    $FoggObject.DscMap = ConvertFrom-JsonObjectToMap $Paths
+    $map = ConvertFrom-JsonObjectToMap $Paths
+    $regex = '^\s*(?<type>[a-z0-9]+)\:\s*(?<file>.+?)\s*$'
 
-    ($FoggObject.DscMap.Clone()).Keys | ForEach-Object {
-        $path = Resolve-Path (Join-Path $FoggObject.ConfigParent $FoggObject.DscMap[$_])
-        $FoggObject.DscMap[$_] = $path
+    ($map.Clone()).Keys | ForEach-Object {
+        $value = $map[$_]
 
-        if (!(Test-PathExists $path))
+        if ($value -imatch $regex)
         {
-            throw "DSC script path does not exist: $($path)"
+            $type = $Matches['type'].ToLowerInvariant()
+            if ($type -ine 'dsc' -and $type -ine 'custom')
+            {
+                throw "Invalid provisioner type found: $($type)"
+            }
+
+            $file = Resolve-Path (Join-Path $FoggObject.ConfigParent $Matches['file'])
+            if (!(Test-Path $file))
+            {
+                throw "Provision script for $($type) does not exist: $($file)"
+            }
+
+            $FoggObject.ProvisionMap[$type].Add($_, $file)
+        }
+        else
+        {
+            throw "Provisioner value is not in the correct format of '<type>: <file>': $($value)"
         }
     }
 
-    Write-Success "DSC verified"
+    Write-Success "Provisioners verified"
 }
 
 
@@ -543,8 +599,8 @@ function New-FoggObject
     $props.SubnetAddressMap = $SubnetAddressMap
     $props.ConfigPath = $ConfigPath
     $props.ConfigParent = (Split-Path -Parent -Path $ConfigPath)
-    $props.HasDscScripts = $false
-    $props.DscMap = @{}
+    $props.HasProvisionScripts = $false
+    $props.ProvisionMap = @{'dsc' = @{}; 'custom' = @{}}
     $props.NsgMap = @{}
 
     $foggObj = New-Object -TypeName PSObject -Property $props

@@ -1,4 +1,4 @@
-# Fogg
+# Fogg v0.2.0
 
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](https://raw.githubusercontent.com/Badgerati/Fogg/master/LICENSE.txt)
 [![MIT licensed](https://img.shields.io/badge/version-Alpha-red.svg)](https://github.com/Badgerati/Fogg)
@@ -15,6 +15,7 @@ Fogg is a PowerShell tool to aide and simplify the creation, deployment and prov
 
 * Deploy and provision Virtual Machines in Azure
 * Provision using PowerShell Desired State Configuration (DSC)
+* Provision using Custom Scripts
 * Deploy Resource Groups
 * Deploy Storage Accounts
 * Deploy Virtual Networks, Subnets, and Network Security Groups with firewall rules
@@ -107,7 +108,7 @@ This includes creating firewall rules, load balancers, public IPs, and provision
         {
             "tag": "web",
             "count": 2,
-            "dsc": [
+            "provisioners": [
                 "remoting",
                 "web"
             ],
@@ -128,7 +129,7 @@ This includes creating firewall rules, load balancers, public IPs, and provision
         {
             "tag": "file",
             "count": 1,
-            "dsc": [
+            "provisioners": [
                 "remoting"
             ],
             "usePublicIP": true,
@@ -152,9 +153,9 @@ This includes creating firewall rules, load balancers, public IPs, and provision
         "offer": "WindowsServer",
         "skus": "2016-Datacenter"
     },
-    "dsc": {
-        "remoting": ".\\Remoting.ps1",
-        "web": ".\\WebServer.ps1"
+    "provisioners": {
+        "remoting": "dsc: .\\Remoting.ps1",
+        "web": "dsc: .\\WebServer.ps1"
     },
     "firewall": {
         "inbound": [
@@ -187,9 +188,11 @@ The Foggfile could be the following:
 
 Now, while this does seem a little big at first, it's actually fairly simple; so let's look at each section.
 
-### DSC
+### Provisioners
 
-First, we'll look at the `dsc` section. This section is fairly straightforward, it's a key-value map of paths to PowerShell Desired State Configuration scritps. If a path is invalid Fogg will fail. The names (`remoting` and `web`) are used in the `vms` section to specify which DSC scripts need to be run for provisioning.
+First, we'll look at the `provisioners` section. This section is a key-value map of paths to PowerShell Desired State Configuration or Custom scripts. If a path is invalid Fogg will fail. The names (`remoting` and `web`) are used in the `vms` section to specify which provisioning scripts need to be run for provisioning.
+
+For example, the provisioner of `"web": "dsc: .\\WebServer.ps1"` is called `web`, will provision via `PowerShell DSC` using the `.\WebServer.ps1` script. Other than `dsc` you can also use a `custom` provisioner type which will allow you to use your own PS1/BAT scripts.
 
 ### OS
 

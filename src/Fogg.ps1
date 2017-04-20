@@ -51,7 +51,7 @@ Import-Module "$($root)\Modules\FoggAzure.psm1" -ErrorAction Stop
 
 
 # Output the version
-Write-Host "Fogg v0.1.0a" -ForegroundColor Cyan
+Write-Host "Fogg v0.2.0a" -ForegroundColor Cyan
 if ($Version)
 {
     return
@@ -78,11 +78,11 @@ try
     # Parse the contents of the config file
     $config = Get-JSONContent $FoggObject.ConfigPath
 
+    # Check that the Provisioner script paths exist
+    Test-Provisioners -FoggObject $FoggObject -Paths $config.provisioners
+
     # Check the VM section of the config
     $vmCount = Test-VMs -VMs $config.vms -FoggObject $FoggObject -OS $config.os
-
-    # Check that the DSC script paths exist
-    Test-DSCPaths -FoggObject $FoggObject -Paths $config.dsc
 
 
     # Login to Azure Subscription
@@ -114,13 +114,8 @@ try
         $sa = New-FoggStorageAccount -FoggObject $FoggObject -Premium:$usePremiumStorage
 
 
-        # publish DSC scripts to storage account
-        if (!(Test-Empty $FoggObject.DscMap))
-        {
-            $FoggObject.DscMap.Values | ForEach-Object {
-                Publish-FoggDscConfig -FoggObject $FoggObject -StorageAccount $sa -DscConfigPath $_
-            }
-        }
+        # publish Provisioner scripts to storage account
+        Publish-ProvisionerScripts -FoggObject $FoggObject -StorageAccount $sa
 
 
         # create the virtual network, or use existing one
@@ -211,13 +206,8 @@ try
 
                 Save-FoggVM -FoggObject $FoggObject -VM $_vm -LoadBalancer $lb
 
-                # see if we need to provision the machine via DSC
-                if ($FoggObject.HasDscScripts)
-                {
-                    $vm.dsc | Where-Object { $FoggObject.DscMap.Contains($_) } | ForEach-Object {
-                        Set-FoggDscConfig -FoggObject $FoggObject -VMName $_vm.Name -StorageAccount $sa -DscName $_
-                    }
-                }
+                # see if we need to provision the machine
+                Set-ProvisionVM -FoggObject $FoggObject -Provisioners $vm.provisioners -VMName $_vm.Name -StorageAccount $sa
             }
 
             # turn off some of the VMs if needed

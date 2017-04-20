@@ -3,9 +3,10 @@
         {
             "tag": "web",
             "count": 1,
-            "dsc": [
+            "provisioners": [
                 "remoting",
-                "web"
+                "web",
+                "logs"
             ],
             "usePublicIP": true,
             "os": {
@@ -28,9 +29,10 @@
             }
         }
     ],
-    "dsc": {
-        "remoting": ".\\Remoting.ps1",
-        "web": ".\\WebServer.ps1"
+    "provisioners": {
+        "remoting": "dsc: .\\Remoting.ps1",
+        "web": "dsc: .\\WebServer.ps1",
+        "logs": "custom: .\\Directories.ps1"
     },
     "firewall": {
         "inbound": [

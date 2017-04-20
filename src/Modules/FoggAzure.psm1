@@ -182,7 +182,83 @@ function New-FoggStorageAccount
 }
 
 
-function Publish-FoggDscConfig
+function Publish-ProvisionerScripts
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        $FoggObject,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        $StorageAccount
+    )
+
+    # do we have any scripts that need publishing?
+    if (!$FoggObject.HasProvisionScripts)
+    {
+        return
+    }
+
+    # are there any DSC scripts to publish?
+    if (!(Test-Empty $FoggObject.ProvisionMap['dsc']))
+    {
+        $FoggObject.ProvisionMap['dsc'].Values | ForEach-Object {
+            Publish-FoggDscScript -FoggObject $FoggObject -StorageAccount $StorageAccount -ScriptPath $_
+        }
+    }
+
+    # are there any custom scripts to publish? if so, need a storage container first
+    if (!(Test-Empty $FoggObject.ProvisionMap['custom']))
+    {
+        $container = New-FoggStorageContainer -FoggObject $FoggObject -StorageAccount $StorageAccount -Name 'provisioners'
+
+        $FoggObject.ProvisionMap['custom'].Values | ForEach-Object {
+            Publish-FoggCustomScript -FoggObject $FoggObject -StorageAccount $StorageAccount -Container $container -ScriptPath $_
+        }
+    }
+}
+
+
+function Publish-FoggCustomScript
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        $FoggObject,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        $StorageAccount,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        $Container,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $ScriptPath
+    )
+
+    $saName = $StorageAccount.StorageAccountName
+    $fName = Split-Path -Leaf -Path "$($ScriptPath)"
+    $cName = $Container.Name
+    $ctx = $Container.Context
+
+    Write-Information "Publishing $($ScriptPath) Custom script to the $($saName) storage account"
+
+    $output = Set-AzureStorageBlobContent -Container $cName -Context $ctx -File $ScriptPath -Blob $fName -Force
+    if (!$?)
+    {
+        throw "Failed to publish Custom script to $($saName): `n$($output)"
+    }
+
+    Write-Success "Custom script published`n"
+}
+
+
+function Publish-FoggDscScript
 {
     param (
         [Parameter(Mandatory=$true)]
@@ -196,20 +272,15 @@ function Publish-FoggDscConfig
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
         [string]
-        $DscConfigPath
+        $ScriptPath
     )
-
-    if (!(Test-Path $DscConfigPath))
-    {
-        throw "DSC script path does not exist: $($DscConfigPath)"
-    }
 
     $saName = $StorageAccount.StorageAccountName
 
-    Write-Information "Publishing $($DscConfigPath) DSC script to the $($saName) storage account"
+    Write-Information "Publishing $($ScriptPath) DSC script to the $($saName) storage account"
 
     $output = Publish-AzureRmVMDscConfiguration -ResourceGroupName $FoggObject.ResourceGroupName `
-        -StorageAccountName $saName -ConfigurationPath $DscConfigPath -Force
+        -StorageAccountName $saName -ConfigurationPath $ScriptPath -Force
 
     if (!$?)
     {
@@ -220,9 +291,52 @@ function Publish-FoggDscConfig
 }
 
 
+function Set-ProvisionVM
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        $FoggObject,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        $Provisioners,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $VMName,
+
+        [Parameter(Mandatory=$true)]
+        $StorageAccount
+    )
+
+    # check if there are any provision scripts
+    if (!$FoggObject.HasProvisionScripts -or (Test-ArrayEmpty $Provisioners))
+    {
+        return
+    }
+
+    # loop through each provisioner, and run appropriate tool
+    $Provisioners | ForEach-Object {
+        if ($FoggObject.ProvisionMap['dsc'].ContainsKey($_))
+        {
+            Set-FoggDscConfig -FoggObject $FoggObject -VMName $VMName -StorageAccount $StorageAccount `
+                -ScriptPath $FoggObject.ProvisionMap['dsc'][$_]
+        }
+
+        elseif ($FoggObject.ProvisionMap['custom'].ContainsKey($_))
+        {
+            Set-FoggCustomConfig -FoggObject $FoggObject -VMName $VMName -StorageAccount $StorageAccount `
+                -ContainerName 'provisioners' -ScriptPath $FoggObject.ProvisionMap['custom'][$_]
+        }
+    }
+}
+
+
 function Set-FoggDscConfig
 {
-    param(
+    param (
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
         $FoggObject,
@@ -238,10 +352,10 @@ function Set-FoggDscConfig
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
         [string]
-        $DscName
+        $ScriptPath
     )
 
-    $file = Split-Path -Leaf -Path "$($FoggObject.DscMap[$DscName])"
+    $file = Split-Path -Leaf -Path "$($ScriptPath)"
     $script = "$($file).zip"
     $func = ($file -ireplace '\.ps1', '')
 
@@ -249,7 +363,7 @@ function Set-FoggDscConfig
 
     $output = Set-AzureRmVMDscExtension -ResourceGroupName $FoggObject.ResourceGroupName -VMName $VMName -ArchiveBlobName $script `
         -ArchiveStorageAccountName $StorageAccount.StorageAccountName -ConfigurationName $func -Version "2.23" -AutoUpdate `
-        -Location $FoggObject.Location -Force
+        -Location $FoggObject.Location -Force -ErrorAction SilentlyContinue
 
     if (!$?)
     {
@@ -257,6 +371,140 @@ function Set-FoggDscConfig
     }
 
     Write-Success "DSC Extension installed and script run`n"
+}
+
+
+function Set-FoggCustomConfig
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        $FoggObject,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $VMName,
+
+        [Parameter(Mandatory=$true)]
+        $StorageAccount,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $ContainerName,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $ScriptPath
+    )
+
+    $fileName = Split-Path -Leaf -Path "$($ScriptPath)"
+    $fileNameNoExt = ($fileName -ireplace [Regex]::Escape([System.IO.Path]::GetExtension($fileName)), '')
+
+    $saName = $StorageAccount.StorageAccountName
+    $saKey = (Get-AzureRmStorageAccountKey -ResourceGroupName $FoggObject.ResourceGroupName -Name $saName).Value[0]
+
+    Write-Information "Installing Custom Script Extension on VM $($VMName), and running script $($fileName)"
+
+    $output = Set-AzureRmVMCustomScriptExtension -ResourceGroupName $FoggObject.ResourceGroupName -VMName $VMName `
+        -Location $FoggObject.Location -StorageAccountName $saName -StorageAccountKey $saKey -ContainerName $ContainerName `
+        -FileName $fileName -Name $fileNameNoExt -Run $fileName -ErrorAction SilentlyContinue
+
+    if (!$?)
+    {
+        throw "Failed to install the Custom Script Extension on VM $($VMName), and run script $($fileName):`n$($output)"
+    }
+
+    Write-Success "Custom Script Extension installed and script run`n"
+}
+
+
+function Get-FoggStorageContainer
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        $Context,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Name
+    )
+
+    $Name = $Name.ToLowerInvariant()
+
+    try
+    {
+        $container = Get-AzureStorageContainer -Context $Context -Name $Name
+        if (!$?)
+        {
+            throw "Failed to make Azure call to retrieve Storage Container $($Name)"
+        }
+    }
+    catch [exception]
+    {
+        if ($_.Exception.Message -ilike '*can not find*')
+        {
+            $container = $null
+        }
+        else
+        {
+            throw
+        }
+    }
+
+    return $container
+}
+
+
+function New-FoggStorageContainer
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        $FoggObject,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        $StorageAccount,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Name
+    )
+
+    $Name = $Name.ToLowerInvariant()
+
+    # get storage account name and key
+    $saName = $StorageAccount.StorageAccountName
+    $saKey = (Get-AzureRmStorageAccountKey -ResourceGroupName $FoggObject.ResourceGroupName -Name $saName).Value[0]
+
+    # create new storage context
+    $context = New-AzureStorageContext -StorageAccountName $saName -StorageAccountKey $saKey
+    if (!$?)
+    {
+        throw "Failed to create Storage Context for Storage Account $($saName)"
+    }
+
+    # check if container already exists
+    $container = Get-FoggStorageContainer -Context $context -Name $Name
+    if ($container -ine $null)
+    {
+        return $container
+    }
+
+    # create new storage container
+    $container = New-AzureStorageContainer -Context $context -Name $Name
+    if (!$?)
+    {
+        throw "Failed to create Storage Container for Storage Account $($saName)"
+    }
+
+    return $container
 }
 
 
