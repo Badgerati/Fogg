@@ -1,6 +1,64 @@
 <#
     .SYNOPSIS
-        Fogg is an Azure VM deployer
+        Fogg is a PowerShell tool to aide and simplify the creation, deployment and provisioning of infrastructure in Azure
+
+    .DESCRIPTION
+        Fogg is a PowerShell tool to aide and simplify the creation, deployment and provisioning of infrastructure in Azur
+
+    .PARAMETER ResourceGroupName
+        The name of the Resource Group you wish to create or use in Azure
+
+    .PARAMETER Location
+        The location of where the VMs, etc. will be deployed (ie, westeurope)
+
+    .PARAMETER ConfigPath
+        The path to your Fogg configuration file, can be absolute or relative
+        (unless absolute, paths in the ConfigPath must be relative to the ConfigPath (ie, provision scripts))
+
+    .PARAMETER FoggfilePath
+        The path to a Foggfile with verioned Fogg parameter values, can be absolute or relative
+        (unless absolute, the ConfigPath in the Foggfile must be relative to to the Foggfile)
+
+    .PARAMETER SubscriptionName
+        The name of the Subscription you are using in Azure
+
+    .PARAMETER SubscriptionCredentials
+        This is your Azure Subscription credentials, to allow Fogg to create and deploy in Azure
+
+    .PARAMETER VMCredentials
+        This is the administrator credentials that will be used to create each box. They are the credentials
+        that you would use to login to the admin account after a VM has been created (ie, to remote onto a VM)
+
+    .PARAMETER SubnetAddresses
+        This is a map of subnet addresses for VMs (ie, @{'web'='10.1.0.0/24'})
+        The name is the tag name of the VM, and there must be a subnet for each VM section in you config
+
+        You can pass more subnets than you have VMs (for linking/firewalling to existing ones), as these can
+        be referenced in firewalls as "@{subnet|jump}" for example if you pass "@{'jump'='10.1.99.0/24'}"
+
+    .PARAMETER VNetAddress
+        Used when creating a new Virtual Network, this is the address prefix (ie, 10.1.0.0/16)
+
+    .PARAMETER VNetResourceGroupName
+        Paired with VNetName, if passed will use an existing Virtual Network in Azure
+
+    .PARAMETER VNetName
+        Paired with VNetResourceGroupName, if passed will use an existing Virtual Network in Azure
+
+    .PARAMETER Version
+        Switch parameter, if passed will display the current version of Fogg and end execution
+
+    .EXAMPLE
+        fogg -SubscriptionName "AzureSub" -ResourceGroupName "basic-rg" -Location "westeurope" -VNetAddress "10.1.0.0/16" -SubnetAddresses @{"vm"="10.1.0.0/24"} -ConfigPath "./path/to/config.json"
+        Passing the parameters if you don't use a Foggfile
+
+    .EXAMPLE
+        fogg
+        If the Foggfile is at the root of the repo where you're running Fogg
+
+    .EXAMPLE
+        fogg -FoggfilePath "./path/to/Foggfile"
+        If the Foggfile is not at the root, and a path needs to be passed
 #>
 param (
     [string]
