@@ -109,7 +109,7 @@ Import-Module "$($root)\Modules\FoggAzure.psm1" -ErrorAction Stop
 
 
 # Output the version
-Write-Host "Fogg v0.2.0a" -ForegroundColor Cyan
+Write-Host 'Fogg v$version$' -ForegroundColor Cyan
 if ($Version)
 {
     return

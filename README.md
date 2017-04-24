@@ -1,4 +1,4 @@
-# Fogg v0.2.0
+# Fogg
 
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](https://raw.githubusercontent.com/Badgerati/Fogg/master/LICENSE.txt)
 [![MIT licensed](https://img.shields.io/badge/version-Alpha-red.svg)](https://github.com/Badgerati/Fogg)
