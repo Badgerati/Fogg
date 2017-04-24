@@ -310,7 +310,7 @@ function Test-Provisioners
             }
 
             $file = Resolve-Path (Join-Path $FoggObject.ConfigParent $Matches['file'])
-            if (!(Test-Path $file))
+            if (!(Test-PathExists $file))
             {
                 throw "Provision script for $($type) does not exist: $($file)"
             }
@@ -374,11 +374,14 @@ function Test-PowerShellVersion
 function Remove-RGTag
 {
     param (
-        [Parameter(Mandatory=$true)]
-        [ValidateNotNullOrEmpty()]
         [string]
         $Value
     )
+
+    if (Test-Empty $Value)
+    {
+        return $Value
+    }
 
     return ($Value -ireplace '-rg', '')
 }
@@ -575,7 +578,17 @@ function New-FoggObject
         if (Test-Empty $ConfigPath)
         {
             # this should be relative to the Foggfile
-            $ConfigPath = Resolve-Path (Join-Path (Split-Path -Parent -Path $FoggfilePath) $file.ConfigPath)
+            $tmp = (Join-Path (Split-Path -Parent -Path $FoggfilePath) $file.ConfigPath)
+            $ConfigPath = Resolve-Path $tmp -ErrorAction Ignore
+            if (!(Test-PathExists $ConfigPath))
+            {
+                if (!(Test-Empty $ConfigPath))
+                {
+                    $tmp = $ConfigPath
+                }
+
+                throw "Configuration path supplied does not exist: $(($tmp -replace '\.\.\\') -replace '\.\\')"
+            }
         }
 
         if (Test-Empty $SubnetAddressMap)
@@ -658,5 +671,9 @@ function Test-FoggObjectParameters
     if (Test-Empty $FoggObject.SubscriptionName)
     {
         $FoggObject.SubscriptionName = Read-Host -Prompt 'SubscriptionName'
+        if (Test-Empty $FoggObject.SubscriptionName)
+        {
+            throw 'No Azure subscription name has been supplied'
+        }
     }
 }
