@@ -5,6 +5,8 @@
 
 Fogg is a PowerShell tool to aide and simplify the creation, deployment and provisioning of infrastructure (IaaS) in Azure using Azure Resource Manager (does not support Classic).
 
+Fogg is still in Alpha, so there may be bugs or changes to prior features that break previous releases (though I will try to keep that to a minimum). Any bugs/feature requests should be raised in the GitHub issues tab.
+
 ## Requirements
 
 * PowerShell v4.0+
@@ -86,7 +88,9 @@ To create a Foggfile of the above, stored at the root of the repo (can be else w
 }
 ```
 
-Note that the above leaves out the `SubscriptionName`, this is because the Foggfile at the root of a repo will mostly be used by your devs/QAs/etc. to spin-up the infrastructure in their MSDN Azure subscriptions. If the subscription name is the same for all, then you could add in the `"SubscriptionName": "<name>"` to the Foggfile.
+Note that the above leaves out the `SubscriptionName`, this is because the Foggfile at the root of a repo will mostly be used by your devs/QAs/etc. to spin-up the infrastructure in their MSDN Azure subscriptions. If the subscription name is the same for all, then you could add in the `"SubscriptionName": "<name>"` to the Foggfile; if left out Fogg will request it when called.
+
+Also note that if the path used for the `ConfigPath` is relative, it must be relative to the Foggfile's location.
 
 If you are using a Foggfile at the root, then the call to use Fogg would simply be:
 
@@ -193,6 +197,8 @@ Now, while this does seem a little big at first, it's actually fairly simple; so
 First, we'll look at the `provisioners` section. This section is a key-value map of paths to PowerShell Desired State Configuration or Custom scripts. If a path is invalid Fogg will fail. The names (`remoting` and `web`) are used in the `vms` section to specify which provisioning scripts need to be run for provisioning.
 
 For example, the provisioner of `"web": "dsc: .\\WebServer.ps1"` is called `web`, will provision via `PowerShell DSC` using the `.\WebServer.ps1` script. Other than `dsc` you can also use a `custom` provisioner type which will allow you to use your own PS1/BAT scripts.
+
+If the paths specified are relative, then they are required to be relative to the configuration file's location.
 
 ### OS
 

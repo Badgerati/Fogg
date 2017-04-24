@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Do not remove this test for UTF-8: if “Ω” doesn’t appear as greek uppercase omega letter enclosed in quotation marks, you should use an editor that supports UTF-8, not this one. -->
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>fogg</id>
+    <title>Fogg</title>
+    <version>$version$</version>
+    <authors>Badgerati</authors>
+    <owners>Badgerati</owners>
+    <summary>PowerShell tool to aide and simplify the creation, deployment and provisioning of infrastructure in Azure</summary>
+    <description>
+Fogg is a PowerShell v4.0+ tool to aide and simplify the creation, deployment and provisioning of infrastructure (IaaS) in Azure using Azure Resource Manager (does not support Classic).
+
+### Features
+
+* Deploy and provision Virtual Machines in Azure
+* Provision using PowerShell Desired State Configuration (DSC)
+* Provision using Custom Scripts
+* Deploy Resource Groups, Storage Accounts, Virtual Networks, Subnets, and Network Security Groups with firewall rules
+* Create load balanced VMs in an Availability Set
+* Create public IP addresses for your VMs/Load Balancer
+    </description>
+    <projectUrl>https://github.com/Badgerati/Fogg</projectUrl>
+    <packageSourceUrl>https://github.com/Badgerati/Fogg/tree/master/nuget-packages</packageSourceUrl>
+    <docsUrl>https://github.com/Badgerati/Fogg/wiki</docsUrl>
+    <bugTrackerUrl>https://github.com/Badgerati/Fogg/issues</bugTrackerUrl>
+    <tags>fogg powershell azure automation deployment provision infrastructure arm devops vm subnet firewall vnet json windows</tags>
+    <copyright>Copyright 2017</copyright>
+    <licenseUrl>https://github.com/Badgerati/Fogg/blob/master/LICENSE.txt</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <iconUrl>https://cdn.rawgit.com/Badgerati/Fogg/master/images/icon.png</iconUrl>
+    <releaseNotes>https://github.com/Badgerati/Fogg/releases</releaseNotes>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>
