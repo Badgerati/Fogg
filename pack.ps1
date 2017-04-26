@@ -1,5 +1,17 @@
 Write-Host 'Packing Fogg'
 
+$build_version = $env:BUILD_VERSION
+if ([string]::IsNullOrWhiteSpace($build_version))
+{
+    $build_version = '1.0.0'
+}
+
+$workspace = $env:WORKSPACE
+if ([string]::IsNullOrWhiteSpace($workspace))
+{
+    $workspace = $pwd
+}
+
 # == VERSION =======================================================
 
 Write-Host 'Setting version'
@@ -7,7 +19,7 @@ Push-Location './src'
 
 try
 {
-    (Get-Content 'Fogg.ps1') | ForEach-Object { $_ -replace '\$version\$', $env:BUILD_VERSION } | Set-Content 'Fogg.ps1'
+    (Get-Content 'Fogg.ps1') | ForEach-Object { $_ -replace '\$version\$', $build_version } | Set-Content 'Fogg.ps1'
     Write-Host 'Version set'
 }
 finally
@@ -29,11 +41,11 @@ Write-Host "Scripts copied successfully"
 
 Write-Host "Zipping package"
 Push-Location "C:\Program Files\7-Zip\"
-$zipName = "$env:BUILD_VERSION-Binaries.zip"
+$zipName = "$build_version-Binaries.zip"
 
 try
 {
-    .\7z.exe -tzip a "$env:WORKSPACE\$zipName" "$env:WORKSPACE\Package\*"
+    .\7z.exe -tzip a "$workspace\$zipName" "$workspace\Package\*"
     Write-Host "Package zipped successfully"
 }
 finally
@@ -44,7 +56,7 @@ finally
 # == CHOCO =======================================================
 
 Write-Host "Building Package Checksum"
-Push-Location "$env:WORKSPACE"
+Push-Location "$workspace"
 
 try
 {
@@ -61,9 +73,9 @@ Push-Location "./nuget-packages/choco"
 
 try
 {
-    (Get-Content 'fogg.nuspec') | ForEach-Object { $_ -replace '\$version\$', $env:BUILD_VERSION } | Set-Content 'fogg.nuspec'
+    (Get-Content 'fogg.nuspec') | ForEach-Object { $_ -replace '\$version\$', $build_version } | Set-Content 'fogg.nuspec'
     cd tools
-    (Get-Content 'ChocolateyInstall.ps1') | ForEach-Object { $_ -replace '\$version\$', $env:BUILD_VERSION } | Set-Content 'ChocolateyInstall.ps1'
+    (Get-Content 'ChocolateyInstall.ps1') | ForEach-Object { $_ -replace '\$version\$', $build_version } | Set-Content 'ChocolateyInstall.ps1'
     (Get-Content 'Chocolateyinstall.ps1') | ForEach-Object { $_ -replace '\$checksum\$', $checksum } | Set-Content 'Chocolateyinstall.ps1'
     cd ..
     choco pack

@@ -1,8 +1,5 @@
 # Uninstall
-$path = Join-Path $env:chocolateyPackageFolder 'tools/src'
-
-Write-Host 'Removing Fogg from environment Path'
-if (($env:Path.Contains($path)))
+function Remove-Fogg($path)
 {
     $current = (Get-EnvironmentVariable -Name 'PATH' -Scope 'Machine')
     $current = $current.Replace($path, [string]::Empty)
@@ -10,4 +7,15 @@ if (($env:Path.Contains($path)))
     $env:PATH = (Get-EnvironmentVariable -Name 'PATH' -Scope 'Machine') + ';' + (Get-EnvironmentVariable -Name 'PATH' -Scope 'User')
 }
 
-refreshenv
+$path = Join-Path $env:chocolateyPackageFolder 'tools/src'
+$pathSemi = Join-Path $path ';'
+
+Write-Host 'Removing Fogg from environment Path'
+if (($env:Path.Contains($pathSemi)))
+{
+    Remove-Fogg $pathSemi
+}
+elseif (($env:Path.Contains($path)))
+{
+    Remove-Fogg $path
+}

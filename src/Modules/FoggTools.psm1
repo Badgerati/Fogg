@@ -510,6 +510,15 @@ function New-FoggObject
             throw "Path to Foggfile does not exist: $($FoggfilePath)"
         }
 
+        if ((Get-Item $FoggfilePath) -is [System.IO.DirectoryInfo])
+        {
+            $FoggfilePath = Join-Path $FoggfilePath 'Foggfile'
+            if (!(Test-Path $FoggfilePath))
+            {
+                throw "Path to Foggfile does not exist: $($FoggfilePath)"
+            }
+        }
+
         $useFoggfile = $true
     }
 

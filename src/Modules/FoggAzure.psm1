@@ -365,9 +365,16 @@ function Set-FoggDscConfig
         -ArchiveStorageAccountName $StorageAccount.StorageAccountName -ConfigurationName $func -Version "2.23" -AutoUpdate `
         -Location $FoggObject.Location -Force -ErrorAction SilentlyContinue
 
-    if (!$?)
+    if ($output -eq $null -or !$output.IsSuccessStatusCode)
     {
-        throw "Failed to install the DSC Extension on VM $($VMName), and run script $($script):`n$($output)"
+        $err = 'An unexpected error occurred, this usually happens when Internet connectivity is lost'
+
+        if ($output -ne $null)
+        {
+            $err = $output.ReasonPhrase
+        }
+
+        throw "Failed to install the DSC Extension on VM $($VMName), and run script $($script):`n$($err)"
     }
 
     Write-Success "DSC Extension installed and script run`n"
@@ -412,9 +419,16 @@ function Set-FoggCustomConfig
         -Location $FoggObject.Location -StorageAccountName $saName -StorageAccountKey $saKey -ContainerName $ContainerName `
         -FileName $fileName -Name $fileNameNoExt -Run $fileName -ErrorAction SilentlyContinue
 
-    if (!$?)
+    if ($output -eq $null -or !$output.IsSuccessStatusCode)
     {
-        throw "Failed to install the Custom Script Extension on VM $($VMName), and run script $($fileName):`n$($output)"
+        $err = 'An unexpected error occurred, this usually happens when Internet connectivity is lost'
+
+        if ($output -ne $null)
+        {
+            $err = $output.ReasonPhrase
+        }
+
+        throw "Failed to install the Custom Script Extension on VM $($VMName), and run script $($fileName):`n$($err)"
     }
 
     Write-Success "Custom Script Extension installed and script run`n"
