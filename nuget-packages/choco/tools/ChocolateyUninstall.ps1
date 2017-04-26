@@ -8,7 +8,7 @@ function Remove-Fogg($path)
 }
 
 $path = Join-Path $env:chocolateyPackageFolder 'tools/src'
-$pathSemi = Join-Path $path ';'
+$pathSemi = "$($path);"
 
 Write-Host 'Removing Fogg from environment Path'
 if (($env:Path.Contains($pathSemi)))

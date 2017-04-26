@@ -19,4 +19,4 @@ Vagrant.configure("2") do |config|
 end
 
 # nowput a copy of the Fogg nupkg onto the VM and run (from the path you put the nupkg):
-#> choco install fogg -fdy -s .
+#> choco install fogg -fy -s .
