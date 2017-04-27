@@ -16,13 +16,17 @@ Fogg is still in Beta, so there may be bugs or changes to prior features that br
 ## Features
 
 * Deploy and provision Virtual Machines in Azure
-* Provision using PowerShell Desired State Configuration (DSC)
-* Provision using Custom Scripts
-* Deploy Resource Groups
-* Deploy Storage Accounts
-* Deploy Virtual Networks, Subnets, and Network Security Groups with firewall rules
-* Create load balanced VMs in an Availability Set
-* Create public IP addresses for your VMs/Load Balancer
+* Provision using:
+  * PowerShell Desired State Configuration (DSC)
+  * Custom Scripts (ps1/bat)
+* Deploy:
+  * Resource Groups
+  * Storage Accounts
+  * Virtual Networks
+  * Subnets
+  * Network Security Groups with firewall rules
+  * Availability Sets and Load Balancers
+  * Public IP addresses for your VMs/Load Balancers
 
 ## Description
 
@@ -215,3 +219,16 @@ This section is the same as the one from spinning up one VM type, though now we 
 Firstly, is the `web` type VMs (identified by the mandatory tag for each VM). Here you'll notice that this VM has a `count` of `2`, and a `port` of `80`. Remembering from above, if you give a VM a count of > 1, then Fogg will automatically create that many VMs as well as placing them into an Availability Set and Load Balancer. The Load Balancer is where the `port` comes in, as this is what port the balancer will listen on and map to for the backend VMs. So in this case, the `web` type VM section will create 2 load balanced VMs, provision them with `remoting` and `web` DSC scripts. It will set the load balancer to to port 80, and the firewall rule will publically expose port 80.
 
 Finally is the `file` type VM. You'll notice that this creates just one of this VM type, and provisions it with the `remoting` DSC. The VM also has a public IP but this is just for remoting onto (the global firewall inbound rule). The local firewall rule here will only allow anything from the `web` VM type's subnet (`@{subnet|web}` is replaced with the `web` subnet address specified in the `SubnetAddresses` from the command line or Foggfile).
+
+## TODO
+
+* Inbuild DSC scripts could be useful (for things like remoting, web-server install etc)
+* SQL always-on clusters
+* ability to use an array in a Foggfile for multiple builds at once
+* VPN gateways
+* Web Apps?
+* Possibilty of Chef as a provisioner
+
+## Bugs and Feature Requests
+
+For any bugs you may find or features you wish to request, please create an [issue](https://github.com/Badgerati/Fogg/issues "Issues") in GitHub.
