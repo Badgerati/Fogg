@@ -14,17 +14,23 @@ Fogg is a PowerShell v4.0+ tool to aide and simplify the creation, deployment an
 ### Features
 
 * Deploy and provision Virtual Machines in Azure
-* Provision using PowerShell Desired State Configuration (DSC)
-* Provision using Custom Scripts
-* Deploy Resource Groups, Storage Accounts, Virtual Networks, Subnets, and Network Security Groups with firewall rules
-* Create load balanced VMs in an Availability Set
-* Create public IP addresses for your VMs/Load Balancer
+* Provision using:
+  * PowerShell Desired State Configuration (DSC)
+  * Custom Scripts (ps1/bat)
+* Deploy:
+  * Resource Groups
+  * Storage Accounts
+  * Virtual Networks
+  * Subnets
+  * Network Security Groups with firewall rules
+  * Availability Sets and Load Balancers
+  * Public IP addresses for your VMs/Load Balancers
     </description>
     <projectUrl>https://github.com/Badgerati/Fogg</projectUrl>
     <packageSourceUrl>https://github.com/Badgerati/Fogg/tree/master/nuget-packages</packageSourceUrl>
     <docsUrl>https://github.com/Badgerati/Fogg/wiki</docsUrl>
     <bugTrackerUrl>https://github.com/Badgerati/Fogg/issues</bugTrackerUrl>
-    <tags>fogg powershell azure automation deployment provision infrastructure arm devops vm subnet firewall vnet json windows</tags>
+    <tags>fogg powershell azure automation deployment provision infrastructure arm devops vm subnet firewall vnet json windows iaas cloud</tags>
     <copyright>Copyright 2017</copyright>
     <licenseUrl>https://github.com/Badgerati/Fogg/blob/master/LICENSE.txt</licenseUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
