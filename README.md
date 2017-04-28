@@ -7,6 +7,14 @@ Fogg is a PowerShell tool to aide and simplify the creation, deployment and prov
 
 Fogg is still in Beta, so there may be bugs or changes to prior features that break previous releases (though I will try to keep that to a minimum). Any bugs/feature requests should be raised in the GitHub issues tab.
 
+## Installing
+
+[Fogg](https://chocolatey.org/packages/fogg) can be installed via Chocolatey:
+
+```bash
+choco install fogg
+```
+
 ## Requirements
 
 * PowerShell v4.0+
