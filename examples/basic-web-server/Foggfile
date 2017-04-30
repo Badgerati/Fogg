@@ -1,10 +1,14 @@
 {
-    "ResourceGroupName": "basic-rg",
     "SubscriptionName": "<SUB_NAME_HERE>",
-    "Location": "westeurope",
-    "ConfigPath": ".\\config.json",
-    "VNetAddress": "10.1.0.0/16",
-    "SubnetAddresses": {
-        "web": "10.1.0.0/24"
-    }
+    "Groups": [
+        {
+            "ResourceGroupName": "basic-rg",
+            "Location": "westeurope",
+            "ConfigPath": ".\\config.json",
+            "VNetAddress": "10.1.0.0/16",
+            "SubnetAddresses": {
+                "web": "10.1.0.0/24"
+            }
+        }
+    ]
 }

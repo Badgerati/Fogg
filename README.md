@@ -24,6 +24,7 @@ choco install fogg
 ## Features
 
 * Deploy and provision Virtual Machines in Azure
+* Spin-up mulitple Resource Groups at once using a Foggfile
 * Provision using:
   * PowerShell Desired State Configuration (DSC)
   * Custom Scripts (ps1/bat)
@@ -90,13 +91,17 @@ To create a Foggfile of the above, stored at the root of the repo (can be else w
 
 ```json
 {
-    "ResourceGroupName": "basic-rg",
-    "Location": "westeurope",
-    "ConfigPath": "<path_to_above_config>",
-    "VNetAddress": "10.1.0.0/16",
-    "SubnetAddresses": {
-        "vm": "10.1.0.0/24"
-    }
+    "Groups": [
+        {
+            "ResourceGroupName": "basic-rg",
+            "Location": "westeurope",
+            "ConfigPath": "<path_to_above_config>",
+            "VNetAddress": "10.1.0.0/16",
+            "SubnetAddresses": {
+                "vm": "10.1.0.0/24"
+            }
+        }
+    ]
 }
 ```
 
@@ -109,6 +114,8 @@ If you are using a Foggfile at the root, then the call to use Fogg would simply 
 ```powershell
 fogg
 ```
+
+If you pass in the parameters on the CLI while using a Foggfile, the parameters from the CLI have higher precidence and will override the Foggfile's values. (ie: passing `-SubscriptionName` will override the `"SubscriptionName"` in the Foggfile)
 
 ## Advanced Example
 
@@ -191,14 +198,18 @@ The Foggfile could be the following:
 
 ```json
 {
-    "ResourceGroupName": "adv-rg",
-    "Location": "westeurope",
-    "ConfigPath": "<path_to_above_config>",
-    "VNetAddress": "10.2.0.0/16",
-    "SubnetAddresses": {
-        "web": "10.2.0.0/24",
-        "file": "10.2.1.0/24"
-    }
+    "Groups": [
+        {
+            "ResourceGroupName": "adv-rg",
+            "Location": "westeurope",
+            "ConfigPath": "<path_to_above_config>",
+            "VNetAddress": "10.2.0.0/16",
+            "SubnetAddresses": {
+                "web": "10.2.0.0/24",
+                "file": "10.2.1.0/24"
+            }
+        }
+    ]
 }
 ```
 
