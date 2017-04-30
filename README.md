@@ -243,7 +243,6 @@ Finally is the `file` type VM. You'll notice that this creates just one of this 
 
 * Inbuilt DSC scripts could be useful (for things like remoting, web-server install etc)
 * SQL always-on clusters
-* ability to use an array in a Foggfile for multiple builds at once
 * VPN gateways
 * Web Apps?
 * Possibilty of Chef as a provisioner
