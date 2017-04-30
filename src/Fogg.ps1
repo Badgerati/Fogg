@@ -11,13 +11,13 @@
     .PARAMETER Location
         The location of where the VMs, etc. will be deployed (ie, westeurope)
 
-    .PARAMETER ConfigPath
-        The path to your Fogg configuration file, can be absolute or relative
-        (unless absolute, paths in the ConfigPath must be relative to the ConfigPath (ie, provision scripts))
+    .PARAMETER TemplatePath
+        The path to your Fogg template file, can be absolute or relative
+        (unless absolute, paths in the file must be relative to the TemplatePath (ie, provision scripts))
 
     .PARAMETER FoggfilePath
         The path to a Foggfile with verioned Fogg parameter values, can be absolute or relative
-        (unless absolute, the ConfigPath in the Foggfile must be relative to to the Foggfile)
+        (unless absolute, the TemplatePath in the Foggfile must be relative to to the Foggfile)
 
     .PARAMETER SubscriptionName
         The name of the Subscription you are using in Azure
@@ -31,7 +31,7 @@
 
     .PARAMETER SubnetAddresses
         This is a map of subnet addresses for VMs (ie, @{'web'='10.1.0.0/24'})
-        The name is the tag name of the VM, and there must be a subnet for each VM section in you config
+        The name is the tag name of the VM, and there must be a subnet for each VM section in you template
 
         You can pass more subnets than you have VMs (for linking/firewalling to existing ones), as these can
         be referenced in firewalls as "@{subnet|jump}" for example if you pass "@{'jump'='10.1.99.0/24'}"
@@ -49,7 +49,7 @@
         Switch parameter, if passed will display the current version of Fogg and end execution
 
     .EXAMPLE
-        fogg -SubscriptionName "AzureSub" -ResourceGroupName "basic-rg" -Location "westeurope" -VNetAddress "10.1.0.0/16" -SubnetAddresses @{"vm"="10.1.0.0/24"} -ConfigPath "./path/to/config.json"
+        fogg -SubscriptionName "AzureSub" -ResourceGroupName "basic-rg" -Location "westeurope" -VNetAddress "10.1.0.0/16" -SubnetAddresses @{"vm"="10.1.0.0/24"} -TemplatePath "./path/to/template.json"
         Passing the parameters if you don't use a Foggfile
 
     .EXAMPLE
@@ -73,7 +73,7 @@ param (
     $SubnetAddresses,
 
     [string]
-    $ConfigPath,
+    $TemplatePath,
 
     [string]
     $FoggfilePath,
@@ -124,7 +124,7 @@ if (!(Test-PowerShellVersion 4))
 
 # create new fogg object from parameters and foggfile
 $FoggObjects = New-FoggObject -ResourceGroupName $ResourceGroupName -Location $Location -SubscriptionName $SubscriptionName `
-    -SubnetAddressMap $SubnetAddresses -ConfigPath $ConfigPath -FoggfilePath $FoggfilePath -SubscriptionCredentials $SubscriptionCredentials `
+    -SubnetAddressMap $SubnetAddresses -TemplatePath $TemplatePath -FoggfilePath $FoggfilePath -SubscriptionCredentials $SubscriptionCredentials `
     -VMCredentials $VMCredentials -VNetAddress $VNetAddress -VNetResourceGroupName $VNetResourceGroupName -VNetName $VNetName
 
 # Start timer
@@ -143,14 +143,14 @@ try
     # loop through each group within the FoggObject
     foreach ($FoggObject in $FoggObjects.Groups)
     {
-        # Parse the contents of the config file
-        $config = Get-JSONContent $FoggObject.ConfigPath
+        # Parse the contents of the template file
+        $template = Get-JSONContent $FoggObject.TemplatePath
 
         # Check that the Provisioner script paths exist
-        Test-Provisioners -FoggObject $FoggObject -Paths $config.provisioners
+        Test-Provisioners -FoggObject $FoggObject -Paths $template.provisioners
 
-        # Check the VM section of the config
-        $vmCount = Test-VMs -VMs $config.vms -FoggObject $FoggObject -OS $config.os
+        # Check the VM section of the template
+        $vmCount = Test-VMs -VMs $template.vms -FoggObject $FoggObject -OS $template.os
 
 
         # If we're using an existng virtual network, ensure it actually exists
@@ -170,7 +170,7 @@ try
 
 
             # Create the storage account
-            $usePremiumStorage = [bool]$config.usePremiumStorage
+            $usePremiumStorage = [bool]$template.usePremiumStorage
             $sa = New-FoggStorageAccount -FoggObject $FoggObject -Premium:$usePremiumStorage
 
 
@@ -190,7 +190,7 @@ try
 
 
             # Create virtual subnets and security groups
-            foreach ($vm in $config.vms)
+            foreach ($vm in $template.vms)
             {
                 $tag = $vm.tag
                 $vmname = "$($FoggObject.ShortRGName)-$($tag)"
@@ -199,7 +199,7 @@ try
 
                 # Create network security group inbound/outbound rules
                 $rules = New-FirewallRules -Firewall $vm.firewall -Subnets $FoggObject.SubnetAddressMap -CurrentTag $tag
-                $rules = New-FirewallRules -Firewall $config.firewall -Subnets $FoggObject.SubnetAddressMap -CurrentTag $tag -Rules $rules
+                $rules = New-FirewallRules -Firewall $template.firewall -Subnets $FoggObject.SubnetAddressMap -CurrentTag $tag -Rules $rules
 
                 # Create network security group rules, and bind to VM
                 $nsg = New-FoggNetworkSecurityGroup -FoggObject $FoggObject -Name "$($vmname)-nsg" -Rules $rules
@@ -212,7 +212,7 @@ try
 
 
             # loop through each VM, building a deploying each one
-            foreach ($vm in $config.vms)
+            foreach ($vm in $template.vms)
             {
                 $tag = $vm.tag
                 $vmname = "$($FoggObject.ShortRGName)-$($tag)"
@@ -244,7 +244,7 @@ try
 
                 1..($vm.count) | ForEach-Object {
                     # does the VM have OS settings, or use global?
-                    $os = $config.os
+                    $os = $template.os
                     if ($vm.os -ne $null)
                     {
                         $os = $vm.os

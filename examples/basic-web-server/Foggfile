@@ -4,7 +4,7 @@
         {
             "ResourceGroupName": "basic-rg",
             "Location": "westeurope",
-            "ConfigPath": ".\\config.json",
+            "TemplatePath": ".\\template.json",
             "VNetAddress": "10.1.0.0/16",
             "SubnetAddresses": {
                 "web": "10.1.0.0/24"

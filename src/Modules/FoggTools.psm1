@@ -146,13 +146,13 @@ function Test-VMs
         $OS
     )
 
-    Write-Information "Verifying VM config sections"
+    Write-Information "Verifying VM template sections"
 
     # get the count of VM types to create
     $vmCount = ($VMs | Measure-Object).Count
     if ($vmCount -eq 0)
     {
-        throw 'No list of VMs was found in Fogg Azure configuration file'
+        throw 'No list of VMs was found in Fogg Azure template file'
     }
 
     # is there an OS section?
@@ -166,7 +166,7 @@ function Test-VMs
         # ensure each VM has a tag
         if (Test-Empty $tag)
         {
-            throw 'All VM sections in Fogg Azure configuration file require a tag name'
+            throw 'All VM sections in Fogg Azure template file require a tag name'
         }
 
         # ensure that each VM section has a subnet map
@@ -324,7 +324,7 @@ function Test-Provisioners
                 throw "Invalid provisioner type found: $($type)"
             }
 
-            $file = Resolve-Path (Join-Path $FoggObject.ConfigParent $Matches['file'])
+            $file = Resolve-Path (Join-Path $FoggObject.TemplateParent $Matches['file'])
             if (!(Test-PathExists $file))
             {
                 throw "Provision script for $($type) does not exist: $($file)"
@@ -492,7 +492,7 @@ function New-FoggObject
         $SubnetAddressMap,
 
         [string]
-        $ConfigPath,
+        $TemplatePath,
 
         [string]
         $FoggfilePath,
@@ -546,7 +546,7 @@ function New-FoggObject
         $VNetResourceGroupName,
         $VNetName,
         $SubnetAddressMap,
-        $ConfigPath
+        $TemplatePath
     )
 
     if (!$useFoggfile -and (Test-ArrayEmpty $foggParams))
@@ -571,10 +571,10 @@ function New-FoggObject
     # if we aren't using a Foggfile, set params directly
     if (!$useFoggfile)
     {
-        Write-Information 'Loading configuration from CLI'
+        Write-Information 'Loading template configuration from CLI'
 
         $group = New-FoggGroupObject -ResourceGroupName $ResourceGroupName -Location $Location `
-            -SubnetAddressMap $SubnetAddresses -ConfigPath $ConfigPath -FoggfilePath $FoggfilePath `
+            -SubnetAddressMap $SubnetAddresses -TemplatePath $TemplatePath -FoggfilePath $FoggfilePath `
             -VNetAddress $VNetAddress -VNetResourceGroupName $VNetResourceGroupName -VNetName $VNetName
 
         $foggObj.Groups += $group
@@ -583,7 +583,7 @@ function New-FoggObject
     # else, we're using a Foggfile, set params and groups appropriately
     elseif ($useFoggfile)
     {
-        Write-Information 'Loading configuration from Foggfile'
+        Write-Information 'Loading template from Foggfile'
 
         # load Foggfile
         $file = Get-JSONContent $FoggfilePath
@@ -603,7 +603,7 @@ function New-FoggObject
         # load the groups
         $file.Groups | ForEach-Object {
             $group = New-FoggGroupObject -ResourceGroupName $ResourceGroupName -Location $Location `
-                -SubnetAddressMap $SubnetAddresses -ConfigPath $ConfigPath -FoggfilePath $FoggfilePath `
+                -SubnetAddressMap $SubnetAddresses -TemplatePath $TemplatePath -FoggfilePath $FoggfilePath `
                 -VNetAddress $VNetAddress -VNetResourceGroupName $VNetResourceGroupName `
                 -VNetName $VNetName -FoggParameters $_
 
@@ -637,7 +637,7 @@ function New-FoggGroupObject
         $SubnetAddressMap,
 
         [string]
-        $ConfigPath,
+        $TemplatePath,
 
         [string]
         $FoggfilePath,
@@ -682,19 +682,19 @@ function New-FoggGroupObject
             $VNetName = $FoggParameters.VNetName
         }
 
-        if (Test-Empty $ConfigPath)
+        if (Test-Empty $TemplatePath)
         {
             # this should be relative to the Foggfile
-            $tmp = (Join-Path (Split-Path -Parent -Path $FoggfilePath) $FoggParameters.ConfigPath)
-            $ConfigPath = Resolve-Path $tmp -ErrorAction Ignore
-            if (!(Test-PathExists $ConfigPath))
+            $tmp = (Join-Path (Split-Path -Parent -Path $FoggfilePath) $FoggParameters.TemplatePath)
+            $TemplatePath = Resolve-Path $tmp -ErrorAction Ignore
+            if (!(Test-PathExists $TemplatePath))
             {
-                if (!(Test-Empty $ConfigPath))
+                if (!(Test-Empty $TemplatePath))
                 {
-                    $tmp = $ConfigPath
+                    $tmp = $TemplatePath
                 }
 
-                throw "Configuration path supplied does not exist: $(($tmp -replace '\.\.\\') -replace '\.\\')"
+                throw "Template path supplied does not exist: $(($tmp -replace '\.\.\\') -replace '\.\\')"
             }
         }
 
@@ -714,8 +714,8 @@ function New-FoggGroupObject
     $group.VNetName = $VNetName
     $group.UseExistingVNet = (!(Test-Empty $VNetResourceGroupName) -and !(Test-Empty $VNetName))
     $group.SubnetAddressMap = $SubnetAddressMap
-    $group.ConfigPath = $ConfigPath
-    $group.ConfigParent = (Split-Path -Parent -Path $ConfigPath)
+    $group.TemplatePath = $TemplatePath
+    $group.TemplateParent = (Split-Path -Parent -Path $TemplatePath)
     $group.HasProvisionScripts = $false
     $group.ProvisionMap = @{'dsc' = @{}; 'custom' = @{}}
     $group.NsgMap = @{}
@@ -765,9 +765,9 @@ function Test-FoggObjectParameters
         throw 'No address prefixes for virtual subnets supplied'
     }
 
-    # if the config path doesn't exist, fail
-    if (!(Test-Path $FoggObject.ConfigPath))
+    # if the template path doesn't exist, fail
+    if (!(Test-Path $FoggObject.TemplatePath))
     {
-        throw "Configuration path supplied does not exist: $($FoggObject.ConfigPath)"
+        throw "Template path supplied does not exist: $($FoggObject.TemplatePath)"
     }
 }

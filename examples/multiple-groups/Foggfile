@@ -4,7 +4,7 @@
         {
             "ResourceGroupName": "multi1-rg",
             "Location": "westeurope",
-            "ConfigPath": ".\\jump-config.json",
+            "TemplatePath": ".\\jump-template.json",
             "VNetAddress": "10.3.0.0/16",
             "SubnetAddresses": {
                 "jump": "10.3.0.0/24"
@@ -13,7 +13,7 @@
         {
             "ResourceGroupName": "multi2-rg",
             "Location": "westeurope",
-            "ConfigPath": ".\\web-config.json",
+            "TemplatePath": ".\\web-template.json",
             "VNetResourceGroupName": "multi1-rg",
             "VNetName": "multi1-vnet",
             "SubnetAddresses": {
