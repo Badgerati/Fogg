@@ -24,6 +24,7 @@ choco install fogg
 ## Features
 
 * Deploy and provision Virtual Machines in Azure
+* Spin-up mulitple Resource Groups at once using a Foggfile
 * Provision using:
   * PowerShell Desired State Configuration (DSC)
   * Custom Scripts (ps1/bat)
@@ -40,13 +41,13 @@ choco install fogg
 
 Fogg is a PowerShell tool to aide and simplify the creation, deployment and provisioning of infrastructure (IaaS) in Azure.
 
-Fogg uses a JSON configuration file to determine what needs to be created and deployed (but don't worry, the JSON file is far, far smaller than Azure's template file!). Furthermore, Fogg also accepts a few parameters for things like `Resource Group Name`, `Subscription Name`, `Credentials` and others. While these are be passed in via command line, I'd recommend using a `Foggfile` to version control your deployments (more later).
+Fogg uses a JSON template file to determine what needs to be created and deployed (but don't worry, the JSON file is far, far smaller than Azure's template files!). Furthermore, Fogg also accepts a few parameters for things like `Resource Group Name`, `Subscription Name`, `Credentials` and others. While these are be passed in via command line, I'd recommend using a `Foggfile` to version control your deployments (more later).
 
 ## Example
 
-This simple example will just spin-up one VM. For more examples, please see the `examples` folder in the repo.
+This simple example will just spin-up one VM. For more examples, please see the `examples` folder in the repo (a more advanced one is described first below).
 
-The first thing you will need is a configuration file, which will look as follows:
+The first thing you will need is a template file, which will look as follows:
 
 ```json
 {
@@ -67,17 +68,17 @@ The first thing you will need is a configuration file, which will look as follow
 }
 ```
 
-The above configuration will be used by Fogg to deploy one public Windows 2016 VM. You will notice the `count` parameter, changing this to 2, 3 or more will deploy 2, 3 or more of this VM type. (Note, if you deploy a VM type with a count > 1, Fogg will automatically create an availability set and load balance your VMs for you, this can be disabled via: `"useLoadBalancer": false`, though you will still get an availability set).
+The above template will be used by Fogg to deploy one public Windows 2016 VM. You will notice the `count` parameter, changing this to 2, 3 or more will deploy 2, 3 or more of this VM type. (Note, if you deploy a VM type with a count > 1, Fogg will automatically create an availability set and load balance your VMs for you, this can be disabled via: `"useLoadBalancer": false`, though you will still get an availability set).
 
-To use Fogg and the config file above, you will also need things such as an Azure Subscription, Resource Group, Virtual Network/Subnet addresses and other things. In general, the call to Fogg would look as follows:
+To use Fogg and the template file above, you will also need things such as an Azure Subscription, Resource Group, Virtual Network/Subnet addresses and other things. In general, the call to Fogg would look as follows:
 
 ```powershell
-fogg -SubscriptionName "AzureSub" -ResourceGroupName "basic-rg" -Location "westeurope" -VNetAddress "10.1.0.0/16" -SubnetAddresses @{"vm"="10.1.0.0/24"} -ConfigPath "<path_to_above_config>"
+fogg -SubscriptionName "AzureSub" -ResourceGroupName "basic-rg" -Location "westeurope" -VNetAddress "10.1.0.0/16" -SubnetAddresses @{"vm"="10.1.0.0/24"} -TemplatePath "<path_to_above_template>"
 ```
 
-This will tell Fogg to use the above config against your Subscription in Azure. Fogg will then:
+This will tell Fogg to use the above template against your Subscription in Azure. Fogg will then:
 
-* Validate the config file
+* Validate the template file
 * Request for you Azure Subscription credentials
 * Request for administrator credentials to deploy the VMs
 * Create a Resource Group called `basic-rg` in Location `westeurope`
@@ -90,19 +91,23 @@ To create a Foggfile of the above, stored at the root of the repo (can be else w
 
 ```json
 {
-    "ResourceGroupName": "basic-rg",
-    "Location": "westeurope",
-    "ConfigPath": "<path_to_above_config>",
-    "VNetAddress": "10.1.0.0/16",
-    "SubnetAddresses": {
-        "vm": "10.1.0.0/24"
-    }
+    "Groups": [
+        {
+            "ResourceGroupName": "basic-rg",
+            "Location": "westeurope",
+            "TemplatePath": "<path_to_above_template>",
+            "VNetAddress": "10.1.0.0/16",
+            "SubnetAddresses": {
+                "vm": "10.1.0.0/24"
+            }
+        }
+    ]
 }
 ```
 
 Note that the above leaves out the `SubscriptionName`, this is because the Foggfile at the root of a repo will mostly be used by your devs/QAs/etc. to spin-up the infrastructure in their MSDN Azure subscriptions. If the subscription name is the same for all, then you could add in the `"SubscriptionName": "<name>"` to the Foggfile; if left out Fogg will request it when called.
 
-Also note that if the path used for the `ConfigPath` is relative, it must be relative to the Foggfile's location.
+Also note that if the path used for the `TemplatePath` is relative, it must be relative to the Foggfile's location.
 
 If you are using a Foggfile at the root, then the call to use Fogg would simply be:
 
@@ -110,13 +115,15 @@ If you are using a Foggfile at the root, then the call to use Fogg would simply 
 fogg
 ```
 
+If you pass in the parameters on the CLI while using a Foggfile, the parameters from the CLI have higher precidence and will override the Foggfile's values. (ie: passing `-SubscriptionName` will override the `"SubscriptionName"` in the Foggfile)
+
 ## Advanced Example
 
 > (This is from the `examples/web-file-servers` examples directory)
 
 The above example gave a quick overview of using Fogg to create one VM. But normally infrastructure doesn't contain just one VM, normally you might have something like 2 load balanced web servers, and a single file server for logs/reports. Here the web VMs need to be publically accessibly on port 80 (for example), and the file server only accessible by the web servers (excluding remoting access).
 
-This includes creating firewall rules, load balancers, public IPs, and provisioning the web server with IIS/.NET. Fortunately, all possible with Fogg; let's take a look at what the config file would look like for this:
+This includes creating firewall rules, load balancers, public IPs, and provisioning the web server with IIS/.NET. Fortunately, all possible with Fogg; let's take a look at what the template file would look like for this:
 
 ```json
 {
@@ -191,14 +198,18 @@ The Foggfile could be the following:
 
 ```json
 {
-    "ResourceGroupName": "adv-rg",
-    "Location": "westeurope",
-    "ConfigPath": "<path_to_above_config>",
-    "VNetAddress": "10.2.0.0/16",
-    "SubnetAddresses": {
-        "web": "10.2.0.0/24",
-        "file": "10.2.1.0/24"
-    }
+    "Groups": [
+        {
+            "ResourceGroupName": "adv-rg",
+            "Location": "westeurope",
+            "TemplatePath": "<path_to_above_template>",
+            "VNetAddress": "10.2.0.0/16",
+            "SubnetAddresses": {
+                "web": "10.2.0.0/24",
+                "file": "10.2.1.0/24"
+            }
+        }
+    ]
 }
 ```
 
@@ -210,7 +221,7 @@ First, we'll look at the `provisioners` section. This section is a key-value map
 
 For example, the provisioner of `"web": "dsc: .\\WebServer.ps1"` is called `web`, will provision via `PowerShell DSC` using the `.\WebServer.ps1` script. Other than `dsc` you can also use a `custom` provisioner type which will allow you to use your own PS1/BAT scripts.
 
-If the paths specified are relative, then they are required to be relative to the configuration file's location.
+If the paths specified are relative, then they are required to be relative to the template file's location.
 
 ### OS
 
@@ -232,7 +243,6 @@ Finally is the `file` type VM. You'll notice that this creates just one of this 
 
 * Inbuilt DSC scripts could be useful (for things like remoting, web-server install etc)
 * SQL always-on clusters
-* ability to use an array in a Foggfile for multiple builds at once
 * VPN gateways
 * Web Apps?
 * Possibilty of Chef as a provisioner

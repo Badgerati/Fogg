@@ -11,13 +11,13 @@
     .PARAMETER Location
         The location of where the VMs, etc. will be deployed (ie, westeurope)
 
-    .PARAMETER ConfigPath
-        The path to your Fogg configuration file, can be absolute or relative
-        (unless absolute, paths in the ConfigPath must be relative to the ConfigPath (ie, provision scripts))
+    .PARAMETER TemplatePath
+        The path to your Fogg template file, can be absolute or relative
+        (unless absolute, paths in the file must be relative to the TemplatePath (ie, provision scripts))
 
     .PARAMETER FoggfilePath
         The path to a Foggfile with verioned Fogg parameter values, can be absolute or relative
-        (unless absolute, the ConfigPath in the Foggfile must be relative to to the Foggfile)
+        (unless absolute, the TemplatePath in the Foggfile must be relative to to the Foggfile)
 
     .PARAMETER SubscriptionName
         The name of the Subscription you are using in Azure
@@ -31,7 +31,7 @@
 
     .PARAMETER SubnetAddresses
         This is a map of subnet addresses for VMs (ie, @{'web'='10.1.0.0/24'})
-        The name is the tag name of the VM, and there must be a subnet for each VM section in you config
+        The name is the tag name of the VM, and there must be a subnet for each VM section in you template
 
         You can pass more subnets than you have VMs (for linking/firewalling to existing ones), as these can
         be referenced in firewalls as "@{subnet|jump}" for example if you pass "@{'jump'='10.1.99.0/24'}"
@@ -49,7 +49,7 @@
         Switch parameter, if passed will display the current version of Fogg and end execution
 
     .EXAMPLE
-        fogg -SubscriptionName "AzureSub" -ResourceGroupName "basic-rg" -Location "westeurope" -VNetAddress "10.1.0.0/16" -SubnetAddresses @{"vm"="10.1.0.0/24"} -ConfigPath "./path/to/config.json"
+        fogg -SubscriptionName "AzureSub" -ResourceGroupName "basic-rg" -Location "westeurope" -VNetAddress "10.1.0.0/16" -SubnetAddresses @{"vm"="10.1.0.0/24"} -TemplatePath "./path/to/template.json"
         Passing the parameters if you don't use a Foggfile
 
     .EXAMPLE
@@ -73,7 +73,7 @@ param (
     $SubnetAddresses,
 
     [string]
-    $ConfigPath,
+    $TemplatePath,
 
     [string]
     $FoggfilePath,
@@ -123,8 +123,8 @@ if (!(Test-PowerShellVersion 4))
 
 
 # create new fogg object from parameters and foggfile
-$FoggObject = New-FoggObject -ResourceGroupName $ResourceGroupName -Location $Location -SubscriptionName $SubscriptionName `
-    -SubnetAddressMap $SubnetAddresses -ConfigPath $ConfigPath -FoggfilePath $FoggfilePath -SubscriptionCredentials $SubscriptionCredentials `
+$FoggObjects = New-FoggObject -ResourceGroupName $ResourceGroupName -Location $Location -SubscriptionName $SubscriptionName `
+    -SubnetAddressMap $SubnetAddresses -TemplatePath $TemplatePath -FoggfilePath $FoggfilePath -SubscriptionCredentials $SubscriptionCredentials `
     -VMCredentials $VMCredentials -VNetAddress $VNetAddress -VNetResourceGroupName $VNetResourceGroupName -VNetName $VNetName
 
 # Start timer
@@ -133,172 +133,175 @@ $timer = [DateTime]::UtcNow
 
 try
 {
-    # Parse the contents of the config file
-    $config = Get-JSONContent $FoggObject.ConfigPath
-
-    # Check that the Provisioner script paths exist
-    Test-Provisioners -FoggObject $FoggObject -Paths $config.provisioners
-
-    # Check the VM section of the config
-    $vmCount = Test-VMs -VMs $config.vms -FoggObject $FoggObject -OS $config.os
-
-
     # Login to Azure Subscription
-    Add-FoggAccount -FoggObject $FoggObject
-
-
-    # If we're using an existng virtual network, ensure it actually exists
-    if ($FoggObject.UseExistingVNet)
-    {
-        if ((Get-FoggVirtualNetwork -ResourceGroupName $FoggObject.VNetResourceGroupName -Name -$FoggObject.VNetName) -eq $null)
-        {
-            throw "Virtual network $($FoggObject.VNetName) in resource group $($FoggObject.VNetResourceGroupName) does not exist"
-        }
-    }
-
+    Add-FoggAccount -FoggObject $FoggObjects
 
     # Set the VM admin credentials
-    Add-FoggAdminAccount -FoggObject $FoggObject
+    Add-FoggAdminAccount -FoggObject $FoggObjects
 
 
-    try
+    # loop through each group within the FoggObject
+    foreach ($FoggObject in $FoggObjects.Groups)
     {
-        # Create the resource group
-        $rg = New-FoggResourceGroup -FoggObject $FoggObject
+        # Parse the contents of the template file
+        $template = Get-JSONContent $FoggObject.TemplatePath
+
+        # Check that the Provisioner script paths exist
+        Test-Provisioners -FoggObject $FoggObject -Paths $template.provisioners
+
+        # Check the VM section of the template
+        $vmCount = Test-VMs -VMs $template.vms -FoggObject $FoggObject -OS $template.os
 
 
-        # Create the storage account
-        $usePremiumStorage = [bool]$config.usePremiumStorage
-        $sa = New-FoggStorageAccount -FoggObject $FoggObject -Premium:$usePremiumStorage
-
-
-        # publish Provisioner scripts to storage account
-        Publish-ProvisionerScripts -FoggObject $FoggObject -StorageAccount $sa
-
-
-        # create the virtual network, or use existing one
+        # If we're using an existng virtual network, ensure it actually exists
         if ($FoggObject.UseExistingVNet)
         {
-            $vnet = Get-FoggVirtualNetwork -ResourceGroupName $FoggObject.VNetResourceGroupName -Name $FoggObject.VNetName
-        }
-        else
-        {
-            $vnet = New-FoggVirtualNetwork -FoggObject $FoggObject
-        }
-
-
-        # Create virtual subnets and security groups
-        foreach ($vm in $config.vms)
-        {
-            $tag = $vm.tag
-            $vmname = "$($FoggObject.ShortRGName)-$($tag)"
-            $snetname = "$($vmname)-snet"
-            $subnet = $FoggObject.SubnetAddressMap[$tag]
-
-            # Create network security group inbound/outbound rules
-            $rules = New-FirewallRules -Firewall $vm.firewall -Subnets $FoggObject.SubnetAddressMap -CurrentTag $tag
-            $rules = New-FirewallRules -Firewall $config.firewall -Subnets $FoggObject.SubnetAddressMap -CurrentTag $tag -Rules $rules
-
-            # Create network security group rules, and bind to VM
-            $nsg = New-FoggNetworkSecurityGroup -FoggObject $FoggObject -Name "$($vmname)-nsg" -Rules $rules
-            $FoggObject.NsgMap.Add($vmname, $nsg.Id)
-
-            # assign subnet to vnet
-            $vnet = Add-FoggSubnetToVNet -FoggObject $FoggObject -VNet $vnet -SubnetName $snetname `
-                -Address $subnet -NetworkSecurityGroup $nsg
-        }
-
-
-        # loop through each VM, building a deploying each one
-        foreach ($vm in $config.vms)
-        {
-            $tag = $vm.tag
-            $vmname = "$($FoggObject.ShortRGName)-$($tag)"
-            $usePublicIP = [bool]$vm.usePublicIP
-            $subnetId = ($vnet.Subnets | Where-Object { $_.Name -ieq "$($vmname)-snet" }).Id
-
-            $useLoadBalancer = $true
-            if (!(Test-Empty $vm.useLoadBalancer))
+            if ((Get-FoggVirtualNetwork -ResourceGroupName $FoggObject.VNetResourceGroupName -Name $FoggObject.VNetName) -eq $null)
             {
-                $useLoadBalancer = [bool]$vm.useLoadBalancer
+                throw "Virtual network $($FoggObject.VNetName) in resource group $($FoggObject.VNetResourceGroupName) does not exist"
+            }
+        }
+
+
+        try
+        {
+            # Create the resource group
+            $rg = New-FoggResourceGroup -FoggObject $FoggObject
+
+
+            # Create the storage account
+            $usePremiumStorage = [bool]$template.usePremiumStorage
+            $sa = New-FoggStorageAccount -FoggObject $FoggObject -Premium:$usePremiumStorage
+
+
+            # publish Provisioner scripts to storage account
+            Publish-ProvisionerScripts -FoggObject $FoggObject -StorageAccount $sa
+
+
+            # create the virtual network, or use existing one
+            if ($FoggObject.UseExistingVNet)
+            {
+                $vnet = Get-FoggVirtualNetwork -ResourceGroupName $FoggObject.VNetResourceGroupName -Name $FoggObject.VNetName
+            }
+            else
+            {
+                $vnet = New-FoggVirtualNetwork -FoggObject $FoggObject
             }
 
-            Write-Information "Deploying VMs for $($tag)"
 
-            # if we have more than one server count, create an availability set and load balancer
-            if ($vm.count -gt 1)
+            # Create virtual subnets and security groups
+            foreach ($vm in $template.vms)
             {
-                $avset = New-FoggAvailabilitySet -FoggObject $FoggObject -Name "$($vmname)-as"
+                $tag = $vm.tag
+                $vmname = "$($FoggObject.ShortRGName)-$($tag)"
+                $snetname = "$($vmname)-snet"
+                $subnet = $FoggObject.SubnetAddressMap[$tag]
 
-                if ($useLoadBalancer)
+                # Create network security group inbound/outbound rules
+                $rules = New-FirewallRules -Firewall $vm.firewall -Subnets $FoggObject.SubnetAddressMap -CurrentTag $tag
+                $rules = New-FirewallRules -Firewall $template.firewall -Subnets $FoggObject.SubnetAddressMap -CurrentTag $tag -Rules $rules
+
+                # Create network security group rules, and bind to VM
+                $nsg = New-FoggNetworkSecurityGroup -FoggObject $FoggObject -Name "$($vmname)-nsg" -Rules $rules
+                $FoggObject.NsgMap.Add($vmname, $nsg.Id)
+
+                # assign subnet to vnet
+                $vnet = Add-FoggSubnetToVNet -FoggObject $FoggObject -VNet $vnet -SubnetName $snetname `
+                    -Address $subnet -NetworkSecurityGroup $nsg
+            }
+
+
+            # loop through each VM, building a deploying each one
+            foreach ($vm in $template.vms)
+            {
+                $tag = $vm.tag
+                $vmname = "$($FoggObject.ShortRGName)-$($tag)"
+                $usePublicIP = [bool]$vm.usePublicIP
+                $subnetId = ($vnet.Subnets | Where-Object { $_.Name -ieq "$($vmname)-snet" }).Id
+
+                $useLoadBalancer = $true
+                if (!(Test-Empty $vm.useLoadBalancer))
                 {
-                    $lb = New-FoggLoadBalancer -FoggObject $FoggObject -Name "$($vmname)-lb" -SubnetId $subnetId `
-                        -Port $vm.port -PublicIP:$usePublicIP
+                    $useLoadBalancer = [bool]$vm.useLoadBalancer
                 }
-            }
 
-            # create each of the VMs
-            $_vms = @()
+                Write-Information "Deploying VMs for $($tag)"
 
-            1..($vm.count) | ForEach-Object {
-                # does the VM have OS settings, or use global?
-                $os = $config.os
-                if ($vm.os -ne $null)
+                # if we have more than one server count, create an availability set and load balancer
+                if ($vm.count -gt 1)
                 {
-                    $os = $vm.os
+                    $avset = New-FoggAvailabilitySet -FoggObject $FoggObject -Name "$($vmname)-as"
+
+                    if ($useLoadBalancer)
+                    {
+                        $lb = New-FoggLoadBalancer -FoggObject $FoggObject -Name "$($vmname)-lb" -SubnetId $subnetId `
+                            -Port $vm.port -PublicIP:$usePublicIP
+                    }
                 }
 
-                # create the VM
-                $_vms += (New-FoggVM -FoggObject $FoggObject -Name $vmname -VMIndex $_ -StorageAccount $sa `
-                    -SubnetId $subnetId -VMSize $os.size -VMSkus $os.skus -VMOffer $os.offer -VMType $os.type`
-                    -VMPublisher $os.publisher -AvailabilitySet $avset -PublicIP:$usePublicIP)
-            }
+                # create each of the VMs
+                $_vms = @()
 
-            # loop through each VM and deploy it
-            foreach ($_vm in $_vms)
-            {
-                if ($_vm -eq $null)
+                1..($vm.count) | ForEach-Object {
+                    # does the VM have OS settings, or use global?
+                    $os = $template.os
+                    if ($vm.os -ne $null)
+                    {
+                        $os = $vm.os
+                    }
+
+                    # create the VM
+                    $_vms += (New-FoggVM -FoggObject $FoggObject -Name $vmname -VMIndex $_ -VMCredentials $FoggObjects.VMCredentials `
+                        -StorageAccount $sa -SubnetId $subnetId -VMSize $os.size -VMSkus $os.skus -VMOffer $os.offer `
+                        -VMType $os.type -VMPublisher $os.publisher -AvailabilitySet $avset -PublicIP:$usePublicIP)
+                }
+
+                # loop through each VM and deploy it
+                foreach ($_vm in $_vms)
                 {
-                    continue
+                    if ($_vm -eq $null)
+                    {
+                        continue
+                    }
+
+                    Save-FoggVM -FoggObject $FoggObject -VM $_vm -LoadBalancer $lb
+
+                    # see if we need to provision the machine
+                    Set-ProvisionVM -FoggObject $FoggObject -Provisioners $vm.provisioners -VMName $_vm.Name -StorageAccount $sa
                 }
 
-                Save-FoggVM -FoggObject $FoggObject -VM $_vm -LoadBalancer $lb
+                # turn off some of the VMs if needed
+                if ($vm.off -gt 0)
+                {
+                    $count = ($_vms | Measure-Object).Count
+                    $base = ($count - $vm.off) + 1
 
-                # see if we need to provision the machine
-                Set-ProvisionVM -FoggObject $FoggObject -Provisioners $vm.provisioners -VMName $_vm.Name -StorageAccount $sa
+                    $count..$base | ForEach-Object {
+                        Stop-FoggVM -FoggObject $FoggObject -Name "$($vmname)$($_)"
+                    }
+                }
             }
 
-            # turn off some of the VMs if needed
-            if ($vm.off -gt 0)
-            {
-                $count = ($_vms | Measure-Object).Count
-                $base = ($count - $vm.off) + 1
+            # attempt to output any public IP addresses
+            $ips = Get-AzureRmPublicIpAddress -ResourceGroupName $FoggObject.ResourceGroupName
 
-                $count..$base | ForEach-Object {
-                    Stop-FoggVM -FoggObject $FoggObject -Name "$($vmname)$($_)"
+            if (!(Test-ArrayEmpty $ips))
+            {
+                Write-Information "Public IP Addresses:"
+
+                $ips | ForEach-Object {
+                    Write-Host "> $($_.Name): $($_.IpAddress)"
                 }
+
+                Write-Host ([string]::Empty)
             }
         }
-
-        # attempt to output any public IP addresses
-        $ips = Get-AzureRmPublicIpAddress -ResourceGroupName $FoggObject.ResourceGroupName
-
-        if (!(Test-ArrayEmpty $ips))
+        catch [exception]
         {
-            Write-Information "Public IP Addresses:"
-
-            $ips | ForEach-Object {
-                Write-Host "> $($_.Name): $($_.IpAddress)"
-            }
-
-            Write-Host ([string]::Empty)
+            Write-Fail 'Fogg failed to deploy to Azure:'
+            Write-Fail $_.Exception.Message
+            throw
         }
-    }
-    catch [exception]
-    {
-        Write-Fail 'Fogg failed to deploy to Azure:'
-        Write-Fail $_.Exception.Message
-        throw
     }
 }
 finally

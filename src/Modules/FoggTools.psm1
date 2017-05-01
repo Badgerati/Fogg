@@ -62,6 +62,21 @@ function Test-PathExists
 }
 
 
+function Test-IsArray
+{
+    param (
+        $Value
+    )
+
+    if ($Value -eq $null)
+    {
+        return $false
+    }
+
+    return ($Value.GetType().BaseType.Name -ieq 'array')
+}
+
+
 function Test-Empty
 {
     param (
@@ -131,13 +146,13 @@ function Test-VMs
         $OS
     )
 
-    Write-Information "Verifying VM config sections"
+    Write-Information "Verifying VM template sections"
 
     # get the count of VM types to create
     $vmCount = ($VMs | Measure-Object).Count
     if ($vmCount -eq 0)
     {
-        throw 'No list of VMs was found in Fogg Azure configuration file'
+        throw 'No list of VMs was found in Fogg Azure template file'
     }
 
     # is there an OS section?
@@ -151,7 +166,7 @@ function Test-VMs
         # ensure each VM has a tag
         if (Test-Empty $tag)
         {
-            throw 'All VM sections in Fogg Azure configuration file require a tag name'
+            throw 'All VM sections in Fogg Azure template file require a tag name'
         }
 
         # ensure that each VM section has a subnet map
@@ -309,7 +324,7 @@ function Test-Provisioners
                 throw "Invalid provisioner type found: $($type)"
             }
 
-            $file = Resolve-Path (Join-Path $FoggObject.ConfigParent $Matches['file'])
+            $file = Resolve-Path (Join-Path $FoggObject.TemplateParent $Matches['file'])
             if (!(Test-PathExists $file))
             {
                 throw "Provision script for $($type) does not exist: $($file)"
@@ -477,7 +492,7 @@ function New-FoggObject
         $SubnetAddressMap,
 
         [string]
-        $ConfigPath,
+        $TemplatePath,
 
         [string]
         $FoggfilePath,
@@ -531,7 +546,7 @@ function New-FoggObject
         $VNetResourceGroupName,
         $VNetName,
         $SubnetAddressMap,
-        $ConfigPath
+        $TemplatePath
     )
 
     if (!$useFoggfile -and (Test-ArrayEmpty $foggParams))
@@ -545,97 +560,177 @@ function New-FoggObject
         $useFoggfile = $true
     }
 
-    # if we're using a Foggfile, set params appropriately
-    if ($useFoggfile)
+    # set up the initial Fogg object with group array
+    $props = @{}
+    $props.Groups = @()
+    $props.SubscriptionName = $SubscriptionName
+    $props.SubscriptionCredentials = $SubscriptionCredentials
+    $props.VMCredentials = $VMCredentials
+    $foggObj = New-Object -TypeName PSObject -Property $props
+
+    # if we aren't using a Foggfile, set params directly
+    if (!$useFoggfile)
     {
-        Write-Information "Loading configuration from Foggfile"
+        Write-Information 'Loading template configuration from CLI'
+
+        $group = New-FoggGroupObject -ResourceGroupName $ResourceGroupName -Location $Location `
+            -SubnetAddressMap $SubnetAddresses -TemplatePath $TemplatePath -FoggfilePath $FoggfilePath `
+            -VNetAddress $VNetAddress -VNetResourceGroupName $VNetResourceGroupName -VNetName $VNetName
+
+        $foggObj.Groups += $group
+    }
+
+    # else, we're using a Foggfile, set params and groups appropriately
+    elseif ($useFoggfile)
+    {
+        Write-Information 'Loading template from Foggfile'
 
         # load Foggfile
         $file = Get-JSONContent $FoggfilePath
 
-        # Only set the params that haven't already got a value (cli overrides foggfile)
+        # check to see if we have a Groups array
+        if (Test-ArrayEmpty $file.Groups)
+        {
+            throw 'Missing Groups array in Foggfile'
+        }
+
+        # check if we need to set the SubscriptionName from the file
+        if (Test-Empty $SubscriptionName)
+        {
+            $foggObj.SubscriptionName = $file.SubscriptionName
+        }
+
+        # load the groups
+        $file.Groups | ForEach-Object {
+            $group = New-FoggGroupObject -ResourceGroupName $ResourceGroupName -Location $Location `
+                -SubnetAddressMap $SubnetAddresses -TemplatePath $TemplatePath -FoggfilePath $FoggfilePath `
+                -VNetAddress $VNetAddress -VNetResourceGroupName $VNetResourceGroupName `
+                -VNetName $VNetName -FoggParameters $_
+
+            $foggObj.Groups += $group
+        }
+    }
+
+    # if no subscription name supplied, request one
+    if (Test-Empty $foggObj.SubscriptionName)
+    {
+        $foggObj.SubscriptionName = Read-Host -Prompt 'SubscriptionName'
+        if (Test-Empty $foggObj.SubscriptionName)
+        {
+            throw 'No Azure subscription name has been supplied'
+        }
+    }
+
+    # return object
+    return $foggObj
+}
+
+function New-FoggGroupObject
+{
+    param (
+        [string]
+        $ResourceGroupName,
+
+        [string]
+        $Location,
+
+        $SubnetAddressMap,
+
+        [string]
+        $TemplatePath,
+
+        [string]
+        $FoggfilePath,
+
+        [string]
+        $VNetAddress,
+
+        [string]
+        $VNetResourceGroupName,
+
+        [string]
+        $VNetName,
+
+        $FoggParameters = $null
+    )
+
+    # Only set the params that haven't already got a value (cli overrides foggfile)
+    if ($FoggParameters -ne $null)
+    {
         if (Test-Empty $ResourceGroupName)
         {
-            $ResourceGroupName = $file.ResourceGroupName
+            $ResourceGroupName = $FoggParameters.ResourceGroupName
         }
 
         if (Test-Empty $Location)
         {
-            $Location = $file.Location
-        }
-
-        if (Test-Empty $SubscriptionName)
-        {
-            $SubscriptionName = $file.SubscriptionName
+            $Location = $FoggParameters.Location
         }
 
         if (Test-Empty $VNetAddress)
         {
-            $VNetAddress = $file.VNetAddress
+            $VNetAddress = $FoggParameters.VNetAddress
         }
 
         if (Test-Empty $VNetResourceGroupName)
         {
-            $VNetResourceGroupName = $file.VNetResourceGroupName
+            $VNetResourceGroupName = $FoggParameters.VNetResourceGroupName
         }
 
         if (Test-Empty $VNetName)
         {
-            $VNetName = $file.VNetName
+            $VNetName = $FoggParameters.VNetName
         }
 
-        if (Test-Empty $ConfigPath)
+        if (Test-Empty $TemplatePath)
         {
             # this should be relative to the Foggfile
-            $tmp = (Join-Path (Split-Path -Parent -Path $FoggfilePath) $file.ConfigPath)
-            $ConfigPath = Resolve-Path $tmp -ErrorAction Ignore
-            if (!(Test-PathExists $ConfigPath))
+            $tmp = (Join-Path (Split-Path -Parent -Path $FoggfilePath) $FoggParameters.TemplatePath)
+            $TemplatePath = Resolve-Path $tmp -ErrorAction Ignore
+            if (!(Test-PathExists $TemplatePath))
             {
-                if (!(Test-Empty $ConfigPath))
+                if (!(Test-Empty $TemplatePath))
                 {
-                    $tmp = $ConfigPath
+                    $tmp = $TemplatePath
                 }
 
-                throw "Configuration path supplied does not exist: $(($tmp -replace '\.\.\\') -replace '\.\\')"
+                throw "Template path supplied does not exist: $(($tmp -replace '\.\.\\') -replace '\.\\')"
             }
         }
 
         if (Test-Empty $SubnetAddressMap)
         {
-            $SubnetAddressMap = ConvertFrom-JsonObjectToMap $file.SubnetAddresses
+            $SubnetAddressMap = ConvertFrom-JsonObjectToMap $FoggParameters.SubnetAddresses
         }
     }
 
     # create fogg object with params
-    $props = @{}
-    $props.ResourceGroupName = $ResourceGroupName
-    $props.ShortRGName = (Remove-RGTag $ResourceGroupName)
-    $props.Location = $Location
-    $props.SubscriptionName = $SubscriptionName
-    $props.SubscriptionCredentials = $SubscriptionCredentials
-    $props.VMCredentials = $VMCredentials
-    $props.VNetAddress = $VNetAddress
-    $props.VNetResourceGroupName = $VNetResourceGroupName
-    $props.VNetName = $VNetName
-    $props.UseExistingVNet = (!(Test-Empty $VNetResourceGroupName) -and !(Test-Empty $VNetName))
-    $props.SubnetAddressMap = $SubnetAddressMap
-    $props.ConfigPath = $ConfigPath
-    $props.ConfigParent = (Split-Path -Parent -Path $ConfigPath)
-    $props.HasProvisionScripts = $false
-    $props.ProvisionMap = @{'dsc' = @{}; 'custom' = @{}}
-    $props.NsgMap = @{}
+    $group = @{}
+    $group.ResourceGroupName = $ResourceGroupName
+    $group.ShortRGName = (Remove-RGTag $ResourceGroupName)
+    $group.Location = $Location
+    $group.VNetAddress = $VNetAddress
+    $group.VNetResourceGroupName = $VNetResourceGroupName
+    $group.VNetName = $VNetName
+    $group.UseExistingVNet = (!(Test-Empty $VNetResourceGroupName) -and !(Test-Empty $VNetName))
+    $group.SubnetAddressMap = $SubnetAddressMap
+    $group.TemplatePath = $TemplatePath
+    $group.TemplateParent = (Split-Path -Parent -Path $TemplatePath)
+    $group.HasProvisionScripts = $false
+    $group.ProvisionMap = @{'dsc' = @{}; 'custom' = @{}}
+    $group.NsgMap = @{}
 
-    $foggObj = New-Object -TypeName PSObject -Property $props
+    $groupObj = New-Object -TypeName PSObject -Property $group
 
     # test the fogg parameters
-    Test-FoggObjectParameters $foggObj
+    Test-FoggObjectParameters $groupObj
 
     # post param alterations
-    $foggObj.ResourceGroupName = $foggObj.ResourceGroupName.ToLowerInvariant()
-    $foggObj.ShortRGName = $foggObj.ShortRGName.ToLowerInvariant()
+    $groupObj.ResourceGroupName = $groupObj.ResourceGroupName.ToLowerInvariant()
+    $groupObj.ShortRGName = $groupObj.ShortRGName.ToLowerInvariant()
 
     # return object
-    return $foggObj
+    return $groupObj
 }
 
 function Test-FoggObjectParameters
@@ -670,19 +765,9 @@ function Test-FoggObjectParameters
         throw 'No address prefixes for virtual subnets supplied'
     }
 
-    # if the config path doesn't exist, fail
-    if (!(Test-Path $FoggObject.ConfigPath))
+    # if the template path doesn't exist, fail
+    if (!(Test-Path $FoggObject.TemplatePath))
     {
-        throw "Configuration path supplied does not exist: $($FoggObject.ConfigPath)"
-    }
-
-    # if no subscription name supplied, request one
-    if (Test-Empty $FoggObject.SubscriptionName)
-    {
-        $FoggObject.SubscriptionName = Read-Host -Prompt 'SubscriptionName'
-        if (Test-Empty $FoggObject.SubscriptionName)
-        {
-            throw 'No Azure subscription name has been supplied'
-        }
+        throw "Template path supplied does not exist: $($FoggObject.TemplatePath)"
     }
 }

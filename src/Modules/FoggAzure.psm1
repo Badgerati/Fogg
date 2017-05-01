@@ -1237,6 +1237,11 @@ function New-FoggVM
         $VMIndex,
 
         [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        [pscredential]
+        $VMCredentials,
+
+        [Parameter(Mandatory=$true)]
         $StorageAccount,
 
         [Parameter(Mandatory=$true)]
@@ -1322,7 +1327,7 @@ function New-FoggVM
     }
 
     # assign images and OS to VM
-    $VM = Set-AzureRmVMOperatingSystem -VM $VM -Windows -ComputerName $VMName -Credential $FoggObject.VMCredentials -ProvisionVMAgent
+    $VM = Set-AzureRmVMOperatingSystem -VM $VM -Windows -ComputerName $VMName -Credential $VMCredentials -ProvisionVMAgent
     $VM = Set-AzureRmVMSourceImage -VM $VM -PublisherName $VMPublisher -Offer $VMOffer -Skus $VMSkus -Version 'latest'
     $VM = Add-AzureRmVMNetworkInterface -VM $VM -Id $VMNIC.Id
 
