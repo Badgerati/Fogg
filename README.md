@@ -51,7 +51,7 @@ The first thing you will need is a template file, which will look as follows:
 
 ```json
 {
-    "vms": [
+    "template": [
         {
             "tag": "vm",
             "count": 1,
@@ -127,7 +127,7 @@ This includes creating firewall rules, load balancers, public IPs, and provision
 
 ```json
 {
-    "vms": [
+    "template": [
         {
             "tag": "web",
             "count": 2,
@@ -217,7 +217,7 @@ Now, while this does seem a little big at first, it's actually fairly simple; so
 
 ### Provisioners
 
-First, we'll look at the `provisioners` section. This section is a key-value map of paths to PowerShell Desired State Configuration or Custom scripts. If a path is invalid Fogg will fail. The names (`remoting` and `web`) are used in the `vms` section to specify which provisioning scripts need to be run for provisioning.
+First, we'll look at the `provisioners` section. This section is a key-value map of paths to PowerShell Desired State Configuration or Custom scripts. If a path is invalid Fogg will fail. The names (`remoting` and `web`) are used in the `template` section to specify which provisioning scripts need to be run for provisioning.
 
 For example, the provisioner of `"web": "dsc: .\\WebServer.ps1"` is called `web`, will provision via `PowerShell DSC` using the `.\WebServer.ps1` script. Other than `dsc` you can also use a `custom` provisioner type which will allow you to use your own PS1/BAT scripts.
 
@@ -225,13 +225,13 @@ If the paths specified are relative, then they are required to be relative to th
 
 ### OS
 
-The `os` section is a global section for specifying each VMs OS type. Ie, if you have 4 VM objects in your `vms` section, and each has the same `os` spec, then you'd use this global `os` section to prevent duplciating the same section everywhere. If one of your VMs requires a different OS type, then a VM with an `os` section will override the global one.
+The `os` section is a global section for specifying each VMs OS type. Ie, if you have 4 VM objects in your `template` section, and each has the same `os` spec, then you'd use this global `os` section to prevent duplciating the same section everywhere. If one of your VMs requires a different OS type, then a VM with an `os` section will override the global one.
 
 ### Firewall
 
 This is fairly straightforward, this a an array of both `inbound` and `outbound` global firewall rules for all VM NSGs. (Normally things like 3389 for RDP, etc.)
 
-### VMs
+### Template
 
 This section is the same as the one from spinning up one VM type, though now we have two VM types.
 

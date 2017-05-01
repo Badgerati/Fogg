@@ -14,6 +14,7 @@ Fogg is a PowerShell v4.0+ tool to aide and simplify the creation, deployment an
 ### Features
 
 * Deploy and provision Virtual Machines in Azure
+* Spin-up mulitple Resource Groups at once using a Foggfile
 * Provision using:
   * PowerShell Desired State Configuration (DSC)
   * Custom Scripts (ps1/bat)

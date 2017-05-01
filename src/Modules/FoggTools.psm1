@@ -134,11 +134,11 @@ function Test-ArrayEmpty
 }
 
 
-function Test-VMs
+function Test-Template
 {
     param (
         [Parameter(Mandatory=$true)]
-        $VMs,
+        $Template,
 
         [Parameter(Mandatory=$true)]
         $FoggObject,
@@ -146,82 +146,181 @@ function Test-VMs
         $OS
     )
 
-    Write-Information "Verifying VM template sections"
+    Write-Information "Verifying template section"
 
-    # get the count of VM types to create
-    $vmCount = ($VMs | Measure-Object).Count
-    if ($vmCount -eq 0)
+    # get the count of template objects to create
+    $templateCount = ($Template | Measure-Object).Count
+    if ($templateCount -eq 0)
     {
-        throw 'No list of VMs was found in Fogg Azure template file'
+        throw 'No template section was found in Fogg Azure template file'
     }
+
+    # ensure the global OS setting is correct
+    if ($OS -ne $null)
+    {
+        Test-TemplateVMOS -Tag 'global' -OS $OS
+    }
+
+    # flag variable helpers
+    $alreadyHasVpn = $false
+
+    # loop through each template object, verifying it
+    foreach ($obj in $Template)
+    {
+        # ensure each template has a tag, and a type
+        $tag = $obj.tag
+        $type = $obj.type
+
+        if (Test-Empty $tag)
+        {
+            throw 'All template objects in Fogg Azure template file require a tag name'
+        }
+
+        if (Test-Empty $type)
+        {
+            throw 'All template objects in Fogg Azure template file require a type'
+        }
+
+        # verify based on template object type
+        switch ($type.ToLowerInvariant())
+        {
+            'vm'
+                {
+                    Test-TemplateVM -VM $obj -FoggObject $FoggObject -OS $OS
+                }
+
+            'vpn'
+                {
+                    if ($alreadyHasVpn)
+                    {
+                        throw "Cannot have 2 VPN template objects"
+                    }
+
+                    Test-TemplateVPN -VPN $obj -FoggObject $FoggObject
+                    $alreadyHasVpn = $true
+                }
+
+            default
+                {
+                    throw "Invalid template object type found in $($tag): $($type)"
+                }
+        }
+    }
+
+    Write-Success "Template section verified"
+    return $templateCount
+}
+
+
+function Test-TemplateVPN
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        $VPN,
+
+        [Parameter(Mandatory=$true)]
+        $FoggObject
+    )
+
+    # get tag and type
+    $tag = $VM.tag.ToLowerInvariant()
+    $type = $VM.type.ToLowerInvariant()
+
+    # ensure that the VPN object has a subnet map
+    if (!$FoggObject.SubnetAddressMap.Contains($tag))
+    {
+        throw "No subnet address mapped for the $($tag) VPN template object"
+    }
+
+    # ensure we have a VPN Gateway IP
+    $tagGIP = "$($tag)-gip"
+    if (!$FoggObject.SubnetAddressMap.Contains($tagGIP))
+    {
+        throw "No Gateway IP mapped for the $($tag) VPN: $($tagGIP)"
+    }
+
+    # ensure we have a on-premises address prefixes
+    $tagOpm = "$($tag)-opm"
+    if (!$FoggObject.SubnetAddressMap.Contains($tagOpm))
+    {
+        throw "No On-Premises address prefix(es) mapped for the $($tag) VPN: $($tagOpm)"
+    }
+}
+
+
+function Test-TemplateVM
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        $VM,
+
+        [Parameter(Mandatory=$true)]
+        $FoggObject,
+
+        $OS
+    )
 
     # is there an OS section?
     $hasOS = ($OS -ne $null)
 
-    # loop through each VM verifying
-    foreach ($vm in $VMs)
+    # get tag and type
+    $tag = $VM.tag.ToLowerInvariant()
+    $type = $VM.type.ToLowerInvariant()
+
+    # ensure that each VM object has a subnet map
+    if (!$FoggObject.SubnetAddressMap.Contains($tag))
     {
-        $tag = $vm.tag
+        throw "No subnet address mapped for the $($tag) VM template object"
+    }
 
-        # ensure each VM has a tag
-        if (Test-Empty $tag)
-        {
-            throw 'All VM sections in Fogg Azure template file require a tag name'
-        }
+    # ensure VM count is not null or negative/0
+    if ($vm.count -eq $null -or $vm.count -le 0)
+    {
+        throw "VM count cannot be null, 0 or negative for $($tag): $($vm.count)"
+    }
 
-        # ensure that each VM section has a subnet map
-        if (!$FoggObject.SubnetAddressMap.Contains($tag))
-        {
-            throw "No subnet address mapped for the $($tag) VM section"
-        }
+    # ensure the off count is not negative or greater than VM count
+    if ($vm.off -ne $null -and ($vm.off -le 0 -or $vm.off -gt $vm.count))
+    {
+        throw "VMs to turn off cannot be negative or greater than VM count for $($tag): $($vm.off)"
+    }
 
-        # ensure VM count is not null or negative/0
-        if ($vm.count -eq $null -or $vm.count -le 0)
-        {
-            throw "VM count cannot be null, 0 or negative: $($vm.count)"
-        }
+    # if there's more than one VM (load balanced) a port is required
+    if ($vm.count -gt 1 -and (Test-Empty $vm.port))
+    {
+        throw "A valid port value is required for the $($tag) VM template object for load balancing"
+    }
 
-        # ensure the off count is not negative or greater than VM count
-        if ($vm.off -ne $null -and ($vm.off -le 0 -or $vm.off -gt $vm.count))
-        {
-            throw "VMs to turn off cannot be negative or greater than VM count: $($vm.off)"
-        }
+    # ensure that each VM has an OS setting if global OS does not exist
+    if (!$hasOS -and $vm.os -eq $null)
+    {
+        throw "VM $($tag) is missing OS settings section"
+    }
 
-        # if there's more than one VM (load balanced) a port is required
-        if ($vm.count -gt 1 -and (Test-Empty $vm.port))
-        {
-            throw "A valid port value is required for the $($tag) VM section for load balancing"
-        }
+    if ($vm.os -ne $null)
+    {
+        Test-TemplateVMOS -Tag $tag -OS $vm.os
+    }
 
-        # ensure that each VM has an OS setting if global OS does not exist
-        if (!$hasOS -and $vm.os -eq $null)
-        {
-            throw "VM section $($tag) is missing OS settings section"
-        }
+    # ensure that the provisioner keys exist
+    if (!$FoggObject.HasProvisionScripts -and !(Test-ArrayEmpty $vm.provisioners))
+    {
+        throw "VM $($tag) specifies provisioners, but there is not Provisioner section"
+    }
 
-        # ensure that the provisioner keys exist
-        if (!$FoggObject.HasProvisionScripts -and !(Test-ArrayEmpty $vm.provisioners))
-        {
-            throw "VM section $($tag) specifies provisioners, but there is not Provisioner section"
-        }
-
-        if ($FoggObject.HasProvisionScripts -and !(Test-ArrayEmpty $vm.provisioners))
-        {
-            $vm.provisioners | ForEach-Object {
-                if (!(Test-ProvisionerExists -FoggObject $FoggObject -ProvisionerName $_))
-                {
-                    throw "Provisioner key not specified in Provisioners section: $($_)"
-                }
+    if ($FoggObject.HasProvisionScripts -and !(Test-ArrayEmpty $vm.provisioners))
+    {
+        $vm.provisioners | ForEach-Object {
+            if (!(Test-ProvisionerExists -FoggObject $FoggObject -ProvisionerName $_))
+            {
+                throw "Provisioner key not specified in Provisioners section for $($tag): $($_)"
             }
         }
     }
-
-    Write-Success "VM sections verified"
-    return $vmCount
 }
 
 
-function Test-VMOS
+function Test-TemplateVMOS
 {
     param (
         [Parameter(Mandatory=$true)]
@@ -236,6 +335,8 @@ function Test-VMOS
     {
         return
     }
+
+    $Tag = $Tag.ToLowerInvariant()
 
     if (Test-Empty $OS.size)
     {
@@ -489,7 +590,7 @@ function New-FoggObject
         [string]
         $SubscriptionName,
 
-        $SubnetAddressMap,
+        $SubnetAddresses,
 
         [string]
         $TemplatePath,
@@ -545,7 +646,7 @@ function New-FoggObject
         $VNetAddress,
         $VNetResourceGroupName,
         $VNetName,
-        $SubnetAddressMap,
+        $SubnetAddresses,
         $TemplatePath
     )
 
@@ -574,7 +675,7 @@ function New-FoggObject
         Write-Information 'Loading template configuration from CLI'
 
         $group = New-FoggGroupObject -ResourceGroupName $ResourceGroupName -Location $Location `
-            -SubnetAddressMap $SubnetAddresses -TemplatePath $TemplatePath -FoggfilePath $FoggfilePath `
+            -SubnetAddresses $SubnetAddresses -TemplatePath $TemplatePath -FoggfilePath $FoggfilePath `
             -VNetAddress $VNetAddress -VNetResourceGroupName $VNetResourceGroupName -VNetName $VNetName
 
         $foggObj.Groups += $group
@@ -603,7 +704,7 @@ function New-FoggObject
         # load the groups
         $file.Groups | ForEach-Object {
             $group = New-FoggGroupObject -ResourceGroupName $ResourceGroupName -Location $Location `
-                -SubnetAddressMap $SubnetAddresses -TemplatePath $TemplatePath -FoggfilePath $FoggfilePath `
+                -SubnetAddresses $SubnetAddresses -TemplatePath $TemplatePath -FoggfilePath $FoggfilePath `
                 -VNetAddress $VNetAddress -VNetResourceGroupName $VNetResourceGroupName `
                 -VNetName $VNetName -FoggParameters $_
 
@@ -634,7 +735,7 @@ function New-FoggGroupObject
         [string]
         $Location,
 
-        $SubnetAddressMap,
+        $SubnetAddresses,
 
         [string]
         $TemplatePath,
@@ -698,9 +799,9 @@ function New-FoggGroupObject
             }
         }
 
-        if (Test-Empty $SubnetAddressMap)
+        if (Test-Empty $SubnetAddresses)
         {
-            $SubnetAddressMap = ConvertFrom-JsonObjectToMap $FoggParameters.SubnetAddresses
+            $SubnetAddresses = ConvertFrom-JsonObjectToMap $FoggParameters.SubnetAddresses
         }
     }
 
@@ -713,7 +814,7 @@ function New-FoggGroupObject
     $group.VNetResourceGroupName = $VNetResourceGroupName
     $group.VNetName = $VNetName
     $group.UseExistingVNet = (!(Test-Empty $VNetResourceGroupName) -and !(Test-Empty $VNetName))
-    $group.SubnetAddressMap = $SubnetAddressMap
+    $group.SubnetAddressMap = $SubnetAddresses
     $group.TemplatePath = $TemplatePath
     $group.TemplateParent = (Split-Path -Parent -Path $TemplatePath)
     $group.HasProvisionScripts = $false
@@ -770,4 +871,145 @@ function Test-FoggObjectParameters
     {
         throw "Template path supplied does not exist: $($FoggObject.TemplatePath)"
     }
+}
+
+
+function New-DeployTemplateVM
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        $Template,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        $VMTemplate,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        $FoggObject,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        $VNet,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        $StorageAccount
+    )
+
+    $tag = $VMTemplate.tag.ToLowerInvariant()
+    $tagname = "$($FoggObject.ShortRGName)-$($tag)"
+    $usePublicIP = [bool]$VMTemplate.usePublicIP
+    $subnetId = ($VNet.Subnets | Where-Object { $_.Name -ieq "$($tagname)-snet" }).Id
+
+    $useLoadBalancer = $true
+    if (!(Test-Empty $VMTemplate.useLoadBalancer))
+    {
+        $useLoadBalancer = [bool]$VMTemplate.useLoadBalancer
+    }
+
+    Write-Information "Deploying VMs for $($tag)"
+
+    # if we have more than one server count, create an availability set and load balancer
+    if ($VMTemplate.count -gt 1)
+    {
+        $avset = New-FoggAvailabilitySet -FoggObject $FoggObject -Name "$($tagname)-as"
+
+        if ($useLoadBalancer)
+        {
+            $lb = New-FoggLoadBalancer -FoggObject $FoggObject -Name "$($tagname)-lb" -SubnetId $subnetId `
+                -Port $VMTemplate.port -PublicIP:$usePublicIP
+        }
+    }
+
+    # create each of the VMs
+    $_vms = @()
+
+    1..($VMTemplate.count) | ForEach-Object {
+        # does the VM have OS settings, or use global?
+        $os = $Template.os
+        if ($VMTemplate.os -ne $null)
+        {
+            $os = $VMTemplate.os
+        }
+
+        # create the VM
+        $_vms += (New-FoggVM -FoggObject $FoggObject -Name $tagname -VMIndex $_ -VMCredentials $FoggObjects.VMCredentials `
+            -StorageAccount $StorageAccount -SubnetId $subnetId -VMSize $os.size -VMSkus $os.skus -VMOffer $os.offer `
+            -VMType $os.type -VMPublisher $os.publisher -AvailabilitySet $avset -PublicIP:$usePublicIP)
+    }
+
+    # loop through each VM and deploy it
+    foreach ($_vm in $_vms)
+    {
+        if ($_vm -eq $null)
+        {
+            continue
+        }
+
+        Save-FoggVM -FoggObject $FoggObject -VM $_vm -LoadBalancer $lb
+
+        # see if we need to provision the machine
+        Set-ProvisionVM -FoggObject $FoggObject -Provisioners $VMTemplate.provisioners -VMName $_vm.Name -StorageAccount $StorageAccount
+    }
+
+    # turn off some of the VMs if needed
+    if ($VMTemplate.off -gt 0)
+    {
+        $count = ($_vms | Measure-Object).Count
+        $base = ($count - $VMTemplate.off) + 1
+
+        $count..$base | ForEach-Object {
+            Stop-FoggVM -FoggObject $FoggObject -Name "$($tagname)$($_)"
+        }
+    }
+}
+
+
+function New-DeployTemplateVPN
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        $Template,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        $VPNTemplate,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        $FoggObject,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        $VNet,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        $StorageAccount
+    )
+
+    $tag = $VPNTemplate.tag.ToLowerInvariant()
+    $tagname = "$($FoggObject.ShortRGName)-$($tag)"
+
+    $gatewaySubnetId = ($VNet.Subnets | Where-Object { $_.Name -ieq 'GatewaySubnet' }).Id
+    $gatewayIP = $FoggObject.SubnetAddressMap["$($tag)-gip"]
+    $addressOnPrem = $FoggObject.SubnetAddressMap["$($tag)-opm"]
+
+    Write-Information "Deploying VPN for $($tag)"
+
+    # create the local network gateway for the VPN
+    $lng = New-FoggLocalNetworkGateway -FoggObject $FoggObject -Name "$($tagname)-lng" `
+        -GatewayIPAddress $gatewayIP -Address $addressOnPrem
+
+    # create public vnet gateway
+    $gw = New-FoggVirtualNetworkGateway -FoggObject $FoggObject -Name "$($tagname)-gw" -VNet $VNet `
+        -VpnType $VPNTemplate.vpnType -GatewaySku $VPNTemplate.gatewaySku
+
+    # create VPN connection (UPDATE TO FOGG METHOD)
+    New-AzureRmVirtualNetworkGatewayConnection -Name "$($tagname)-con" -ResourceGroupName $FoggObject.ResourceGroupName `
+        -Location $FoggObject.Location -VirtualNetworkGateway1 $sw -LocalNetworkGateway2 $lng `
+        -ConnectionType IPsec -RoutingWeight 10 -SharedKey 'abc123' -Force
 }

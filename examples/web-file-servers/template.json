@@ -1,7 +1,8 @@
 {
-    "vms": [
+    "template": [
         {
             "tag": "web",
+            "type": "vm",
             "count": 2,
             "provisioners": [
                 "remoting",
@@ -23,6 +24,7 @@
         },
         {
             "tag": "file",
+            "type": "vm",
             "count": 1,
             "provisioners": [
                 "remoting"
