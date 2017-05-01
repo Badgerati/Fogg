@@ -94,7 +94,10 @@ param (
     $VNetName,
 
     [switch]
-    $Version
+    $Version,
+
+    [switch]
+    $Validate
 )
 
 $ErrorActionPreference = 'Stop'
@@ -133,6 +136,27 @@ $timer = [DateTime]::UtcNow
 
 try
 {
+    # validate the template files and section
+    foreach ($FoggObject in $FoggObjects.Groups)
+    {
+        # Parse the contents of the template file
+        $template = Get-JSONContent $FoggObject.TemplatePath
+
+        # Check that the Provisioner script paths exist
+        Test-Provisioners -FoggObject $FoggObject -Paths $template.provisioners
+
+        # Check the template section
+        $vmCount = Test-Template -Template $template.template -FoggObject $FoggObject -OS $template.os
+    }
+
+
+    # if we're only validating, return
+    if ($Validate)
+    {
+        return
+    }
+
+
     # Login to Azure Subscription
     Add-FoggAccount -FoggObject $FoggObjects
 
@@ -169,13 +193,17 @@ try
             $rg = New-FoggResourceGroup -FoggObject $FoggObject
 
 
-            # Create the storage account
-            $usePremiumStorage = [bool]$template.usePremiumStorage
-            $sa = New-FoggStorageAccount -FoggObject $FoggObject -Premium:$usePremiumStorage
+            # only create storage account if we have VMs
+            if (Test-TemplateHasVMs $template.template)
+            {
+                # Create the storage account
+                $usePremiumStorage = [bool]$template.usePremiumStorage
+                $sa = New-FoggStorageAccount -FoggObject $FoggObject -Premium:$usePremiumStorage
 
 
-            # publish Provisioner scripts to storage account
-            Publish-ProvisionerScripts -FoggObject $FoggObject -StorageAccount $sa
+                # publish Provisioner scripts to storage account
+                Publish-ProvisionerScripts -FoggObject $FoggObject -StorageAccount $sa
+            }
 
 
             # create the virtual network, or use existing one
@@ -235,7 +263,7 @@ try
 
                     'vpn'
                         {
-
+                            New-DeployTemplateVPN -VPNTemplate $obj -FoggObject $FoggObject -VNet $vnet
                         }
                 }
             }

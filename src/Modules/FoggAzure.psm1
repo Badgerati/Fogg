@@ -1186,6 +1186,100 @@ function New-FoggVirtualNetworkGateway
 }
 
 
+function Get-FoggVirtualNetworkGatewayConnection
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $ResourceGroupName,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Name
+    )
+
+    $ResourceGroupName = $ResourceGroupName.ToLowerInvariant()
+    $Name = $Name.ToLowerInvariant()
+
+    try
+    {
+        $con = Get-AzureRmVirtualNetworkGatewayConnection -ResourceGroupName $ResourceGroupName -Name $Name
+        if (!$?)
+        {
+            throw "Failed to make Azure call to retrieve Virtual Network Gateway Connection: $($Name) in $($ResourceGroupName)"
+        }
+    }
+    catch [exception]
+    {
+        if ($_.Exception.Message -ilike '*was not found*')
+        {
+            $con = $null
+        }
+        else
+        {
+            throw
+        }
+    }
+
+    return $con
+}
+
+
+function New-FoggVirtualNetworkGatewayConnection
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        $FoggObject,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Name,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        $LocalNetworkGateway,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        $VirtualNetworkGateway,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $SharedKey
+    )
+
+    $Name = $Name.ToLowerInvariant()
+
+    Write-Information "Creating virtual network gateway connection $($Name) in $($FoggObject.ResourceGroupName)"
+
+    # check to see if vnet connection already exists
+    $con = Get-FoggVirtualNetworkGatewayConnection -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name
+    if ($con -ne $null)
+    {
+        Write-Notice "Using existing virtual network gateway connection for $($Name)`n"
+        return $con
+    }
+
+    # create new connection
+    $con = New-AzureRmVirtualNetworkGatewayConnection -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name `
+        -Location $FoggObject.Location -VirtualNetworkGateway1 $VirtualNetworkGateway -LocalNetworkGateway2 $LocalNetworkGateway `
+        -ConnectionType IPsec -RoutingWeight 10 -SharedKey $SharedKey -Force
+
+    if (!$?)
+    {
+        throw "Failed to create virtual network gateway connection $($Name)"
+    }
+
+    Write-Success "Virtual network gateway connection $($Name) created`n"
+    return $con
+}
+
+
 function Get-FoggAvailabilitySet
 {
     param (

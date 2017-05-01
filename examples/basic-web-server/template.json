@@ -28,12 +28,6 @@
                     }
                 ]
             }
-        },
-        {
-            "tag": "vpn",
-            "type": "vpn",
-            "vpnType": "RouteBased",
-            "gatewaySku": "Standard"
         }
     ],
     "provisioners": {

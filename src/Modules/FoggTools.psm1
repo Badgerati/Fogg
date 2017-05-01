@@ -134,6 +134,30 @@ function Test-ArrayEmpty
 }
 
 
+function Test-TemplateHasVMs
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        $Template
+    )
+
+    if (($Template | Measure-Object).Count -eq 0)
+    {
+        return $false
+    }
+
+    foreach ($obj in $Template)
+    {
+        if ($obj.type -ieq 'vm')
+        {
+            return $true
+        }
+    }
+
+    return $false
+}
+
+
 function Test-Template
 {
     param (
@@ -223,8 +247,8 @@ function Test-TemplateVPN
     )
 
     # get tag and type
-    $tag = $VM.tag.ToLowerInvariant()
-    $type = $VM.type.ToLowerInvariant()
+    $tag = $VPN.tag.ToLowerInvariant()
+    $type = $VPN.type.ToLowerInvariant()
 
     # ensure that the VPN object has a subnet map
     if (!$FoggObject.SubnetAddressMap.Contains($tag))
@@ -232,18 +256,42 @@ function Test-TemplateVPN
         throw "No subnet address mapped for the $($tag) VPN template object"
     }
 
-    # ensure we have a VPN Gateway IP
+    # ensure we have a VPN Gateway IP in subnet map
     $tagGIP = "$($tag)-gip"
     if (!$FoggObject.SubnetAddressMap.Contains($tagGIP))
     {
         throw "No Gateway IP mapped for the $($tag) VPN: $($tagGIP)"
     }
 
-    # ensure we have a on-premises address prefixes
+    # ensure we have a on-premises address prefixes in subnet map
     $tagOpm = "$($tag)-opm"
     if (!$FoggObject.SubnetAddressMap.Contains($tagOpm))
     {
         throw "No On-Premises address prefix(es) mapped for the $($tag) VPN: $($tagOpm)"
+    }
+
+    # ensure we have a valid VPN type
+    if ($VPN.vpnType -ine 'RouteBased' -and $VPN.vpnType -ine 'PolicyBased')
+    {
+        throw "VPN type for $($tag) must be one of either 'RouteBased' or 'PolicyBased'"
+    }
+
+    # ensure we have a Gateway SKU
+    if (Test-Empty $VPN.gatewaySku)
+    {
+        throw "VPN $($tag) has no Gateway SKU specified: Basic, Standard, or HighPerformance"
+    }
+
+    # PolicyBased VPN can only have a SKU of Basic
+    if ($VPN.vpnType -ieq 'PolicyBased' -and $VPN.gatewaySku -ine 'Basic')
+    {
+        throw "PolicyBased VPN $($tag) can only have a Gateway SKU of 'Basic'"
+    }
+
+    # ensure we have a shared key
+    if (Test-Empty $VPN.sharedKey)
+    {
+        throw "VPN $($tag) has no shared key specified"
     }
 }
 
@@ -398,7 +446,6 @@ function Test-Provisioners
         [Parameter(Mandatory=$true)]
         $FoggObject,
 
-        [Parameter(Mandatory=$true)]
         $Paths
     )
 
@@ -431,7 +478,10 @@ function Test-Provisioners
                 throw "Provision script for $($type) does not exist: $($file)"
             }
 
-            $FoggObject.ProvisionMap[$type].Add($_, $file)
+            if (!$FoggObject.ProvisionMap[$type].ContainsKey($_))
+            {
+                $FoggObject.ProvisionMap[$type].Add($_, $file)
+            }
         }
         else
         {
@@ -972,10 +1022,6 @@ function New-DeployTemplateVPN
     param (
         [Parameter(Mandatory=$true)]
         [ValidateNotNull()]
-        $Template,
-
-        [Parameter(Mandatory=$true)]
-        [ValidateNotNull()]
         $VPNTemplate,
 
         [Parameter(Mandatory=$true)]
@@ -984,11 +1030,7 @@ function New-DeployTemplateVPN
 
         [Parameter(Mandatory=$true)]
         [ValidateNotNull()]
-        $VNet,
-
-        [Parameter(Mandatory=$true)]
-        [ValidateNotNull()]
-        $StorageAccount
+        $VNet
     )
 
     $tag = $VPNTemplate.tag.ToLowerInvariant()
@@ -1009,7 +1051,6 @@ function New-DeployTemplateVPN
         -VpnType $VPNTemplate.vpnType -GatewaySku $VPNTemplate.gatewaySku
 
     # create VPN connection (UPDATE TO FOGG METHOD)
-    New-AzureRmVirtualNetworkGatewayConnection -Name "$($tagname)-con" -ResourceGroupName $FoggObject.ResourceGroupName `
-        -Location $FoggObject.Location -VirtualNetworkGateway1 $sw -LocalNetworkGateway2 $lng `
-        -ConnectionType IPsec -RoutingWeight 10 -SharedKey 'abc123' -Force
+    $con = New-FoggVirtualNetworkGatewayConnection -FoggObject $FoggObject -Name "$($tagname)-con" `
+        -LocalNetworkGateway $lng -VirtualNetworkGateway $gw -SharedKey $VPNTemplate.sharedKey
 }
