@@ -187,6 +187,7 @@ function Test-Template
 
     # flag variable helpers
     $alreadyHasVpn = $false
+    $tagMap = @()
 
     # loop through each template object, verifying it
     foreach ($obj in $Template)
@@ -204,6 +205,21 @@ function Test-Template
         {
             throw 'All template objects in Fogg Azure template file require a type'
         }
+
+        # check tag uniqueness and value validity
+        $tag = $tag.ToLowerInvariant()
+
+        if ($tag -inotmatch '^[a-z0-9]+$')
+        {
+            throw "Tag name for template object $($tag) must be a valid alphanumerical value"
+        }
+
+        if ($tagMap.Contains($tag))
+        {
+            throw "There is already a template object with tag value '$($tag)'"
+        }
+
+        $tagMap += $tag
 
         # verify based on template object type
         switch ($type.ToLowerInvariant())
