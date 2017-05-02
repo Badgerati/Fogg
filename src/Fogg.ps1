@@ -24,6 +24,7 @@
 
     .PARAMETER SubscriptionCredentials
         This is your Azure Subscription credentials, to allow Fogg to create and deploy in Azure
+        These credentials will only work for Organisational/Work accounts - NOT Personal ones
 
     .PARAMETER VMCredentials
         This is the administrator credentials that will be used to create each box. They are the credentials
@@ -258,7 +259,7 @@ try
                     'vm'
                         {
                             New-DeployTemplateVM -Template $template -VMTemplate $obj -FoggObject $FoggObject `
-                                -VNet $vnet -StorageAccount $sa
+                                -VNet $vnet -StorageAccount $sa -VMCredentials $FoggObjects.VMCredentials
                         }
 
                     'vpn'

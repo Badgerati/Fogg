@@ -26,6 +26,7 @@ Fogg is a PowerShell v4.0+ tool to aide and simplify the creation, deployment an
   * Network Security Groups with firewall rules
   * Availability Sets and Load Balancers
   * Public IP addresses for your VMs/Load Balancers
+  * VPN Gateways for site-to-site connections
     </description>
     <projectUrl>https://github.com/Badgerati/Fogg</projectUrl>
     <packageSourceUrl>https://github.com/Badgerati/Fogg/tree/master/nuget-packages</packageSourceUrl>

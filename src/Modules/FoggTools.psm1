@@ -945,7 +945,12 @@ function New-DeployTemplateVM
 
         [Parameter(Mandatory=$true)]
         [ValidateNotNull()]
-        $StorageAccount
+        $StorageAccount,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        [pscredential]
+        $VMCredentials
     )
 
     $tag = $VMTemplate.tag.ToLowerInvariant()
@@ -985,7 +990,7 @@ function New-DeployTemplateVM
         }
 
         # create the VM
-        $_vms += (New-FoggVM -FoggObject $FoggObject -Name $tagname -VMIndex $_ -VMCredentials $FoggObjects.VMCredentials `
+        $_vms += (New-FoggVM -FoggObject $FoggObject -Name $tagname -VMIndex $_ -VMCredentials $VMCredentials `
             -StorageAccount $StorageAccount -SubnetId $subnetId -VMSize $os.size -VMSkus $os.skus -VMOffer $os.offer `
             -VMType $os.type -VMPublisher $os.publisher -AvailabilitySet $avset -PublicIP:$usePublicIP)
     }

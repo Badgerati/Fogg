@@ -40,6 +40,8 @@ function Add-FoggAdminAccount
 
     if ($FoggObject.VMCredentials -eq $null)
     {
+        Write-Information "Setting up VM admin credentials"
+
         $FoggObject.VMCredentials = Get-Credential -Message 'Supply the Admininstrator username and password for the VMs in Azure'
         if ($FoggObject.VMCredentials -eq $null)
         {

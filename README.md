@@ -36,12 +36,13 @@ choco install fogg
   * Network Security Groups with firewall rules
   * Availability Sets and Load Balancers
   * Public IP addresses for your VMs/Load Balancers
+  * VPN Gateways for site-to-site connections
 
 ## Description
 
 Fogg is a PowerShell tool to aide and simplify the creation, deployment and provisioning of infrastructure (IaaS) in Azure.
 
-Fogg uses a JSON template file to determine what needs to be created and deployed (but don't worry, the JSON file is far, far smaller than Azure's template files!). Furthermore, Fogg also accepts a few parameters for things like `Resource Group Name`, `Subscription Name`, `Credentials` and others. While these are be passed in via command line, I'd recommend using a `Foggfile` to version control your deployments (more later).
+Fogg uses a JSON template file to determine what needs to be created and deployed (but don't worry, the JSON file is far, far smaller than Azure's template files!). Furthermore, Fogg also accepts a few parameters for things like `Resource Group Name`, `Subscription Name`, `Credentials` and others. While these are to be passed in via command line, I'd recommend using a `Foggfile` to version control your deployments (more later).
 
 ## Example
 
@@ -53,7 +54,8 @@ The first thing you will need is a template file, which will look as follows:
 {
     "template": [
         {
-            "tag": "vm",
+            "tag": "test",
+            "type": "vm",
             "count": 1,
             "os": {
                 "type": "Windows",
@@ -68,9 +70,11 @@ The first thing you will need is a template file, which will look as follows:
 }
 ```
 
-The above template will be used by Fogg to deploy one public Windows 2016 VM. You will notice the `count` parameter, changing this to 2, 3 or more will deploy 2, 3 or more of this VM type. (Note, if you deploy a VM type with a count > 1, Fogg will automatically create an availability set and load balance your VMs for you, this can be disabled via: `"useLoadBalancer": false`, though you will still get an availability set).
+The above template will be used by Fogg to deploy one public Windows 2016 VM. You will notice the `count` value, changing this to 2, 3 or more will deploy 2, 3 or more of this VM type. (Note, if you deploy a VM type with a count > 1, Fogg will automatically create an availability set and load balance your VMs for you, this can be disabled via: `"useLoadBalancer": false`, though you will still get an availability set).
 
-To use Fogg and the template file above, you will also need things such as an Azure Subscription, Resource Group, Virtual Network/Subnet addresses and other things. In general, the call to Fogg would look as follows:
+The `tag` and `type` values for template objects are mandatory. the `tag` can be any unique alphanumeric string (though try and keep it short). The `type` value can only be one of either `"vm"` or `"vpn"`.
+
+To use Fogg and the template file above, you will need an Azure Subscription. In general, the call to Fogg would look as follows:
 
 ```powershell
 fogg -SubscriptionName "AzureSub" -ResourceGroupName "basic-rg" -Location "westeurope" -VNetAddress "10.1.0.0/16" -SubnetAddresses @{"vm"="10.1.0.0/24"} -TemplatePath "<path_to_above_template>"
@@ -105,7 +109,7 @@ To create a Foggfile of the above, stored at the root of the repo (can be else w
 }
 ```
 
-Note that the above leaves out the `SubscriptionName`, this is because the Foggfile at the root of a repo will mostly be used by your devs/QAs/etc. to spin-up the infrastructure in their MSDN Azure subscriptions. If the subscription name is the same for all, then you could add in the `"SubscriptionName": "<name>"` to the Foggfile; if left out Fogg will request it when called.
+Note that the above leaves out the `SubscriptionName`, this is because the Foggfile at the root of a repo will mostly be used by your devs/QAs/etc. to spin-up the infrastructure in their MSDN Azure subscriptions. If the subscription name is the same for all, then you could add in the `"SubscriptionName": "<name>"` to the Foggfile (as a part of the main JSON object, not within the Groups objects); if left out Fogg will request it when called.
 
 Also note that if the path used for the `TemplatePath` is relative, it must be relative to the Foggfile's location.
 
@@ -130,6 +134,7 @@ This includes creating firewall rules, load balancers, public IPs, and provision
     "template": [
         {
             "tag": "web",
+            "type": "vm",
             "count": 2,
             "provisioners": [
                 "remoting",
@@ -151,6 +156,7 @@ This includes creating firewall rules, load balancers, public IPs, and provision
         },
         {
             "tag": "file",
+            "type": "vm",
             "count": 1,
             "provisioners": [
                 "remoting"
@@ -198,6 +204,7 @@ The Foggfile could be the following:
 
 ```json
 {
+    "SubscriptionName": "<you_sub_name>",
     "Groups": [
         {
             "ResourceGroupName": "adv-rg",
@@ -243,7 +250,6 @@ Finally is the `file` type VM. You'll notice that this creates just one of this 
 
 * Inbuilt DSC scripts could be useful (for things like remoting, web-server install etc)
 * SQL always-on clusters
-* VPN gateways
 * Web Apps?
 * Possibilty of Chef as a provisioner
 * Documentation
