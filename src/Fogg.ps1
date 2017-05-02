@@ -24,6 +24,7 @@
 
     .PARAMETER SubscriptionCredentials
         This is your Azure Subscription credentials, to allow Fogg to create and deploy in Azure
+        These credentials will only work for Organisational/Work accounts - NOT Personal ones
 
     .PARAMETER VMCredentials
         This is the administrator credentials that will be used to create each box. They are the credentials
@@ -94,7 +95,10 @@ param (
     $VNetName,
 
     [switch]
-    $Version
+    $Version,
+
+    [switch]
+    $Validate
 )
 
 $ErrorActionPreference = 'Stop'
@@ -124,7 +128,7 @@ if (!(Test-PowerShellVersion 4))
 
 # create new fogg object from parameters and foggfile
 $FoggObjects = New-FoggObject -ResourceGroupName $ResourceGroupName -Location $Location -SubscriptionName $SubscriptionName `
-    -SubnetAddressMap $SubnetAddresses -TemplatePath $TemplatePath -FoggfilePath $FoggfilePath -SubscriptionCredentials $SubscriptionCredentials `
+    -SubnetAddresses $SubnetAddresses -TemplatePath $TemplatePath -FoggfilePath $FoggfilePath -SubscriptionCredentials $SubscriptionCredentials `
     -VMCredentials $VMCredentials -VNetAddress $VNetAddress -VNetResourceGroupName $VNetResourceGroupName -VNetName $VNetName
 
 # Start timer
@@ -133,6 +137,27 @@ $timer = [DateTime]::UtcNow
 
 try
 {
+    # validate the template files and section
+    foreach ($FoggObject in $FoggObjects.Groups)
+    {
+        # Parse the contents of the template file
+        $template = Get-JSONContent $FoggObject.TemplatePath
+
+        # Check that the Provisioner script paths exist
+        Test-Provisioners -FoggObject $FoggObject -Paths $template.provisioners
+
+        # Check the template section
+        $vmCount = Test-Template -Template $template.template -FoggObject $FoggObject -OS $template.os
+    }
+
+
+    # if we're only validating, return
+    if ($Validate)
+    {
+        return
+    }
+
+
     # Login to Azure Subscription
     Add-FoggAccount -FoggObject $FoggObjects
 
@@ -149,8 +174,8 @@ try
         # Check that the Provisioner script paths exist
         Test-Provisioners -FoggObject $FoggObject -Paths $template.provisioners
 
-        # Check the VM section of the template
-        $vmCount = Test-VMs -VMs $template.vms -FoggObject $FoggObject -OS $template.os
+        # Check the template section
+        $vmCount = Test-Template -Template $template.template -FoggObject $FoggObject -OS $template.os
 
 
         # If we're using an existng virtual network, ensure it actually exists
@@ -169,13 +194,17 @@ try
             $rg = New-FoggResourceGroup -FoggObject $FoggObject
 
 
-            # Create the storage account
-            $usePremiumStorage = [bool]$template.usePremiumStorage
-            $sa = New-FoggStorageAccount -FoggObject $FoggObject -Premium:$usePremiumStorage
+            # only create storage account if we have VMs
+            if (Test-TemplateHasVMs $template.template)
+            {
+                # Create the storage account
+                $usePremiumStorage = [bool]$template.usePremiumStorage
+                $sa = New-FoggStorageAccount -FoggObject $FoggObject -Premium:$usePremiumStorage
 
 
-            # publish Provisioner scripts to storage account
-            Publish-ProvisionerScripts -FoggObject $FoggObject -StorageAccount $sa
+                # publish Provisioner scripts to storage account
+                Publish-ProvisionerScripts -FoggObject $FoggObject -StorageAccount $sa
+            }
 
 
             # create the virtual network, or use existing one
@@ -189,12 +218,13 @@ try
             }
 
 
-            # Create virtual subnets and security groups
-            foreach ($vm in $template.vms)
+            # Create virtual subnets and security groups for VM objects in template
+            $vms = ($template.template | Where-Object { $_.type -ieq 'vm' })
+            foreach ($vm in $vms)
             {
-                $tag = $vm.tag
-                $vmname = "$($FoggObject.ShortRGName)-$($tag)"
-                $snetname = "$($vmname)-snet"
+                $tag = $vm.tag.ToLowerInvariant()
+                $tagname = "$($FoggObject.ShortRGName)-$($tag)"
+                $snetname = "$($tagname)-snet"
                 $subnet = $FoggObject.SubnetAddressMap[$tag]
 
                 # Create network security group inbound/outbound rules
@@ -202,8 +232,8 @@ try
                 $rules = New-FirewallRules -Firewall $template.firewall -Subnets $FoggObject.SubnetAddressMap -CurrentTag $tag -Rules $rules
 
                 # Create network security group rules, and bind to VM
-                $nsg = New-FoggNetworkSecurityGroup -FoggObject $FoggObject -Name "$($vmname)-nsg" -Rules $rules
-                $FoggObject.NsgMap.Add($vmname, $nsg.Id)
+                $nsg = New-FoggNetworkSecurityGroup -FoggObject $FoggObject -Name "$($tagname)-nsg" -Rules $rules
+                $FoggObject.NsgMap.Add($tagname, $nsg.Id)
 
                 # assign subnet to vnet
                 $vnet = Add-FoggSubnetToVNet -FoggObject $FoggObject -VNet $vnet -SubnetName $snetname `
@@ -211,74 +241,31 @@ try
             }
 
 
-            # loop through each VM, building a deploying each one
-            foreach ($vm in $template.vms)
+            # Create Gateway subnet for VPN objects in template
+            $vpn = ($template.template | Where-Object { $_.type -ieq 'vpn' } | Select-Object -First 1)
+            if ($vpn -ne $null)
             {
-                $tag = $vm.tag
-                $vmname = "$($FoggObject.ShortRGName)-$($tag)"
-                $usePublicIP = [bool]$vm.usePublicIP
-                $subnetId = ($vnet.Subnets | Where-Object { $_.Name -ieq "$($vmname)-snet" }).Id
+                $tag = $vpn.tag.ToLowerInvariant()
+                $subnet = $FoggObject.SubnetAddressMap[$tag]
+                $vnet = Add-FoggGatewaySubnetToVNet -FoggObject $FoggObject -VNet $vnet -Address $subnet
+            }
 
-                $useLoadBalancer = $true
-                if (!(Test-Empty $vm.useLoadBalancer))
+
+            # loop through each template object, building a deploying each one
+            foreach ($obj in $template.template)
+            {
+                switch ($obj.type.ToLowerInvariant())
                 {
-                    $useLoadBalancer = [bool]$vm.useLoadBalancer
-                }
+                    'vm'
+                        {
+                            New-DeployTemplateVM -Template $template -VMTemplate $obj -FoggObject $FoggObject `
+                                -VNet $vnet -StorageAccount $sa -VMCredentials $FoggObjects.VMCredentials
+                        }
 
-                Write-Information "Deploying VMs for $($tag)"
-
-                # if we have more than one server count, create an availability set and load balancer
-                if ($vm.count -gt 1)
-                {
-                    $avset = New-FoggAvailabilitySet -FoggObject $FoggObject -Name "$($vmname)-as"
-
-                    if ($useLoadBalancer)
-                    {
-                        $lb = New-FoggLoadBalancer -FoggObject $FoggObject -Name "$($vmname)-lb" -SubnetId $subnetId `
-                            -Port $vm.port -PublicIP:$usePublicIP
-                    }
-                }
-
-                # create each of the VMs
-                $_vms = @()
-
-                1..($vm.count) | ForEach-Object {
-                    # does the VM have OS settings, or use global?
-                    $os = $template.os
-                    if ($vm.os -ne $null)
-                    {
-                        $os = $vm.os
-                    }
-
-                    # create the VM
-                    $_vms += (New-FoggVM -FoggObject $FoggObject -Name $vmname -VMIndex $_ -VMCredentials $FoggObjects.VMCredentials `
-                        -StorageAccount $sa -SubnetId $subnetId -VMSize $os.size -VMSkus $os.skus -VMOffer $os.offer `
-                        -VMType $os.type -VMPublisher $os.publisher -AvailabilitySet $avset -PublicIP:$usePublicIP)
-                }
-
-                # loop through each VM and deploy it
-                foreach ($_vm in $_vms)
-                {
-                    if ($_vm -eq $null)
-                    {
-                        continue
-                    }
-
-                    Save-FoggVM -FoggObject $FoggObject -VM $_vm -LoadBalancer $lb
-
-                    # see if we need to provision the machine
-                    Set-ProvisionVM -FoggObject $FoggObject -Provisioners $vm.provisioners -VMName $_vm.Name -StorageAccount $sa
-                }
-
-                # turn off some of the VMs if needed
-                if ($vm.off -gt 0)
-                {
-                    $count = ($_vms | Measure-Object).Count
-                    $base = ($count - $vm.off) + 1
-
-                    $count..$base | ForEach-Object {
-                        Stop-FoggVM -FoggObject $FoggObject -Name "$($vmname)$($_)"
-                    }
+                    'vpn'
+                        {
+                            New-DeployTemplateVPN -VPNTemplate $obj -FoggObject $FoggObject -VNet $vnet
+                        }
                 }
             }
 

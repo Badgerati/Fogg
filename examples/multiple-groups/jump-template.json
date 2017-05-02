@@ -1,7 +1,8 @@
 {
-    "vms": [
+    "template": [
         {
             "tag": "jump",
+            "type": "vm",
             "count": 1,
             "provisioners": [
                 "remoting"
