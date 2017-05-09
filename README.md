@@ -25,6 +25,7 @@ choco install fogg
 
 * Deploy and provision Virtual Machines in Azure
 * Spin-up mulitple Resource Groups at once using a Foggfile
+* Has inbuilt provision scripts, with more that can be added on request
 * Provision using:
   * PowerShell Desired State Configuration (DSC)
   * Custom Scripts (ps1/bat)
