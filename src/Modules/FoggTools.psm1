@@ -462,9 +462,15 @@ function Test-Provisioners
         [Parameter(Mandatory=$true)]
         $FoggObject,
 
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $FoggRootPath,
+
         $Paths
     )
 
+    # if there are no provisioners, just return
     if (Test-Empty $Paths)
     {
         $FoggObject.HasProvisionScripts = $false
@@ -474,26 +480,53 @@ function Test-Provisioners
     $FoggObject.HasProvisionScripts = $true
     Write-Information "Verifying Provision Scripts"
 
+    # ensure the root path exists
+    if (!(Test-PathExists $FoggRootPath))
+    {
+        throw "Foog root path for internal provisioners does not exist: $($FoggRootPath)"
+    }
+
+    # convert the JSON map into a POSH map
     $map = ConvertFrom-JsonObjectToMap $Paths
     $regex = '^\s*(?<type>[a-z0-9]+)\:\s*(?<file>.+?)\s*$'
+    $intRegex = '^@\{(?<name>.+?)\}$'
 
+    # go through all the keys, validating and adding each one
     ($map.Clone()).Keys | ForEach-Object {
         $value = $map[$_]
 
+        # ensure the value matches a "<type>: <file>" regex, else throw error
         if ($value -imatch $regex)
         {
+            # ensure the type is a valid provisioner type
             $type = $Matches['type'].ToLowerInvariant()
             if ($type -ine 'dsc' -and $type -ine 'custom')
             {
                 throw "Invalid provisioner type found: $($type)"
             }
 
-            $file = Resolve-Path (Join-Path $FoggObject.TemplateParent $Matches['file'])
+            # get the file path
+            $file = $Matches['file']
+
+            # check if we're dealing with an internal or custom
+            if ($file -imatch $intRegex)
+            {
+                # it's an internal script
+                $file = Join-Path (Join-Path $FoggRootPath $type) "$($Matches['name']).ps1"
+            }
+            else
+            {
+                # it's a custom script
+                $file = Resolve-Path (Join-Path $FoggObject.TemplateParent $file)
+            }
+
+            # ensure the provisioner script path exists
             if (!(Test-PathExists $file))
             {
                 throw "Provision script for $($type) does not exist: $($file)"
             }
 
+            # add to internal list of provisioners for later
             if (!$FoggObject.ProvisionMap[$type].ContainsKey($_))
             {
                 $FoggObject.ProvisionMap[$type].Add($_, $file)
@@ -647,6 +680,11 @@ function Get-SubnetPort
 function New-FoggObject
 {
     param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $FoggRootPath,
+
         [string]
         $ResourceGroupName,
 
@@ -733,6 +771,7 @@ function New-FoggObject
     $props.SubscriptionName = $SubscriptionName
     $props.SubscriptionCredentials = $SubscriptionCredentials
     $props.VMCredentials = $VMCredentials
+    $props.FoggProvisionersPath = Join-Path $FoggRootPath 'Provisioners'
     $foggObj = New-Object -TypeName PSObject -Property $props
 
     # if we aren't using a Foggfile, set params directly

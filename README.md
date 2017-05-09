@@ -25,6 +25,7 @@ choco install fogg
 
 * Deploy and provision Virtual Machines in Azure
 * Spin-up mulitple Resource Groups at once using a Foggfile
+* Has inbuilt provision scripts, with more that can be added on request
 * Provision using:
   * PowerShell Desired State Configuration (DSC)
   * Custom Scripts (ps1/bat)
@@ -226,7 +227,9 @@ Now, while this does seem a little big at first, it's actually fairly simple; so
 
 First, we'll look at the `provisioners` section. This section is a key-value map of paths to PowerShell Desired State Configuration or Custom scripts. If a path is invalid Fogg will fail. The names (`remoting` and `web`) are used in the `template` section to specify which provisioning scripts need to be run for provisioning.
 
-For example, the provisioner of `"web": "dsc: .\\WebServer.ps1"` is called `web`, will provision via `PowerShell DSC` using the `.\WebServer.ps1` script. Other than `dsc` you can also use a `custom` provisioner type which will allow you to use your own PS1/BAT scripts.
+For example, the provisioner of `"web": "dsc: .\\WebServer.ps1"` is called `web`, and will provision via `PowerShell DSC` using the `.\WebServer.ps1` script. Other than `dsc` you can also use a `custom` provisioner type which will allow you to use your own PS1/BAT scripts.
+
+It's also worth noting that the `WebServer` script is inbuilt into Fogg, so you could also just use the following to reference inbuilt provision scripts: `"web": "dsc: @{WebServer}"`
 
 If the paths specified are relative, then they are required to be relative to the template file's location.
 

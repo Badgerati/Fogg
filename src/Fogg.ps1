@@ -127,7 +127,7 @@ if (!(Test-PowerShellVersion 4))
 
 
 # create new fogg object from parameters and foggfile
-$FoggObjects = New-FoggObject -ResourceGroupName $ResourceGroupName -Location $Location -SubscriptionName $SubscriptionName `
+$FoggObjects = New-FoggObject -FoggRootPath $root -ResourceGroupName $ResourceGroupName -Location $Location -SubscriptionName $SubscriptionName `
     -SubnetAddresses $SubnetAddresses -TemplatePath $TemplatePath -FoggfilePath $FoggfilePath -SubscriptionCredentials $SubscriptionCredentials `
     -VMCredentials $VMCredentials -VNetAddress $VNetAddress -VNetResourceGroupName $VNetResourceGroupName -VNetName $VNetName
 
@@ -144,7 +144,7 @@ try
         $template = Get-JSONContent $FoggObject.TemplatePath
 
         # Check that the Provisioner script paths exist
-        Test-Provisioners -FoggObject $FoggObject -Paths $template.provisioners
+        Test-Provisioners -FoggObject $FoggObject -Paths $template.provisioners -FoggRootPath $FoggObjects.FoggProvisionersPath
 
         # Check the template section
         $vmCount = Test-Template -Template $template.template -FoggObject $FoggObject -OS $template.os
@@ -172,7 +172,7 @@ try
         $template = Get-JSONContent $FoggObject.TemplatePath
 
         # Check that the Provisioner script paths exist
-        Test-Provisioners -FoggObject $FoggObject -Paths $template.provisioners
+        Test-Provisioners -FoggObject $FoggObject -Paths $template.provisioners -FoggRootPath $FoggObjects.FoggProvisionersPath
 
         # Check the template section
         $vmCount = Test-Template -Template $template.template -FoggObject $FoggObject -OS $template.os

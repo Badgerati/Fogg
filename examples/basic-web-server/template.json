@@ -32,7 +32,7 @@
     ],
     "provisioners": {
         "remoting": "dsc: .\\Remoting.ps1",
-        "web": "dsc: .\\WebServer.ps1",
+        "web": "dsc: @{WebServer}",
         "logs": "custom: .\\Directories.ps1"
     },
     "firewall": {
