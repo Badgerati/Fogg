@@ -251,7 +251,6 @@ Finally is the `file` type VM. You'll notice that this creates just one of this 
 
 ## TODO
 
-* Inbuilt DSC scripts could be useful (for things like remoting, web-server install etc)
 * SQL always-on clusters
 * Web Apps?
 * Possibilty of Chef as a provisioner
