@@ -1,0 +1,14 @@
+{
+    "SubscriptionName": "<SUB_NAME_HERE>",
+    "Groups": [
+        {
+            "ResourceGroupName": "sql-rg",
+            "Location": "westeurope",
+            "TemplatePath": ".\\template.json",
+            "VNetAddress": "10.5.0.0/16",
+            "SubnetAddresses": {
+                "vm": "10.5.0.0/24"
+            }
+        }
+    ]
+}

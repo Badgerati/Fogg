@@ -369,7 +369,7 @@ function Set-FoggDscConfig
 
     $output = Set-AzureRmVMDscExtension -ResourceGroupName $FoggObject.ResourceGroupName -VMName $VMName -ArchiveBlobName $script `
         -ArchiveStorageAccountName $StorageAccount.StorageAccountName -ConfigurationName $func -Version "2.23" -AutoUpdate `
-        -Location $FoggObject.Location -Force -ErrorAction SilentlyContinue
+        -Location $FoggObject.Location -Force -ErrorAction 'Continue'
 
     if ($output -eq $null -or !$output.IsSuccessStatusCode)
     {
@@ -423,7 +423,7 @@ function Set-FoggCustomConfig
 
     $output = Set-AzureRmVMCustomScriptExtension -ResourceGroupName $FoggObject.ResourceGroupName -VMName $VMName `
         -Location $FoggObject.Location -StorageAccountName $saName -StorageAccountKey $saKey -ContainerName $ContainerName `
-        -FileName $fileName -Name $fileNameNoExt -Run $fileName -ErrorAction SilentlyContinue
+        -FileName $fileName -Name 'Microsoft.Compute.CustomScriptExtension' -Run $fileName -ErrorAction 'Continue'
 
     if ($output -eq $null -or !$output.IsSuccessStatusCode)
     {

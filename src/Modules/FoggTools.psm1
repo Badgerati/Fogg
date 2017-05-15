@@ -511,13 +511,18 @@ function Test-Provisioners
             # check if we're dealing with an internal or custom
             if ($file -imatch $intRegex)
             {
-                # it's an internal script
+                # it's an internal script, get name and optional OS type
                 $name = $Matches['name'].ToLowerInvariant()
 
-                $os = $Matches['os'].ToLowerInvariant()
-                if ($type -ieq 'dsc')
+                $os = $Matches['os']
+                if (![string]::IsNullOrWhiteSpace($os))
                 {
-                    $os = 'win'
+                    if ($type -ieq 'dsc')
+                    {
+                        $os = 'win'
+                    }
+
+                    $os = $os.ToLowerInvariant()
                 }
 
                 switch ($os)
@@ -526,7 +531,7 @@ function Test-Provisioners
                         {
                             $file = Join-Path (Join-Path $FoggRootPath $type) "$($name).ps1"
                         }
-                    
+
                     'unix'
                         {
                             $file = Join-Path (Join-Path $FoggRootPath $type) "$($name).sh"
@@ -537,7 +542,6 @@ function Test-Provisioners
                             $file = Join-Path (Join-Path $FoggRootPath $type) "$($name).ps1"
                         }
                 }
-                
             }
             else
             {
