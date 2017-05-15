@@ -489,7 +489,7 @@ function Test-Provisioners
     # convert the JSON map into a POSH map
     $map = ConvertFrom-JsonObjectToMap $Paths
     $regex = '^\s*(?<type>[a-z0-9]+)\:\s*(?<file>.+?)\s*$'
-    $intRegex = '^@\{(?<name>.+?)\}$'
+    $intRegex = '^@\{(?<name>.*?)(\|(?<os>.*?)){0,1}\}$'
 
     # go through all the keys, validating and adding each one
     ($map.Clone()).Keys | ForEach-Object {
@@ -511,8 +511,37 @@ function Test-Provisioners
             # check if we're dealing with an internal or custom
             if ($file -imatch $intRegex)
             {
-                # it's an internal script
-                $file = Join-Path (Join-Path $FoggRootPath $type) "$($Matches['name']).ps1"
+                # it's an internal script, get name and optional OS type
+                $name = $Matches['name'].ToLowerInvariant()
+
+                $os = $Matches['os']
+                if (![string]::IsNullOrWhiteSpace($os))
+                {
+                    if ($type -ieq 'dsc')
+                    {
+                        $os = 'win'
+                    }
+
+                    $os = $os.ToLowerInvariant()
+                }
+
+                switch ($os)
+                {
+                    'win'
+                        {
+                            $file = Join-Path (Join-Path $FoggRootPath $type) "$($name).ps1"
+                        }
+
+                    'unix'
+                        {
+                            $file = Join-Path (Join-Path $FoggRootPath $type) "$($name).sh"
+                        }
+
+                    default
+                        {
+                            $file = Join-Path (Join-Path $FoggRootPath $type) "$($name).ps1"
+                        }
+                }
             }
             else
             {
