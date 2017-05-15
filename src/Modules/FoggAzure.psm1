@@ -357,9 +357,13 @@ function Set-FoggDscConfig
         $ScriptPath
     )
 
-    $file = Split-Path -Leaf -Path "$($ScriptPath)"
-    $script = "$($file).zip"
-    $func = ($file -ireplace '\.ps1', '')
+    $script = Split-Path -Leaf -Path "$($ScriptPath)"
+    if (!$script.EndsWith('.zip'))
+    {
+        $script = "$($script).zip"
+    }
+
+    $func = ($script -ireplace '\.ps1\.zip', '')
 
     Write-Information "Installing DSC Extension on VM $($VMName), and running script $($script)"
 
