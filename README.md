@@ -229,7 +229,7 @@ First, we'll look at the `provisioners` section. This section is a key-value map
 
 For example, the provisioner of `"web": "dsc: .\\WebServer.ps1"` is called `web`, and will provision via `PowerShell DSC` using the `.\WebServer.ps1` script. Other than `dsc` you can also use a `custom` provisioner type which will allow you to use your own PS1/BAT scripts.
 
-It's also worth noting that the `WebServer` script is inbuilt into Fogg, so you could also just use the following to reference inbuilt provision scripts: `"web": "dsc: @{WebServer}"`
+It's also worth noting that the `WebServer` script is inbuilt into Fogg, so you could also just use the following to reference inbuilt provision scripts: `"web": "dsc: @{web-server}"`
 
 If the paths specified are relative, then they are required to be relative to the template file's location.
 
