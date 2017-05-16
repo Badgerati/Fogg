@@ -177,6 +177,12 @@ try
         # Check the template section
         $vmCount = Test-Template -Template $template.template -FoggObject $FoggObject -OS $template.os
 
+        # If we have a pretag on the template, set against this FoggObject
+        if (![string]::IsNullOrWhiteSpace($template.pretag))
+        {
+            $FoggObject.PreTag = $template.pretag.ToLowerInvariant()
+        }
+
 
         # If we're using an existng virtual network, ensure it actually exists
         if ($FoggObject.UseExistingVNet)
@@ -223,7 +229,7 @@ try
             foreach ($vm in $vms)
             {
                 $tag = $vm.tag.ToLowerInvariant()
-                $tagname = "$($FoggObject.ShortRGName)-$($tag)"
+                $tagname = "$($FoggObject.PreTag)-$($tag)"
                 $snetname = "$($tagname)-snet"
                 $subnet = $FoggObject.SubnetAddressMap[$tag]
 
