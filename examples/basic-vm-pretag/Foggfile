@@ -1,0 +1,14 @@
+{
+    "SubscriptionName": "<SUB_NAME_HERE>",
+    "Groups": [
+        {
+            "ResourceGroupName": "basic-pretag-rg",
+            "Location": "westeurope",
+            "TemplatePath": ".\\template.json",
+            "VNetAddress": "10.6.0.0/16",
+            "SubnetAddresses": {
+                "vm": "10.6.0.0/24"
+            }
+        }
+    ]
+}

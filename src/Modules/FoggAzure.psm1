@@ -161,7 +161,7 @@ function New-FoggStorageAccount
         $StorageTag = 'prm'
     }
 
-    $Name = ("$($FoggObject.ShortRGName)-$($StorageTag)-sa") -ireplace '-', ''
+    $Name = ("$($FoggObject.PreTag)-$($StorageTag)-sa") -ireplace '-', ''
 
     Write-Information "Creating storage account $($Name) in resource group $($FoggObject.ResourceGroupName)"
 
@@ -874,7 +874,7 @@ function New-FoggVirtualNetwork
         $FoggObject
     )
 
-    $Name = "$($FoggObject.ShortRGName)-vnet"
+    $Name = "$($FoggObject.PreTag)-vnet"
 
     Write-Information "Creating virtual network $($Name) in $($FoggObject.ResourceGroupName)"
 

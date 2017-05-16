@@ -942,7 +942,7 @@ function New-FoggGroupObject
     # create fogg object with params
     $group = @{}
     $group.ResourceGroupName = $ResourceGroupName
-    $group.ShortRGName = (Remove-RGTag $ResourceGroupName)
+    $group.PreTag = (Remove-RGTag $ResourceGroupName)
     $group.Location = $Location
     $group.VNetAddress = $VNetAddress
     $group.VNetResourceGroupName = $VNetResourceGroupName
@@ -962,7 +962,7 @@ function New-FoggGroupObject
 
     # post param alterations
     $groupObj.ResourceGroupName = $groupObj.ResourceGroupName.ToLowerInvariant()
-    $groupObj.ShortRGName = $groupObj.ShortRGName.ToLowerInvariant()
+    $groupObj.PreTag = $groupObj.PreTag.ToLowerInvariant()
 
     # return object
     return $groupObj
@@ -1038,7 +1038,7 @@ function New-DeployTemplateVM
     )
 
     $tag = $VMTemplate.tag.ToLowerInvariant()
-    $tagname = "$($FoggObject.ShortRGName)-$($tag)"
+    $tagname = "$($FoggObject.PreTag)-$($tag)"
     $usePublicIP = [bool]$VMTemplate.usePublicIP
     $subnetId = ($VNet.Subnets | Where-Object { $_.Name -ieq "$($tagname)-snet" }).Id
 
@@ -1123,7 +1123,7 @@ function New-DeployTemplateVPN
     )
 
     $tag = $VPNTemplate.tag.ToLowerInvariant()
-    $tagname = "$($FoggObject.ShortRGName)-$($tag)"
+    $tagname = "$($FoggObject.PreTag)-$($tag)"
 
     $gatewaySubnetId = ($VNet.Subnets | Where-Object { $_.Name -ieq 'GatewaySubnet' }).Id
     $gatewayIP = $FoggObject.SubnetAddressMap["$($tag)-gip"]
