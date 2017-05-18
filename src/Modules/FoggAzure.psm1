@@ -363,7 +363,7 @@ function Set-FoggDscConfig
         $script = "$($script).zip"
     }
 
-    $func = ($script -ireplace '\.ps1\.zip', '')
+    $func = ($script -ireplace '\.ps1\.zip', '') -ireplace '-', ''
 
     Write-Information "Installing DSC Extension on VM $($VMName), and running script $($script)"
 
