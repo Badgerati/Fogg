@@ -1,4 +1,4 @@
-Configuration WebServer
+Configuration webserver
 {
     Node 'localhost'
     {

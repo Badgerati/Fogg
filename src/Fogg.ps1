@@ -146,6 +146,9 @@ try
         # Check that the Provisioner script paths exist
         Test-Provisioners -FoggObject $FoggObject -Paths $template.provisioners -FoggRootPath $FoggObjects.FoggProvisionersPath
 
+        # Check the global firewall rules are valid
+        Test-FirewallRules -FirewallRules $template.firewall
+
         # Check the template section
         $vmCount = Test-Template -Template $template.template -FoggObject $FoggObject -OS $template.os
     }
@@ -174,8 +177,12 @@ try
         # Check that the Provisioner script paths exist
         Test-Provisioners -FoggObject $FoggObject -Paths $template.provisioners -FoggRootPath $FoggObjects.FoggProvisionersPath
 
+        # Check the global firewall rules are valid
+        Test-FirewallRules -FirewallRules $template.firewall
+
         # Check the template section
         $vmCount = Test-Template -Template $template.template -FoggObject $FoggObject -OS $template.os
+
 
         # If we have a pretag on the template, set against this FoggObject
         if (![string]::IsNullOrWhiteSpace($template.pretag))

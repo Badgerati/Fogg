@@ -363,7 +363,7 @@ function Set-FoggDscConfig
         $script = "$($script).zip"
     }
 
-    $func = ($script -ireplace '\.ps1\.zip', '')
+    $func = ($script -ireplace '\.ps1\.zip', '') -ireplace '-', ''
 
     Write-Information "Installing DSC Extension on VM $($VMName), and running script $($script)"
 
@@ -414,7 +414,6 @@ function Set-FoggCustomConfig
     )
 
     $fileName = Split-Path -Leaf -Path "$($ScriptPath)"
-    $fileNameNoExt = ($fileName -ireplace [Regex]::Escape([System.IO.Path]::GetExtension($fileName)), '')
 
     $saName = $StorageAccount.StorageAccountName
     $saKey = (Get-AzureRmStorageAccountKey -ResourceGroupName $FoggObject.ResourceGroupName -Name $saName).Value[0]
@@ -545,11 +544,68 @@ function New-FirewallRules
         $Rules = @()
     )
 
+    # if there are no firewall rules, return
     if ($Firewall -eq $null)
     {
         return $Rules
     }
 
+    # deal with any default rules
+    if ($Firewall.http -eq $true)
+    {
+        $Rules += (New-FoggNetworkSecurityGroupRule -Name 'HTTP' -Priority 3500 -Direction 'Inbound' `
+            -Source '*:*' -Destination '@{subnet}:80' -Subnets $Subnets -CurrentTag $CurrentTag -Access 'Allow')
+    }
+
+    if ($Firewall.https -eq $true)
+    {
+        $Rules += (New-FoggNetworkSecurityGroupRule -Name 'HTTPS' -Priority 3501 -Direction 'Inbound' `
+            -Source '*:*' -Destination '@{subnet}:443' -Subnets $Subnets -CurrentTag $CurrentTag -Access 'Allow')
+    }
+
+    if ($Firewall.rdp -eq $true)
+    {
+        $Rules += (New-FoggNetworkSecurityGroupRule -Name 'RDP' -Priority 3502 -Direction 'Inbound' `
+            -Source '*:*' -Destination '@{subnet}:3389' -Subnets $Subnets -CurrentTag $CurrentTag -Access 'Allow')
+    }
+
+    if ($Firewall.sql -eq $true)
+    {
+        $Rules += (New-FoggNetworkSecurityGroupRule -Name 'SQL' -Priority 3503 -Direction 'Inbound' `
+            -Source '*:*' -Destination '@{subnet}:1433-1434' -Subnets $Subnets -CurrentTag $CurrentTag -Access 'Allow')
+    }
+
+    if ($Firewall.sqlmirror -eq $true)
+    {
+        $Rules += (New-FoggNetworkSecurityGroupRule -Name 'SQL Mirroring' -Priority 3504 -Direction 'Inbound' `
+            -Source '*:*' -Destination '@{subnet}:5022-5023' -Subnets $Subnets -CurrentTag $CurrentTag -Access 'Allow')
+    }
+
+    if ($Firewall.smtp -eq $true)
+    {
+        $Rules += (New-FoggNetworkSecurityGroupRule -Name 'SMTP' -Priority 3505 -Direction 'Inbound' `
+            -Source '*:*' -Destination '@{subnet}:25' -Subnets $Subnets -CurrentTag $CurrentTag -Access 'Allow')
+    }
+
+    if ($Firewall.ftp -eq $true)
+    {
+        $Rules += (New-FoggNetworkSecurityGroupRule -Name 'FTP' -Priority 3506 -Direction 'Inbound' `
+            -Source '*:*' -Destination '@{subnet}:20-21' -Subnets $Subnets -CurrentTag $CurrentTag -Access 'Allow')
+    }
+
+    if ($Firewall.sftp -eq $true)
+    {
+        $Rules += (New-FoggNetworkSecurityGroupRule -Name 'SFTP' -Priority 3507 -Direction 'Inbound' `
+            -Source '*:*' -Destination '@{subnet}:115' -Subnets $Subnets -CurrentTag $CurrentTag -Access 'Allow')
+    }
+
+    if ($Firewall.ssh -eq $true)
+    {
+        $Rules += (New-FoggNetworkSecurityGroupRule -Name 'SSH' -Priority 3508 -Direction 'Inbound' `
+            -Source '*:*' -Destination '@{subnet}:22' -Subnets $Subnets -CurrentTag $CurrentTag -Access 'Allow')
+    }
+
+    # assign the inbound rules
     if (!(Test-ArrayEmpty $Firewall.inbound))
     {
         $Firewall.inbound | ForEach-Object {
@@ -558,6 +614,7 @@ function New-FirewallRules
         }
     }
 
+    # assign the outbound rules
     if (!(Test-ArrayEmpty $Firewall.outbound))
     {
         $Firewall.outbound | ForEach-Object {
@@ -566,6 +623,7 @@ function New-FirewallRules
         }
     }
 
+    # return the rules
     return $Rules
 }
 

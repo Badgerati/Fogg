@@ -18,15 +18,7 @@
                 "skus": "2016-Datacenter"
             },
             "firewall": {
-                "inbound": [
-                    {
-                        "name": "HTTP",
-                        "priority": 101,
-                        "source": "*:*",
-                        "destination": "@{subnet}:80",
-                        "access": "Allow"
-                    }
-                ]
+                "http": true
             }
         }
     ],
@@ -36,14 +28,6 @@
         "logs": "custom: .\\Directories.ps1"
     },
     "firewall": {
-        "inbound": [
-            {
-                "name": "RDP",
-                "priority": 4095,
-                "source": "*:*",
-                "destination": "@{subnet}:3389",
-                "access": "Allow"
-            }
-        ]
+        "rdp": true
     }
 }

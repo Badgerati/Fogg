@@ -350,7 +350,13 @@ function Test-TemplateVM
     }
 
     # if there's more than one VM (load balanced) a port is required
-    if ($vm.count -gt 1 -and (Test-Empty $vm.port))
+    $useLoadBalancer = $true
+    if (!(Test-Empty $vm.useLoadBalancer))
+    {
+        $useLoadBalancer = [bool]$VMTemplate.useLoadBalancer
+    }
+
+    if ($vm.count -gt 1 -and $useLoadBalancer -and (Test-Empty $vm.port))
     {
         throw "A valid port value is required for the $($tag) VM template object for load balancing"
     }
@@ -380,6 +386,87 @@ function Test-TemplateVM
                 throw "Provisioner key not specified in Provisioners section for $($tag): $($_)"
             }
         }
+    }
+
+    # ensure firewall rules are valid
+    Test-FirewallRules -FirewallRules $vm.firewall
+}
+
+
+function Test-FirewallRules
+{
+    param (
+        $FirewallRules
+    )
+
+    # if no firewall rules then just return
+    if ($FirewallRules -eq $null)
+    {
+        return
+    }
+
+    # verify the firewall inbound rules
+    if (!(Test-ArrayEmpty $FirewallRules.inbound))
+    {
+        $FirewallRules.inbound | ForEach-Object {
+            Test-FirewallRule -FirewallRule $_
+        }
+    }
+
+    # verify the firewall outbound rules
+    if (!(Test-ArrayEmpty $FirewallRules.outbound))
+    {
+        $FirewallRules.outbound | ForEach-Object {
+            Test-FirewallRule -FirewallRule $_
+        }
+    }
+}
+
+
+function Test-FirewallRule
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        $FirewallRule
+    )
+
+    # ensure name
+    if ([string]::IsNullOrWhiteSpace($FirewallRule.name))
+    {
+        throw 'A name is required for firewall rules'
+    }
+
+    # ensure priority
+    if ([string]::IsNullOrWhiteSpace($FirewallRule.priority))
+    {
+        throw "A priority is required for firewall rule $($FirewallRule.name)"
+    }
+
+    if ($FirewallRule.priority -lt 100 -or $FirewallRule.priority -gt 4095)
+    {
+        throw "The priority must be between 100 and 4095 for firewall rule $($FirewallRule.name)"
+    }
+
+    # ensure source
+    $regex = '^.+\:.+$'
+
+    if ($FirewallRule.source -inotmatch $regex)
+    {
+        throw "A source IP and Port range is required for firewall rule $($FirewallRule.name)"
+    }
+
+    # ensure destination
+    if ($FirewallRule.destination -inotmatch $regex)
+    {
+        throw "A destination IP and Port range is required for firewall rule $($FirewallRule.name)"
+    }
+
+    # ensure access rule
+    $accesses = @('Allow', 'Deny')
+    if ([string]::IsNullOrWhiteSpace($FirewallRule.access) -or $accesses -inotcontains $FirewallRule.access)
+    {
+        throw "An access of Allow or Deny is required for firewall rule $($FirewallRule.name)"
     }
 }
 
