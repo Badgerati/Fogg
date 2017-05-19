@@ -414,7 +414,6 @@ function Set-FoggCustomConfig
     )
 
     $fileName = Split-Path -Leaf -Path "$($ScriptPath)"
-    $fileNameNoExt = ($fileName -ireplace [Regex]::Escape([System.IO.Path]::GetExtension($fileName)), '')
 
     $saName = $StorageAccount.StorageAccountName
     $saKey = (Get-AzureRmStorageAccountKey -ResourceGroupName $FoggObject.ResourceGroupName -Name $saName).Value[0]
