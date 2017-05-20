@@ -1,13 +1,12 @@
 {
+    "pretag": "pretag",
     "template": [
         {
-            "tag": "web",
+            "tag": "vm",
             "type": "vm",
             "count": 1,
             "provisioners": [
-                "remoting",
-                "web",
-                "logs"
+                "remoting"
             ],
             "usePublicIP": true,
             "os": {
@@ -16,18 +15,21 @@
                 "publisher": "MicrosoftWindowsServer",
                 "offer": "WindowsServer",
                 "skus": "2016-Datacenter"
-            },
-            "firewall": {
-                "http": true
             }
         }
     ],
     "provisioners": {
-        "remoting": "dsc: .\\Remoting.ps1",
-        "web": "dsc: @{web-server}",
-        "logs": "custom: .\\Directories.ps1"
+        "remoting": "dsc: @{remoting}"
     },
     "firewall": {
-        "rdp": true
+        "inbound": [
+            {
+                "name": "RDP",
+                "priority": 4095,
+                "source": "*:*",
+                "destination": "@{subnet}:3389",
+                "access": "Allow"
+            }
+        ]
     }
 }

@@ -33,6 +33,7 @@ Write-Host "Copying scripts into package"
 New-Item -ItemType Directory -Path './Package/src'
 
 Copy-Item -Path './src/Modules' -Destination './Package/src/' -Force -Recurse
+Copy-Item -Path './src/Provisioners' -Destination './Package/src/' -Force -Recurse
 Copy-Item -Path './src/Fogg.ps1' -Destination './Package/src/' -Force
 
 Write-Host "Scripts copied successfully"

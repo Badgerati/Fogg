@@ -25,9 +25,11 @@ choco install fogg
 
 * Deploy and provision Virtual Machines in Azure
 * Spin-up mulitple Resource Groups at once using a Foggfile
+* Has inbuilt provision scripts, with more that can be added on request
 * Provision using:
   * PowerShell Desired State Configuration (DSC)
   * Custom Scripts (ps1/bat)
+  * Chocolatey to install software
 * Deploy:
   * Resource Groups
   * Storage Accounts
@@ -46,7 +48,7 @@ Fogg uses a JSON template file to determine what needs to be created and deploye
 
 ## Example
 
-This simple example will just spin-up one VM. For more examples, please see the `examples` folder in the repo (a more advanced one is described first below).
+This simple example will just spin-up one VM. For more examples, please see the `examples` folder in the repo (a more advanced example can be found in the wiki).
 
 The first thing you will need is a template file, which will look as follows:
 
@@ -121,134 +123,8 @@ fogg
 
 If you pass in the parameters on the CLI while using a Foggfile, the parameters from the CLI have higher precidence and will override the Foggfile's values. (ie: passing `-SubscriptionName` will override the `"SubscriptionName"` in the Foggfile)
 
-## Advanced Example
-
-> (This is from the `examples/web-file-servers` examples directory)
-
-The above example gave a quick overview of using Fogg to create one VM. But normally infrastructure doesn't contain just one VM, normally you might have something like 2 load balanced web servers, and a single file server for logs/reports. Here the web VMs need to be publically accessibly on port 80 (for example), and the file server only accessible by the web servers (excluding remoting access).
-
-This includes creating firewall rules, load balancers, public IPs, and provisioning the web server with IIS/.NET. Fortunately, all possible with Fogg; let's take a look at what the template file would look like for this:
-
-```json
-{
-    "template": [
-        {
-            "tag": "web",
-            "type": "vm",
-            "count": 2,
-            "provisioners": [
-                "remoting",
-                "web"
-            ],
-            "usePublicIP": true,
-            "port": 80,
-            "firewall": {
-                "inbound": [
-                    {
-                        "name": "HTTP",
-                        "priority": 101,
-                        "source": "*:*",
-                        "destination": "@{subnet}:80",
-                        "access": "Allow"
-                    }
-                ]
-            }
-        },
-        {
-            "tag": "file",
-            "type": "vm",
-            "count": 1,
-            "provisioners": [
-                "remoting"
-            ],
-            "usePublicIP": true,
-            "firewall": {
-                "inbound": [
-                    {
-                        "name": "AnyPort",
-                        "priority": 101,
-                        "source": "@{subnet|web}:*",
-                        "destination": "@{subnet}:*",
-                        "access": "Allow"
-                    }
-                ]
-            }
-        }
-    ],
-    "os": {
-        "type": "Windows",
-        "size": "Standard_DS1_v2",
-        "publisher": "MicrosoftWindowsServer",
-        "offer": "WindowsServer",
-        "skus": "2016-Datacenter"
-    },
-    "provisioners": {
-        "remoting": "dsc: .\\Remoting.ps1",
-        "web": "dsc: .\\WebServer.ps1"
-    },
-    "firewall": {
-        "inbound": [
-            {
-                "name": "RDP",
-                "priority": 4095,
-                "source": "*:*",
-                "destination": "@{subnet}:3389",
-                "access": "Allow"
-            }
-        ]
-    }
-}
-```
-
-The Foggfile could be the following:
-
-```json
-{
-    "SubscriptionName": "<you_sub_name>",
-    "Groups": [
-        {
-            "ResourceGroupName": "adv-rg",
-            "Location": "westeurope",
-            "TemplatePath": "<path_to_above_template>",
-            "VNetAddress": "10.2.0.0/16",
-            "SubnetAddresses": {
-                "web": "10.2.0.0/24",
-                "file": "10.2.1.0/24"
-            }
-        }
-    ]
-}
-```
-
-Now, while this does seem a little big at first, it's actually fairly simple; so let's look at each section.
-
-### Provisioners
-
-First, we'll look at the `provisioners` section. This section is a key-value map of paths to PowerShell Desired State Configuration or Custom scripts. If a path is invalid Fogg will fail. The names (`remoting` and `web`) are used in the `template` section to specify which provisioning scripts need to be run for provisioning.
-
-For example, the provisioner of `"web": "dsc: .\\WebServer.ps1"` is called `web`, will provision via `PowerShell DSC` using the `.\WebServer.ps1` script. Other than `dsc` you can also use a `custom` provisioner type which will allow you to use your own PS1/BAT scripts.
-
-If the paths specified are relative, then they are required to be relative to the template file's location.
-
-### OS
-
-The `os` section is a global section for specifying each VMs OS type. Ie, if you have 4 VM objects in your `template` section, and each has the same `os` spec, then you'd use this global `os` section to prevent duplciating the same section everywhere. If one of your VMs requires a different OS type, then a VM with an `os` section will override the global one.
-
-### Firewall
-
-This is fairly straightforward, this a an array of both `inbound` and `outbound` global firewall rules for all VM NSGs. (Normally things like 3389 for RDP, etc.)
-
-### Template
-
-This section is the same as the one from spinning up one VM type, though now we have two VM types.
-
-Firstly, is the `web` type VMs (identified by the mandatory tag for each VM). Here you'll notice that this VM has a `count` of `2`, and a `port` of `80`. Remembering from above, if you give a VM a count of > 1, then Fogg will automatically create that many VMs as well as placing them into an Availability Set and Load Balancer. The Load Balancer is where the `port` comes in, as this is what port the balancer will listen on and map to for the backend VMs. So in this case, the `web` type VM section will create 2 load balanced VMs, provision them with `remoting` and `web` DSC scripts. It will set the load balancer to to port 80, and the firewall rule will publically expose port 80.
-
-Finally is the `file` type VM. You'll notice that this creates just one of this VM type, and provisions it with the `remoting` DSC. The VM also has a public IP but this is just for remoting onto (the global firewall inbound rule). The local firewall rule here will only allow anything from the `web` VM type's subnet (`@{subnet|web}` is replaced with the `web` subnet address specified in the `SubnetAddresses` from the command line or Foggfile).
-
 ## TODO
 
-* Inbuilt DSC scripts could be useful (for things like remoting, web-server install etc)
 * SQL always-on clusters
 * Web Apps?
 * Possibilty of Chef as a provisioner
