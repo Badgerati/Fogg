@@ -25,8 +25,7 @@ try
 {
     Write-Host 'Updating environment Path'
     Install-ChocolateyPath -PathToInstall $path -PathType 'Machine'
-
-    $env:PATH = (Get-EnvironmentVariable -Name 'PATH' -Scope 'Machine') + ';' + (Get-EnvironmentVariable -Name 'PATH' -Scope 'User')
+    Update-SessionEnvironment
 }
 finally
 {

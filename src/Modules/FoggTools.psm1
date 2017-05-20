@@ -262,9 +262,8 @@ function Test-TemplateVPN
         $FoggObject
     )
 
-    # get tag and type
+    # get tag
     $tag = $VPN.tag.ToLowerInvariant()
-    $type = $VPN.type.ToLowerInvariant()
 
     # ensure that the VPN object has a subnet map
     if (!$FoggObject.SubnetAddressMap.Contains($tag))
@@ -327,9 +326,8 @@ function Test-TemplateVM
     # is there an OS section?
     $hasOS = ($OS -ne $null)
 
-    # get tag and type
+    # get tag
     $tag = $VM.tag.ToLowerInvariant()
-    $type = $VM.type.ToLowerInvariant()
 
     # ensure that each VM object has a subnet map
     if (!$FoggObject.SubnetAddressMap.Contains($tag))
@@ -538,8 +536,9 @@ function Test-ProvisionerExists
 
     $dsc = $FoggObject.ProvisionMap['dsc'].ContainsKey($ProvisionerName)
     $custom =  $FoggObject.ProvisionMap['custom'].ContainsKey($ProvisionerName)
+    $choco = $FoggObject.ProvisionMap['choco'].ContainsKey($ProvisionerName)
 
-    return ($dsc -or $custom)
+    return ($dsc -or $custom -or $choco)
 }
 
 
@@ -575,82 +574,106 @@ function Test-Provisioners
 
     # convert the JSON map into a POSH map
     $map = ConvertFrom-JsonObjectToMap $Paths
-    $regex = '^\s*(?<type>[a-z0-9]+)\:\s*(?<file>.+?)\s*$'
+    $regex = '^\s*(?<type>[a-z0-9]+)\:\s*(?<value>.+?)\s*$'
     $intRegex = '^@\{(?<name>.*?)(\|(?<os>.*?)){0,1}\}$'
 
     # go through all the keys, validating and adding each one
     ($map.Clone()).Keys | ForEach-Object {
         $value = $map[$_]
 
-        # ensure the value matches a "<type>: <file>" regex, else throw error
+        # ensure the value matches a "<type>: <value>" regex, else throw error
         if ($value -imatch $regex)
         {
             # ensure the type is a valid provisioner type
             $type = $Matches['type'].ToLowerInvariant()
-            if ($type -ine 'dsc' -and $type -ine 'custom')
+            $types = @('dsc', 'custom', 'choco')
+            if ($types -inotcontains $type)
             {
-                throw "Invalid provisioner type found: $($type)"
+                throw "Invalid provisioner type found: $($type), must be one of: $($types -join ',')"
             }
 
-            # get the file path
-            $file = $Matches['file']
+            # is this a choco provisioner?
+            $isChoco = ($type -ieq 'choco')
+            $isDsc = ($type -ieq 'dsc')
+
+            # get the value
+            $value = $Matches['value']
 
             # check if we're dealing with an internal or custom
-            if ($file -imatch $intRegex)
+            if ($isChoco -or $value -imatch $intRegex)
             {
-                # it's an internal script, get name and optional OS type
-                $name = $Matches['name'].ToLowerInvariant()
+                # it's an internal script or choco, get name and optional OS type
+                if ($isChoco)
+                {
+                    $name = 'choco-install'
+                }
+                else
+                {
+                    $name = $Matches['name'].ToLowerInvariant()
+                }
 
-                $os = $Matches['os']
+                # get the os type for script extension
+                if ($isChoco -or $isDsc)
+                {
+                    $os = 'win'
+                }
+                else
+                {
+                    $os = $Matches['os']
+                }
+
                 if (![string]::IsNullOrWhiteSpace($os))
                 {
-                    if ($type -ieq 'dsc')
-                    {
-                        $os = 'win'
-                    }
-
                     $os = $os.ToLowerInvariant()
                 }
 
+                # ensure the script exists internally
                 switch ($os)
                 {
                     'win'
                         {
-                            $file = Join-Path (Join-Path $FoggRootPath $type) "$($name).ps1"
+                            $scriptPath = Join-Path (Join-Path $FoggRootPath $type) "$($name).ps1"
                         }
 
                     'unix'
                         {
-                            $file = Join-Path (Join-Path $FoggRootPath $type) "$($name).sh"
+                            $scriptPath = Join-Path (Join-Path $FoggRootPath $type) "$($name).sh"
                         }
 
                     default
                         {
-                            $file = Join-Path (Join-Path $FoggRootPath $type) "$($name).ps1"
+                            $scriptPath = Join-Path (Join-Path $FoggRootPath $type) "$($name).ps1"
                         }
                 }
             }
             else
             {
                 # it's a custom script
-                $file = Resolve-Path (Join-Path $FoggObject.TemplateParent $file)
+                $scriptPath = Resolve-Path (Join-Path $FoggObject.TemplateParent $value)
             }
 
             # ensure the provisioner script path exists
-            if (!(Test-PathExists $file))
+            if (!(Test-PathExists $scriptPath))
             {
-                throw "Provision script for $($type) does not exist: $($file)"
+                throw "Provision script for $($type) does not exist: $($scriptPath)"
             }
 
             # add to internal list of provisioners for later
             if (!$FoggObject.ProvisionMap[$type].ContainsKey($_))
             {
-                $FoggObject.ProvisionMap[$type].Add($_, $file)
+                if ($isChoco)
+                {
+                    $FoggObject.ProvisionMap[$type].Add($_, @($scriptPath, $value))
+                }
+                else
+                {
+                    $FoggObject.ProvisionMap[$type].Add($_, $scriptPath)
+                }
             }
         }
         else
         {
-            throw "Provisioner value is not in the correct format of '<type>: <file>': $($value)"
+            throw "Provisioner value is not in the correct format of '<type>: <value>': $($value)"
         }
     }
 
@@ -1039,7 +1062,7 @@ function New-FoggGroupObject
     $group.TemplatePath = $TemplatePath
     $group.TemplateParent = (Split-Path -Parent -Path $TemplatePath)
     $group.HasProvisionScripts = $false
-    $group.ProvisionMap = @{'dsc' = @{}; 'custom' = @{}}
+    $group.ProvisionMap = @{'dsc' = @{}; 'custom' = @{}; 'choco' = @{}}
     $group.NsgMap = @{}
 
     $groupObj = New-Object -TypeName PSObject -Property $group
@@ -1226,7 +1249,7 @@ function New-DeployTemplateVPN
     $gw = New-FoggVirtualNetworkGateway -FoggObject $FoggObject -Name "$($tagname)-gw" -VNet $VNet `
         -VpnType $VPNTemplate.vpnType -GatewaySku $VPNTemplate.gatewaySku
 
-    # create VPN connection (UPDATE TO FOGG METHOD)
-    $con = New-FoggVirtualNetworkGatewayConnection -FoggObject $FoggObject -Name "$($tagname)-con" `
-        -LocalNetworkGateway $lng -VirtualNetworkGateway $gw -SharedKey $VPNTemplate.sharedKey
+    # create VPN connection
+    New-FoggVirtualNetworkGatewayConnection -FoggObject $FoggObject -Name "$($tagname)-con" `
+        -LocalNetworkGateway $lng -VirtualNetworkGateway $gw -SharedKey $VPNTemplate.sharedKey | Out-Null
 }

@@ -29,6 +29,7 @@ choco install fogg
 * Provision using:
   * PowerShell Desired State Configuration (DSC)
   * Custom Scripts (ps1/bat)
+  * Chocolatey to install software
 * Deploy:
   * Resource Groups
   * Storage Accounts
