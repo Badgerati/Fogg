@@ -1,13 +1,13 @@
 {
+    "pretag": "choco",
     "template": [
         {
-            "tag": "web",
+            "tag": "vm",
             "type": "vm",
             "count": 1,
             "provisioners": [
                 "remoting",
-                "web",
-                "logs"
+                "choco"
             ],
             "usePublicIP": true,
             "os": {
@@ -16,16 +16,12 @@
                 "publisher": "MicrosoftWindowsServer",
                 "offer": "WindowsServer",
                 "skus": "2016-Datacenter"
-            },
-            "firewall": {
-                "http": true
             }
         }
     ],
     "provisioners": {
-        "remoting": "dsc: .\\Remoting.ps1",
-        "web": "dsc: @{web-server}",
-        "logs": "custom: .\\Directories.ps1"
+        "remoting": "dsc: @{remoting}",
+        "choco": "choco: 7zip.install, visualstudiocode"
     },
     "firewall": {
         "rdp": true

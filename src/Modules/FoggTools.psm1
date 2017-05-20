@@ -262,9 +262,8 @@ function Test-TemplateVPN
         $FoggObject
     )
 
-    # get tag and type
+    # get tag
     $tag = $VPN.tag.ToLowerInvariant()
-    $type = $VPN.type.ToLowerInvariant()
 
     # ensure that the VPN object has a subnet map
     if (!$FoggObject.SubnetAddressMap.Contains($tag))
@@ -327,9 +326,8 @@ function Test-TemplateVM
     # is there an OS section?
     $hasOS = ($OS -ne $null)
 
-    # get tag and type
+    # get tag
     $tag = $VM.tag.ToLowerInvariant()
-    $type = $VM.type.ToLowerInvariant()
 
     # ensure that each VM object has a subnet map
     if (!$FoggObject.SubnetAddressMap.Contains($tag))
@@ -350,7 +348,13 @@ function Test-TemplateVM
     }
 
     # if there's more than one VM (load balanced) a port is required
-    if ($vm.count -gt 1 -and (Test-Empty $vm.port))
+    $useLoadBalancer = $true
+    if (!(Test-Empty $vm.useLoadBalancer))
+    {
+        $useLoadBalancer = [bool]$VMTemplate.useLoadBalancer
+    }
+
+    if ($vm.count -gt 1 -and $useLoadBalancer -and (Test-Empty $vm.port))
     {
         throw "A valid port value is required for the $($tag) VM template object for load balancing"
     }
@@ -380,6 +384,87 @@ function Test-TemplateVM
                 throw "Provisioner key not specified in Provisioners section for $($tag): $($_)"
             }
         }
+    }
+
+    # ensure firewall rules are valid
+    Test-FirewallRules -FirewallRules $vm.firewall
+}
+
+
+function Test-FirewallRules
+{
+    param (
+        $FirewallRules
+    )
+
+    # if no firewall rules then just return
+    if ($FirewallRules -eq $null)
+    {
+        return
+    }
+
+    # verify the firewall inbound rules
+    if (!(Test-ArrayEmpty $FirewallRules.inbound))
+    {
+        $FirewallRules.inbound | ForEach-Object {
+            Test-FirewallRule -FirewallRule $_
+        }
+    }
+
+    # verify the firewall outbound rules
+    if (!(Test-ArrayEmpty $FirewallRules.outbound))
+    {
+        $FirewallRules.outbound | ForEach-Object {
+            Test-FirewallRule -FirewallRule $_
+        }
+    }
+}
+
+
+function Test-FirewallRule
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        $FirewallRule
+    )
+
+    # ensure name
+    if ([string]::IsNullOrWhiteSpace($FirewallRule.name))
+    {
+        throw 'A name is required for firewall rules'
+    }
+
+    # ensure priority
+    if ([string]::IsNullOrWhiteSpace($FirewallRule.priority))
+    {
+        throw "A priority is required for firewall rule $($FirewallRule.name)"
+    }
+
+    if ($FirewallRule.priority -lt 100 -or $FirewallRule.priority -gt 4095)
+    {
+        throw "The priority must be between 100 and 4095 for firewall rule $($FirewallRule.name)"
+    }
+
+    # ensure source
+    $regex = '^.+\:.+$'
+
+    if ($FirewallRule.source -inotmatch $regex)
+    {
+        throw "A source IP and Port range is required for firewall rule $($FirewallRule.name)"
+    }
+
+    # ensure destination
+    if ($FirewallRule.destination -inotmatch $regex)
+    {
+        throw "A destination IP and Port range is required for firewall rule $($FirewallRule.name)"
+    }
+
+    # ensure access rule
+    $accesses = @('Allow', 'Deny')
+    if ([string]::IsNullOrWhiteSpace($FirewallRule.access) -or $accesses -inotcontains $FirewallRule.access)
+    {
+        throw "An access of Allow or Deny is required for firewall rule $($FirewallRule.name)"
     }
 }
 
@@ -451,8 +536,9 @@ function Test-ProvisionerExists
 
     $dsc = $FoggObject.ProvisionMap['dsc'].ContainsKey($ProvisionerName)
     $custom =  $FoggObject.ProvisionMap['custom'].ContainsKey($ProvisionerName)
+    $choco = $FoggObject.ProvisionMap['choco'].ContainsKey($ProvisionerName)
 
-    return ($dsc -or $custom)
+    return ($dsc -or $custom -or $choco)
 }
 
 
@@ -462,9 +548,15 @@ function Test-Provisioners
         [Parameter(Mandatory=$true)]
         $FoggObject,
 
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $FoggRootPath,
+
         $Paths
     )
 
+    # if there are no provisioners, just return
     if (Test-Empty $Paths)
     {
         $FoggObject.HasProvisionScripts = $false
@@ -474,34 +566,114 @@ function Test-Provisioners
     $FoggObject.HasProvisionScripts = $true
     Write-Information "Verifying Provision Scripts"
 
-    $map = ConvertFrom-JsonObjectToMap $Paths
-    $regex = '^\s*(?<type>[a-z0-9]+)\:\s*(?<file>.+?)\s*$'
+    # ensure the root path exists
+    if (!(Test-PathExists $FoggRootPath))
+    {
+        throw "Foog root path for internal provisioners does not exist: $($FoggRootPath)"
+    }
 
+    # convert the JSON map into a POSH map
+    $map = ConvertFrom-JsonObjectToMap $Paths
+    $regex = '^\s*(?<type>[a-z0-9]+)\:\s*(?<value>.+?)\s*$'
+    $intRegex = '^@\{(?<name>.*?)(\|(?<os>.*?)){0,1}\}$'
+
+    # go through all the keys, validating and adding each one
     ($map.Clone()).Keys | ForEach-Object {
         $value = $map[$_]
 
+        # ensure the value matches a "<type>: <value>" regex, else throw error
         if ($value -imatch $regex)
         {
+            # ensure the type is a valid provisioner type
             $type = $Matches['type'].ToLowerInvariant()
-            if ($type -ine 'dsc' -and $type -ine 'custom')
+            $types = @('dsc', 'custom', 'choco')
+            if ($types -inotcontains $type)
             {
-                throw "Invalid provisioner type found: $($type)"
+                throw "Invalid provisioner type found: $($type), must be one of: $($types -join ',')"
             }
 
-            $file = Resolve-Path (Join-Path $FoggObject.TemplateParent $Matches['file'])
-            if (!(Test-PathExists $file))
+            # is this a choco provisioner?
+            $isChoco = ($type -ieq 'choco')
+            $isDsc = ($type -ieq 'dsc')
+
+            # get the value
+            $value = $Matches['value']
+
+            # check if we're dealing with an internal or custom
+            if ($isChoco -or $value -imatch $intRegex)
             {
-                throw "Provision script for $($type) does not exist: $($file)"
+                # it's an internal script or choco, get name and optional OS type
+                if ($isChoco)
+                {
+                    $name = 'choco-install'
+                }
+                else
+                {
+                    $name = $Matches['name'].ToLowerInvariant()
+                }
+
+                # get the os type for script extension
+                if ($isChoco -or $isDsc)
+                {
+                    $os = 'win'
+                }
+                else
+                {
+                    $os = $Matches['os']
+                }
+
+                if (![string]::IsNullOrWhiteSpace($os))
+                {
+                    $os = $os.ToLowerInvariant()
+                }
+
+                # ensure the script exists internally
+                switch ($os)
+                {
+                    'win'
+                        {
+                            $scriptPath = Join-Path (Join-Path $FoggRootPath $type) "$($name).ps1"
+                        }
+
+                    'unix'
+                        {
+                            $scriptPath = Join-Path (Join-Path $FoggRootPath $type) "$($name).sh"
+                        }
+
+                    default
+                        {
+                            $scriptPath = Join-Path (Join-Path $FoggRootPath $type) "$($name).ps1"
+                        }
+                }
+            }
+            else
+            {
+                # it's a custom script
+                $scriptPath = Resolve-Path (Join-Path $FoggObject.TemplateParent $value)
             }
 
+            # ensure the provisioner script path exists
+            if (!(Test-PathExists $scriptPath))
+            {
+                throw "Provision script for $($type) does not exist: $($scriptPath)"
+            }
+
+            # add to internal list of provisioners for later
             if (!$FoggObject.ProvisionMap[$type].ContainsKey($_))
             {
-                $FoggObject.ProvisionMap[$type].Add($_, $file)
+                if ($isChoco)
+                {
+                    $FoggObject.ProvisionMap[$type].Add($_, @($scriptPath, $value))
+                }
+                else
+                {
+                    $FoggObject.ProvisionMap[$type].Add($_, $scriptPath)
+                }
             }
         }
         else
         {
-            throw "Provisioner value is not in the correct format of '<type>: <file>': $($value)"
+            throw "Provisioner value is not in the correct format of '<type>: <value>': $($value)"
         }
     }
 
@@ -647,6 +819,11 @@ function Get-SubnetPort
 function New-FoggObject
 {
     param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $FoggRootPath,
+
         [string]
         $ResourceGroupName,
 
@@ -733,6 +910,7 @@ function New-FoggObject
     $props.SubscriptionName = $SubscriptionName
     $props.SubscriptionCredentials = $SubscriptionCredentials
     $props.VMCredentials = $VMCredentials
+    $props.FoggProvisionersPath = Join-Path $FoggRootPath 'Provisioners'
     $foggObj = New-Object -TypeName PSObject -Property $props
 
     # if we aren't using a Foggfile, set params directly
@@ -874,7 +1052,7 @@ function New-FoggGroupObject
     # create fogg object with params
     $group = @{}
     $group.ResourceGroupName = $ResourceGroupName
-    $group.ShortRGName = (Remove-RGTag $ResourceGroupName)
+    $group.PreTag = (Remove-RGTag $ResourceGroupName)
     $group.Location = $Location
     $group.VNetAddress = $VNetAddress
     $group.VNetResourceGroupName = $VNetResourceGroupName
@@ -884,7 +1062,7 @@ function New-FoggGroupObject
     $group.TemplatePath = $TemplatePath
     $group.TemplateParent = (Split-Path -Parent -Path $TemplatePath)
     $group.HasProvisionScripts = $false
-    $group.ProvisionMap = @{'dsc' = @{}; 'custom' = @{}}
+    $group.ProvisionMap = @{'dsc' = @{}; 'custom' = @{}; 'choco' = @{}}
     $group.NsgMap = @{}
 
     $groupObj = New-Object -TypeName PSObject -Property $group
@@ -894,7 +1072,7 @@ function New-FoggGroupObject
 
     # post param alterations
     $groupObj.ResourceGroupName = $groupObj.ResourceGroupName.ToLowerInvariant()
-    $groupObj.ShortRGName = $groupObj.ShortRGName.ToLowerInvariant()
+    $groupObj.PreTag = $groupObj.PreTag.ToLowerInvariant()
 
     # return object
     return $groupObj
@@ -970,7 +1148,7 @@ function New-DeployTemplateVM
     )
 
     $tag = $VMTemplate.tag.ToLowerInvariant()
-    $tagname = "$($FoggObject.ShortRGName)-$($tag)"
+    $tagname = "$($FoggObject.PreTag)-$($tag)"
     $usePublicIP = [bool]$VMTemplate.usePublicIP
     $subnetId = ($VNet.Subnets | Where-Object { $_.Name -ieq "$($tagname)-snet" }).Id
 
@@ -1055,7 +1233,7 @@ function New-DeployTemplateVPN
     )
 
     $tag = $VPNTemplate.tag.ToLowerInvariant()
-    $tagname = "$($FoggObject.ShortRGName)-$($tag)"
+    $tagname = "$($FoggObject.PreTag)-$($tag)"
 
     $gatewaySubnetId = ($VNet.Subnets | Where-Object { $_.Name -ieq 'GatewaySubnet' }).Id
     $gatewayIP = $FoggObject.SubnetAddressMap["$($tag)-gip"]
@@ -1071,7 +1249,7 @@ function New-DeployTemplateVPN
     $gw = New-FoggVirtualNetworkGateway -FoggObject $FoggObject -Name "$($tagname)-gw" -VNet $VNet `
         -VpnType $VPNTemplate.vpnType -GatewaySku $VPNTemplate.gatewaySku
 
-    # create VPN connection (UPDATE TO FOGG METHOD)
-    $con = New-FoggVirtualNetworkGatewayConnection -FoggObject $FoggObject -Name "$($tagname)-con" `
-        -LocalNetworkGateway $lng -VirtualNetworkGateway $gw -SharedKey $VPNTemplate.sharedKey
+    # create VPN connection
+    New-FoggVirtualNetworkGatewayConnection -FoggObject $FoggObject -Name "$($tagname)-con" `
+        -LocalNetworkGateway $lng -VirtualNetworkGateway $gw -SharedKey $VPNTemplate.sharedKey | Out-Null
 }

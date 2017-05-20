@@ -127,7 +127,7 @@ if (!(Test-PowerShellVersion 4))
 
 
 # create new fogg object from parameters and foggfile
-$FoggObjects = New-FoggObject -ResourceGroupName $ResourceGroupName -Location $Location -SubscriptionName $SubscriptionName `
+$FoggObjects = New-FoggObject -FoggRootPath $root -ResourceGroupName $ResourceGroupName -Location $Location -SubscriptionName $SubscriptionName `
     -SubnetAddresses $SubnetAddresses -TemplatePath $TemplatePath -FoggfilePath $FoggfilePath -SubscriptionCredentials $SubscriptionCredentials `
     -VMCredentials $VMCredentials -VNetAddress $VNetAddress -VNetResourceGroupName $VNetResourceGroupName -VNetName $VNetName
 
@@ -144,7 +144,10 @@ try
         $template = Get-JSONContent $FoggObject.TemplatePath
 
         # Check that the Provisioner script paths exist
-        Test-Provisioners -FoggObject $FoggObject -Paths $template.provisioners
+        Test-Provisioners -FoggObject $FoggObject -Paths $template.provisioners -FoggRootPath $FoggObjects.FoggProvisionersPath
+
+        # Check the global firewall rules are valid
+        Test-FirewallRules -FirewallRules $template.firewall
 
         # Check the template section
         $vmCount = Test-Template -Template $template.template -FoggObject $FoggObject -OS $template.os
@@ -172,10 +175,20 @@ try
         $template = Get-JSONContent $FoggObject.TemplatePath
 
         # Check that the Provisioner script paths exist
-        Test-Provisioners -FoggObject $FoggObject -Paths $template.provisioners
+        Test-Provisioners -FoggObject $FoggObject -Paths $template.provisioners -FoggRootPath $FoggObjects.FoggProvisionersPath
+
+        # Check the global firewall rules are valid
+        Test-FirewallRules -FirewallRules $template.firewall
 
         # Check the template section
         $vmCount = Test-Template -Template $template.template -FoggObject $FoggObject -OS $template.os
+
+
+        # If we have a pretag on the template, set against this FoggObject
+        if (![string]::IsNullOrWhiteSpace($template.pretag))
+        {
+            $FoggObject.PreTag = $template.pretag.ToLowerInvariant()
+        }
 
 
         # If we're using an existng virtual network, ensure it actually exists
@@ -223,7 +236,7 @@ try
             foreach ($vm in $vms)
             {
                 $tag = $vm.tag.ToLowerInvariant()
-                $tagname = "$($FoggObject.ShortRGName)-$($tag)"
+                $tagname = "$($FoggObject.PreTag)-$($tag)"
                 $snetname = "$($tagname)-snet"
                 $subnet = $FoggObject.SubnetAddressMap[$tag]
 

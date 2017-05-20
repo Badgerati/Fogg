@@ -161,7 +161,7 @@ function New-FoggStorageAccount
         $StorageTag = 'prm'
     }
 
-    $Name = ("$($FoggObject.ShortRGName)-$($StorageTag)-sa") -ireplace '-', ''
+    $Name = ("$($FoggObject.PreTag)-$($StorageTag)-sa") -ireplace '-', ''
 
     Write-Information "Creating storage account $($Name) in resource group $($FoggObject.ResourceGroupName)"
 
@@ -218,6 +218,14 @@ function Publish-ProvisionerScripts
         $FoggObject.ProvisionMap['custom'].Values | ForEach-Object {
             Publish-FoggCustomScript -FoggObject $FoggObject -StorageAccount $StorageAccount -Container $container -ScriptPath $_
         }
+    }
+
+    # do we need to publish the choco-install script?
+    if (!(Test-Empty $FoggObject.ProvisionMap['choco']))
+    {
+        $container = New-FoggStorageContainer -FoggObject $FoggObject -StorageAccount $StorageAccount -Name 'chocolatey'
+        $script = ($FoggObject.ProvisionMap['choco'].Values | Select-Object -First 1)[0]
+        Publish-FoggCustomScript -FoggObject $FoggObject -StorageAccount $StorageAccount -Container $container -ScriptPath $script
     }
 }
 
@@ -319,18 +327,46 @@ function Set-ProvisionVM
         return
     }
 
+    # cache the map for speed
+    $map = $FoggObject.ProvisionMap
+
     # loop through each provisioner, and run appropriate tool
     $Provisioners | ForEach-Object {
-        if ($FoggObject.ProvisionMap['dsc'].ContainsKey($_))
+        # Parse the key, incase we need to pass parameters
+        $key = $_
+        if ($key -ine 'dsc' -and $key.Contains(':'))
         {
-            Set-FoggDscConfig -FoggObject $FoggObject -VMName $VMName -StorageAccount $StorageAccount `
-                -ScriptPath $FoggObject.ProvisionMap['dsc'][$_]
+            $arr = $key -split '\:'
+            $key = $arr[0].Trim()
+            $_args = $arr[1].Trim()
         }
 
-        elseif ($FoggObject.ProvisionMap['custom'].ContainsKey($_))
+        # DSC
+        if ($map['dsc'].ContainsKey($key))
+        {
+            Set-FoggDscConfig -FoggObject $FoggObject -VMName $VMName -StorageAccount $StorageAccount `
+                -ScriptPath $map['dsc'][$key]
+        }
+
+        # Custom
+        elseif ($map['custom'].ContainsKey($key))
         {
             Set-FoggCustomConfig -FoggObject $FoggObject -VMName $VMName -StorageAccount $StorageAccount `
-                -ContainerName 'provisioners' -ScriptPath $FoggObject.ProvisionMap['custom'][$_]
+                -ContainerName 'provisioners' -ScriptPath $map['custom'][$key] -Arguments $_args
+        }
+
+        # Chocolatey
+        elseif ($map['choco'].ContainsKey($key))
+        {
+            $choco = $map['choco'][$key]
+
+            if (Test-Empty $_args)
+            {
+                $_args = $choco[1]
+            }
+
+            Set-FoggCustomConfig -FoggObject $FoggObject -VMName $VMName -StorageAccount $StorageAccount `
+                -ContainerName 'chocolatey' -ScriptPath $choco[0] -Arguments $_args
         }
     }
 }
@@ -357,15 +393,19 @@ function Set-FoggDscConfig
         $ScriptPath
     )
 
-    $file = Split-Path -Leaf -Path "$($ScriptPath)"
-    $script = "$($file).zip"
-    $func = ($file -ireplace '\.ps1', '')
+    $script = Split-Path -Leaf -Path "$($ScriptPath)"
+    if (!$script.EndsWith('.zip'))
+    {
+        $script = "$($script).zip"
+    }
+
+    $func = ($script -ireplace '\.ps1\.zip', '') -ireplace '-', ''
 
     Write-Information "Installing DSC Extension on VM $($VMName), and running script $($script)"
 
     $output = Set-AzureRmVMDscExtension -ResourceGroupName $FoggObject.ResourceGroupName -VMName $VMName -ArchiveBlobName $script `
         -ArchiveStorageAccountName $StorageAccount.StorageAccountName -ConfigurationName $func -Version "2.23" -AutoUpdate `
-        -Location $FoggObject.Location -Force -ErrorAction SilentlyContinue
+        -Location $FoggObject.Location -Force -ErrorAction 'Continue'
 
     if ($output -eq $null -or !$output.IsSuccessStatusCode)
     {
@@ -406,21 +446,43 @@ function Set-FoggCustomConfig
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
         [string]
-        $ScriptPath
+        $ScriptPath,
+
+        [string]
+        $Arguments = $null
     )
 
+    # get the name of the file to run
     $fileName = Split-Path -Leaf -Path "$($ScriptPath)"
-    $fileNameNoExt = ($fileName -ireplace [Regex]::Escape([System.IO.Path]::GetExtension($fileName)), '')
+    $extName = 'Microsoft.Compute.CustomScriptExtension'
 
+    # parse the arguments - if we have any - into the write format
+    if (!(Test-Empty $Arguments))
+    {
+        $Arguments = "`"" + (($Arguments -split '\|') -join "`" `"") + "`""
+    }
+
+    # grab the storage account name and key
     $saName = $StorageAccount.StorageAccountName
     $saKey = (Get-AzureRmStorageAccountKey -ResourceGroupName $FoggObject.ResourceGroupName -Name $saName).Value[0]
 
     Write-Information "Installing Custom Script Extension on VM $($VMName), and running script $($fileName)"
 
-    $output = Set-AzureRmVMCustomScriptExtension -ResourceGroupName $FoggObject.ResourceGroupName -VMName $VMName `
-        -Location $FoggObject.Location -StorageAccountName $saName -StorageAccountKey $saKey -ContainerName $ContainerName `
-        -FileName $fileName -Name $fileNameNoExt -Run $fileName -ErrorAction SilentlyContinue
+    # execute the script on the VM
+    if (Test-Empty $Arguments)
+    {
+        $output = Set-AzureRmVMCustomScriptExtension -ResourceGroupName $FoggObject.ResourceGroupName -VMName $VMName `
+            -Location $FoggObject.Location -StorageAccountName $saName -StorageAccountKey $saKey -ContainerName $ContainerName `
+            -FileName $fileName -Name $extName -Run $fileName -ErrorAction 'Continue'
+    }
+    else
+    {
+        $output = Set-AzureRmVMCustomScriptExtension -ResourceGroupName $FoggObject.ResourceGroupName -VMName $VMName `
+            -Location $FoggObject.Location -StorageAccountName $saName -StorageAccountKey $saKey -ContainerName $ContainerName `
+            -FileName $fileName -Name $extName -Run $fileName -Argument $Arguments -ErrorAction 'Continue'
+    }
 
+    # did it succeed or fail?
     if ($output -eq $null -or !$output.IsSuccessStatusCode)
     {
         $err = 'An unexpected error occurred, this usually happens when Internet connectivity is lost'
@@ -541,11 +603,68 @@ function New-FirewallRules
         $Rules = @()
     )
 
+    # if there are no firewall rules, return
     if ($Firewall -eq $null)
     {
         return $Rules
     }
 
+    # deal with any default rules
+    if ($Firewall.http -eq $true)
+    {
+        $Rules += (New-FoggNetworkSecurityGroupRule -Name 'HTTP' -Priority 3500 -Direction 'Inbound' `
+            -Source '*:*' -Destination '@{subnet}:80' -Subnets $Subnets -CurrentTag $CurrentTag -Access 'Allow')
+    }
+
+    if ($Firewall.https -eq $true)
+    {
+        $Rules += (New-FoggNetworkSecurityGroupRule -Name 'HTTPS' -Priority 3501 -Direction 'Inbound' `
+            -Source '*:*' -Destination '@{subnet}:443' -Subnets $Subnets -CurrentTag $CurrentTag -Access 'Allow')
+    }
+
+    if ($Firewall.rdp -eq $true)
+    {
+        $Rules += (New-FoggNetworkSecurityGroupRule -Name 'RDP' -Priority 3502 -Direction 'Inbound' `
+            -Source '*:*' -Destination '@{subnet}:3389' -Subnets $Subnets -CurrentTag $CurrentTag -Access 'Allow')
+    }
+
+    if ($Firewall.sql -eq $true)
+    {
+        $Rules += (New-FoggNetworkSecurityGroupRule -Name 'SQL' -Priority 3503 -Direction 'Inbound' `
+            -Source '*:*' -Destination '@{subnet}:1433-1434' -Subnets $Subnets -CurrentTag $CurrentTag -Access 'Allow')
+    }
+
+    if ($Firewall.sqlmirror -eq $true)
+    {
+        $Rules += (New-FoggNetworkSecurityGroupRule -Name 'SQL Mirroring' -Priority 3504 -Direction 'Inbound' `
+            -Source '*:*' -Destination '@{subnet}:5022-5023' -Subnets $Subnets -CurrentTag $CurrentTag -Access 'Allow')
+    }
+
+    if ($Firewall.smtp -eq $true)
+    {
+        $Rules += (New-FoggNetworkSecurityGroupRule -Name 'SMTP' -Priority 3505 -Direction 'Inbound' `
+            -Source '*:*' -Destination '@{subnet}:25' -Subnets $Subnets -CurrentTag $CurrentTag -Access 'Allow')
+    }
+
+    if ($Firewall.ftp -eq $true)
+    {
+        $Rules += (New-FoggNetworkSecurityGroupRule -Name 'FTP' -Priority 3506 -Direction 'Inbound' `
+            -Source '*:*' -Destination '@{subnet}:20-21' -Subnets $Subnets -CurrentTag $CurrentTag -Access 'Allow')
+    }
+
+    if ($Firewall.sftp -eq $true)
+    {
+        $Rules += (New-FoggNetworkSecurityGroupRule -Name 'SFTP' -Priority 3507 -Direction 'Inbound' `
+            -Source '*:*' -Destination '@{subnet}:115' -Subnets $Subnets -CurrentTag $CurrentTag -Access 'Allow')
+    }
+
+    if ($Firewall.ssh -eq $true)
+    {
+        $Rules += (New-FoggNetworkSecurityGroupRule -Name 'SSH' -Priority 3508 -Direction 'Inbound' `
+            -Source '*:*' -Destination '@{subnet}:22' -Subnets $Subnets -CurrentTag $CurrentTag -Access 'Allow')
+    }
+
+    # assign the inbound rules
     if (!(Test-ArrayEmpty $Firewall.inbound))
     {
         $Firewall.inbound | ForEach-Object {
@@ -554,6 +673,7 @@ function New-FirewallRules
         }
     }
 
+    # assign the outbound rules
     if (!(Test-ArrayEmpty $Firewall.outbound))
     {
         $Firewall.outbound | ForEach-Object {
@@ -562,6 +682,7 @@ function New-FirewallRules
         }
     }
 
+    # return the rules
     return $Rules
 }
 
@@ -870,7 +991,7 @@ function New-FoggVirtualNetwork
         $FoggObject
     )
 
-    $Name = "$($FoggObject.ShortRGName)-vnet"
+    $Name = "$($FoggObject.PreTag)-vnet"
 
     Write-Information "Creating virtual network $($Name) in $($FoggObject.ResourceGroupName)"
 

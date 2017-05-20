@@ -18,6 +18,7 @@ Fogg is a PowerShell v4.0+ tool to aide and simplify the creation, deployment an
 * Provision using:
   * PowerShell Desired State Configuration (DSC)
   * Custom Scripts (ps1/bat)
+  * Chocolatey to install software
 * Deploy:
   * Resource Groups
   * Storage Accounts
