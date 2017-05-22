@@ -158,6 +158,87 @@ function Test-TemplateHasVMs
 }
 
 
+function Test-VMCoresExceedMax
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        $Groups
+    )
+
+    # if no groups, then return false
+    if (Test-ArrayEmpty $Groups)
+    {
+        return $false
+    }
+
+    # current amount of cores to use
+    $cores = 0
+    $loc = [string]::Empty
+
+    # loop through each group, tallying up the cores
+    foreach ($group in $groups)
+    {
+        $template = Get-JSONContent $group.TemplatePath
+        $os = $template.os
+
+        # if the template contains no VMs, move along
+        if (!(Test-TemplateHasVMs -Template $template.template))
+        {
+            continue
+        }
+
+        # loop through each template object - only including VM types
+        foreach ($obj in $template.template)
+        {
+            if ($obj.type -ine 'vm')
+            {
+                continue
+            }
+
+            # local or global OS?
+            if ($obj.os -eq $null)
+            {
+                $size = $os.size
+            }
+            else
+            {
+                $size = $obj.os.size
+            }
+
+            # get the number of cores and add to total
+            if ([string]::IsNullOrWhiteSpace($loc))
+            {
+                $loc = $group.Location
+            }
+
+            $cores += (Get-AzureRmVMSize -Location $group.Location | Where-Object { $_.Name -ieq $size }).NumberOfCores
+        }
+    }
+
+    # if cores is still 0, then just return false
+    if ($cores -eq 0)
+    {
+        return $false
+    }
+
+    # check to see if this exceeds the max
+    $azureTotal = (Get-AzureRmVMUsage -Location $loc | Where-Object { $_.Name.Value -ieq 'cores' })
+    $azureCurrent = $azureTotal.CurrentValue
+    $azureMax = $azureTotal.Limit
+    $azureToBe = ($azureCurrent + $cores)
+
+    if ($azureToBe -gt $azureMax)
+    {
+        Write-Notice "Your Azure Subscription in $($loc) has a maximum limit of $($azureMax) cores"
+        Write-Notice "You are currently using $($azureCurrent) of those cores, and are attempting to deploy a further $($cores) core(s)"
+        return $true
+    }
+
+    return $false
+}
+
+
 function Test-Template
 {
     param (
@@ -169,8 +250,6 @@ function Test-Template
 
         $OS
     )
-
-    Write-Information "Verifying template section"
 
     # get the count of template objects to create
     $templateCount = ($Template | Measure-Object).Count
@@ -247,7 +326,6 @@ function Test-Template
         }
     }
 
-    Write-Success "Template section verified"
     return $templateCount
 }
 
@@ -551,7 +629,7 @@ function Test-Provisioners
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
         [string]
-        $FoggRootPath,
+        $FoggProvisionersPath,
 
         $Paths
     )
@@ -564,12 +642,11 @@ function Test-Provisioners
     }
 
     $FoggObject.HasProvisionScripts = $true
-    Write-Information "Verifying Provision Scripts"
 
     # ensure the root path exists
-    if (!(Test-PathExists $FoggRootPath))
+    if (!(Test-PathExists $FoggProvisionersPath))
     {
-        throw "Foog root path for internal provisioners does not exist: $($FoggRootPath)"
+        throw "Fogg root path for internal provisioners does not exist: $($FoggProvisionersPath)"
     }
 
     # convert the JSON map into a POSH map
@@ -632,17 +709,17 @@ function Test-Provisioners
                 {
                     'win'
                         {
-                            $scriptPath = Join-Path (Join-Path $FoggRootPath $type) "$($name).ps1"
+                            $scriptPath = Join-Path (Join-Path $FoggProvisionersPath $type) "$($name).ps1"
                         }
 
                     'unix'
                         {
-                            $scriptPath = Join-Path (Join-Path $FoggRootPath $type) "$($name).sh"
+                            $scriptPath = Join-Path (Join-Path $FoggProvisionersPath $type) "$($name).sh"
                         }
 
                     default
                         {
-                            $scriptPath = Join-Path (Join-Path $FoggRootPath $type) "$($name).ps1"
+                            $scriptPath = Join-Path (Join-Path $FoggProvisionersPath $type) "$($name).ps1"
                         }
                 }
             }
@@ -670,14 +747,23 @@ function Test-Provisioners
                     $FoggObject.ProvisionMap[$type].Add($_, $scriptPath)
                 }
             }
+            else
+            {
+                if ($isChoco)
+                {
+                    $FoggObject.ProvisionMap[$type][$_] = @($scriptPath, $value)
+                }
+                else
+                {
+                    $FoggObject.ProvisionMap[$type][$_] = $scriptPath
+                }
+            }
         }
         else
         {
             throw "Provisioner value is not in the correct format of '<type>: <value>': $($value)"
         }
     }
-
-    Write-Success "Provisioners verified"
 }
 
 
