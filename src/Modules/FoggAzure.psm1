@@ -499,6 +499,52 @@ function Set-FoggCustomConfig
 }
 
 
+function Get-FoggCustomScriptExtension
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $ResourceGroupName,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $VMName,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Name
+    )
+
+    $ResourceGroupName = $ResourceGroupName.ToLowerInvariant()
+    $VMName = $VMName.ToLowerInvariant()
+
+    try
+    {
+        $ext = Get-AzureRmVMCustomScriptExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name $Name
+        if (!$?)
+        {
+            throw "Failed to make Azure call to retrieve Custom Script Extension $($Name) in $($ResourceGroupName)"
+        }
+    }
+    catch [exception]
+    {
+        if ($_.Exception.Message -ilike '*was not found*')
+        {
+            $ext = $null
+        }
+        else
+        {
+            throw
+        }
+    }
+
+    return $ext
+}
+
+
 function Remove-FoggCustomScriptExtension
 {
     param (
@@ -512,11 +558,12 @@ function Remove-FoggCustomScriptExtension
         $VMName
     )
 
+    $VMName = $VMName.ToLowerInvariant()
     $rg = $FoggObject.ResourceGroupName
     $name = Get-FoggCustomScriptExtensionName
 
     # only attempt to remove if the extension exists
-    $ext = Get-AzureRmVMCustomScriptExtension -ResourceGroupName $rg -VMName $VMName -Name $name
+    $ext = Get-FoggCustomScriptExtension -ResourceGroupName $rg -VMName $VMName -Name $name
     if ($ext -ne $null)
     {
         Write-Information "Uninstalling $($name) from $($VMName)"
