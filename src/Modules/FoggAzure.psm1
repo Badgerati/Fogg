@@ -454,7 +454,7 @@ function Set-FoggCustomConfig
 
     # get the name of the file to run
     $fileName = Split-Path -Leaf -Path "$($ScriptPath)"
-    $extName = 'Microsoft.Compute.CustomScriptExtension'
+    $extName = Get-FoggCustomScriptExtensionName
 
     # parse the arguments - if we have any - into the write format
     if (!(Test-Empty $Arguments))
@@ -496,6 +496,85 @@ function Set-FoggCustomConfig
     }
 
     Write-Success "Custom Script Extension installed and script run`n"
+}
+
+
+function Get-FoggCustomScriptExtension
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $ResourceGroupName,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $VMName,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Name
+    )
+
+    $ResourceGroupName = $ResourceGroupName.ToLowerInvariant()
+    $VMName = $VMName.ToLowerInvariant()
+
+    try
+    {
+        $ext = Get-AzureRmVMCustomScriptExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name $Name
+        if (!$?)
+        {
+            throw "Failed to make Azure call to retrieve Custom Script Extension $($Name) in $($ResourceGroupName)"
+        }
+    }
+    catch [exception]
+    {
+        if ($_.Exception.Message -ilike '*was not found*')
+        {
+            $ext = $null
+        }
+        else
+        {
+            throw
+        }
+    }
+
+    return $ext
+}
+
+
+function Remove-FoggCustomScriptExtension
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        $FoggObject,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $VMName
+    )
+
+    $VMName = $VMName.ToLowerInvariant()
+    $rg = $FoggObject.ResourceGroupName
+    $name = Get-FoggCustomScriptExtensionName
+
+    # only attempt to remove if the extension exists
+    $ext = Get-FoggCustomScriptExtension -ResourceGroupName $rg -VMName $VMName -Name $name
+    if ($ext -ne $null)
+    {
+        Write-Information "Uninstalling $($name) from $($VMName)"
+        Remove-AzureRmVMCustomScriptExtension -ResourceGroupName $rg -VMName $VMName -Name $name -Force | Out-Null
+    }
+}
+
+
+function Get-FoggCustomScriptExtensionName
+{
+    return 'Microsoft.Compute.CustomScriptExtension'
 }
 
 

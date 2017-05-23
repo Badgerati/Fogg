@@ -1287,6 +1287,9 @@ function New-DeployTemplateVM
 
         # see if we need to provision the machine
         Set-ProvisionVM -FoggObject $FoggObject -Provisioners $VMTemplate.provisioners -VMName $_vm.Name -StorageAccount $StorageAccount
+
+        # due to a bug with the CustomScriptExtension, if we have any uninstall the extension
+        Remove-FoggCustomScriptExtension -FoggObject $FoggObject -VMName $_vm.Name
     }
 
     # turn off some of the VMs if needed
