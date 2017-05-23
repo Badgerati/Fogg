@@ -174,7 +174,7 @@ try
 
     foreach ($FoggObject in $FoggObjects.Groups)
     {
-        Write-Host "Verifying: $($FoggObject.TemplatePath)"
+        Write-Host "> Verifying: $($FoggObject.TemplatePath)"
         Test-Files -FoggObject $FoggObject -FoggProvisionersPath $FoggObjects.FoggProvisionersPath | Out-Null
     }
 
@@ -230,7 +230,7 @@ try
         try
         {
             # Create the resource group
-            New-FoggResourceGroup -FoggObject $FoggObject
+            New-FoggResourceGroup -FoggObject $FoggObject | Out-Null
 
 
             # only create storage account if we have VMs
