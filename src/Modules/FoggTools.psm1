@@ -486,6 +486,35 @@ function Test-FirewallRules
         return
     }
 
+    # verify inbuilt firewall ports exist
+    $portMap = Get-FirewallPortMap
+    $keys = $FirewallRules.psobject.properties.name
+    $regex = '^(?<name>.+?)(\|(?<direction>in|out|both)){0,1}$'
+
+    foreach ($key in $keys)
+    {
+        # if key doesnt match regex, throw error
+        if ($key -inotmatch $regex)
+        {
+            throw "Firewall rule with key '$($key)' is invalid. Should be either 'inbound', 'outbound', or of the format '<name>|<direction>'"
+        }
+
+        # set port name and direction (default to inbound)
+        $portname = $Matches['name'].ToLowerInvariant()
+
+        # if in/outbound then continue
+        if ($portname -ieq 'inbound' -or $portname -ieq 'outbound')
+        {
+            continue
+        }
+
+        # if port doesnt exist, throw error
+        if (!$portMap.ContainsKey($portname))
+        {
+            throw "Inbuilt firewall rule for port type $($portname) does not exist"
+        }
+    }
+
     # verify the firewall inbound rules
     if (!(Test-ArrayEmpty $FirewallRules.inbound))
     {
@@ -657,7 +686,7 @@ function Test-Provisioners
     # convert the JSON map into a POSH map
     $map = ConvertFrom-JsonObjectToMap $Paths
     $regex = '^\s*(?<type>[a-z0-9]+)\:\s*(?<value>.+?)\s*$'
-    $intRegex = '^@\{(?<name>.*?)(\|(?<os>.*?)){0,1}\}$'
+    $intRegex = '^@\{(?<name>.+?)(\|(?<os>.*?)){0,1}\}$'
 
     # go through all the keys, validating and adding each one
     ($map.Clone()).Keys | ForEach-Object {
@@ -869,7 +898,7 @@ function Get-ReplaceSubnet
         $CurrentTag
     )
 
-    $regex = '^@\{(?<key>.*?)(\|(?<value>.*?)){0,1}\}$'
+    $regex = '^@\{(?<key>.+?)(\|(?<value>.*?)){0,1}\}$'
     if ($Value -imatch $regex)
     {
         $v = $Matches['value']
