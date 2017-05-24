@@ -665,6 +665,24 @@ function New-FoggStorageContainer
 }
 
 
+function Get-FirewallPortMap
+{
+    return @{
+        'ftp' = '20-21';
+        'ssh' = '22';
+        'smtp' = '25';
+        'http' = '80';
+        'sftp' = '115';
+        'https' = '443';
+        'smb' = '445';
+        'sql' = '1433-1434';
+        'rdp' = '3389';
+        'sql-mirror' = '5022-5023';
+        'postgresql' = '5432';
+    }
+}
+
+
 function New-FirewallRules
 {
     param (
@@ -688,59 +706,80 @@ function New-FirewallRules
         return $Rules
     }
 
-    # deal with any default rules
-    if ($Firewall.http -eq $true)
+    # deal with any default inbuilt firewall rules
+    $portMap = Get-FirewallPortMap
+    $keys = $Firewall.psobject.properties.name
+    $regex = '^(?<name>.+?)(\|(?<direction>in|out|both)){0,1}$'
+
+    if (Test-Empty $Rules)
     {
-        $Rules += (New-FoggNetworkSecurityGroupRule -Name 'HTTP' -Priority 3500 -Direction 'Inbound' `
-            -Source '*:*' -Destination '@{subnet}:80' -Subnets $Subnets -CurrentTag $CurrentTag -Access 'Allow')
+        $priority = 3500
+    }
+    else
+    {
+        $priority = 3750
     }
 
-    if ($Firewall.https -eq $true)
+    foreach ($key in $keys)
     {
-        $Rules += (New-FoggNetworkSecurityGroupRule -Name 'HTTPS' -Priority 3501 -Direction 'Inbound' `
-            -Source '*:*' -Destination '@{subnet}:443' -Subnets $Subnets -CurrentTag $CurrentTag -Access 'Allow')
-    }
+        # if key doesnt match regex, continue to next
+        if ($key -inotmatch $regex)
+        {
+            continue
+        }
 
-    if ($Firewall.rdp -eq $true)
-    {
-        $Rules += (New-FoggNetworkSecurityGroupRule -Name 'RDP' -Priority 3502 -Direction 'Inbound' `
-            -Source '*:*' -Destination '@{subnet}:3389' -Subnets $Subnets -CurrentTag $CurrentTag -Access 'Allow')
-    }
+        # set port name and direction (default to inbound)
+        $portname = $Matches['name'].ToLowerInvariant()
+        $direction = 'in'
+        if (!(Test-Empty $Matches['direction']))
+        {
+            $direction = $Matches['direction'].ToLowerInvariant()
+        }
 
-    if ($Firewall.sql -eq $true)
-    {
-        $Rules += (New-FoggNetworkSecurityGroupRule -Name 'SQL' -Priority 3503 -Direction 'Inbound' `
-            -Source '*:*' -Destination '@{subnet}:1433-1434' -Subnets $Subnets -CurrentTag $CurrentTag -Access 'Allow')
-    }
+        # if custom in/outbound, or port doesnt exist, continue
+        if ($portname -ieq 'inbound' -or $portname -ieq 'outbound' -or !$portMap.ContainsKey($portname))
+        {
+            continue
+        }
 
-    if ($Firewall.sqlmirror -eq $true)
-    {
-        $Rules += (New-FoggNetworkSecurityGroupRule -Name 'SQL Mirroring' -Priority 3504 -Direction 'Inbound' `
-            -Source '*:*' -Destination '@{subnet}:5022-5023' -Subnets $Subnets -CurrentTag $CurrentTag -Access 'Allow')
-    }
+        # get port and name
+        $port = $portMap.$portname
+        $portname = $portname.ToUpperInvariant()
 
-    if ($Firewall.smtp -eq $true)
-    {
-        $Rules += (New-FoggNetworkSecurityGroupRule -Name 'SMTP' -Priority 3505 -Direction 'Inbound' `
-            -Source '*:*' -Destination '@{subnet}:25' -Subnets $Subnets -CurrentTag $CurrentTag -Access 'Allow')
-    }
+        # are we allowing or denying?
+        $access = 'Allow'
+        if ([bool]($Firewall.$key) -eq $false)
+        {
+            $access = 'Deny'
+        }
 
-    if ($Firewall.ftp -eq $true)
-    {
-        $Rules += (New-FoggNetworkSecurityGroupRule -Name 'FTP' -Priority 3506 -Direction 'Inbound' `
-            -Source '*:*' -Destination '@{subnet}:20-21' -Subnets $Subnets -CurrentTag $CurrentTag -Access 'Allow')
-    }
+        # add rule(s) for desired direction
+        switch ($direction)
+        {
+            'in'
+                {
+                    $Rules += (New-FoggNetworkSecurityGroupRule -Name "$($portname)_IN" -Priority $priority -Direction 'Inbound' `
+                        -Source '*:*' -Destination "@{subnet}:$($port)" -Subnets $Subnets -CurrentTag $CurrentTag -Access $access)
+                }
 
-    if ($Firewall.sftp -eq $true)
-    {
-        $Rules += (New-FoggNetworkSecurityGroupRule -Name 'SFTP' -Priority 3507 -Direction 'Inbound' `
-            -Source '*:*' -Destination '@{subnet}:115' -Subnets $Subnets -CurrentTag $CurrentTag -Access 'Allow')
-    }
+            'out'
+                {
+                    $Rules += (New-FoggNetworkSecurityGroupRule -Name "$($portname)_OUT" -Priority $priority -Direction 'Outbound' `
+                        -Source '@{subnet}:*' -Destination "*:$($port)" -Subnets $Subnets -CurrentTag $CurrentTag -Access $access)
+                }
 
-    if ($Firewall.ssh -eq $true)
-    {
-        $Rules += (New-FoggNetworkSecurityGroupRule -Name 'SSH' -Priority 3508 -Direction 'Inbound' `
-            -Source '*:*' -Destination '@{subnet}:22' -Subnets $Subnets -CurrentTag $CurrentTag -Access 'Allow')
+            'both'
+                {
+                    $Rules += (New-FoggNetworkSecurityGroupRule -Name "$($portname)_IN" -Priority $priority -Direction 'Inbound' `
+                        -Source '*:*' -Destination "@{subnet}:$($port)" -Subnets $Subnets -CurrentTag $CurrentTag -Access $access)
+
+                    $Rules += (New-FoggNetworkSecurityGroupRule -Name "$($portname)_OUT" -Priority $priority -Direction 'Outbound' `
+                        -Source '@{subnet}:*' -Destination "*:$($port)" -Subnets $Subnets -CurrentTag $CurrentTag -Access $access)
+                }
+        }
+
+        # increment priority
+        $priority++
     }
 
     # assign the inbound rules
