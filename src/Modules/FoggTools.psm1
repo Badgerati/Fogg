@@ -432,6 +432,11 @@ function Test-TemplateVM
         $useLoadBalancer = [bool]$VMTemplate.useLoadBalancer
     }
 
+    if (!(Test-Empty $vm.useAvailabilitySet) -and $vm.useAvailabilitySet -eq $false)
+    {
+        $useLoadBalancer = $false
+    }
+
     if ($vm.count -gt 1 -and $useLoadBalancer -and (Test-Empty $vm.port))
     {
         throw "A valid port value is required for the $($tag) VM template object for load balancing"
@@ -1238,10 +1243,23 @@ function New-DeployTemplateVM
     $usePublicIP = [bool]$VMTemplate.usePublicIP
     $subnetId = ($VNet.Subnets | Where-Object { $_.Name -ieq "$($tagname)-snet" }).Id
 
+    # are we using a load balancer and availability set?
     $useLoadBalancer = $true
     if (!(Test-Empty $VMTemplate.useLoadBalancer))
     {
         $useLoadBalancer = [bool]$VMTemplate.useLoadBalancer
+    }
+
+    $useAvailabilitySet = $true
+    if (!(Test-Empty $VMTemplate.useAvailabilitySet))
+    {
+        $useAvailabilitySet = [bool]$VMTemplate.useAvailabilitySet
+    }
+
+    # if useAvailabilitySet is false, then by default set useLoadBalancer to false
+    if (!$useAvailabilitySet)
+    {
+        $useLoadBalancer = $false
     }
 
     Write-Information "Deploying VMs for $($tag)"
@@ -1249,7 +1267,10 @@ function New-DeployTemplateVM
     # if we have more than one server count, create an availability set and load balancer
     if ($VMTemplate.count -gt 1)
     {
-        $avset = New-FoggAvailabilitySet -FoggObject $FoggObject -Name "$($tagname)-as"
+        if ($useAvailabilitySet)
+        {
+            $avset = New-FoggAvailabilitySet -FoggObject $FoggObject -Name "$($tagname)-as"
+        }
 
         if ($useLoadBalancer)
         {
