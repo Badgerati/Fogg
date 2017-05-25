@@ -675,10 +675,18 @@ function Get-FirewallPortMap
         'sftp' = '115';
         'https' = '443';
         'smb' = '445';
+        'ftps' = '989-990';
         'sql' = '1433-1434';
+        'mysql' = '3306';
         'rdp' = '3389';
+        'svn' = '3690';
         'sql-mirror' = '5022-5023';
         'postgresql' = '5432';
+        'winrm' = '5985-5986';
+        'redis' = '6379';
+        'puppet' = '8139-8140';
+        'git' = '9418';
+        'octopus' = '10933';
     }
 }
 
