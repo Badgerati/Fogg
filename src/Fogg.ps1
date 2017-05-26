@@ -112,6 +112,38 @@ Import-Module "$($root)\Modules\FoggTools.psm1" -ErrorAction Stop
 Import-Module "$($root)\Modules\FoggAzure.psm1" -ErrorAction Stop
 
 
+# Simple function for validating the Foggfile and templates
+function Test-Files
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        $FoggObject,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $FoggProvisionersPath
+    )
+
+    # Parse the contents of the template file
+    $template = Get-JSONContent $FoggObject.TemplatePath
+
+    # Check that the Provisioner script paths exist
+    Test-Provisioners -FoggObject $FoggObject -Paths $template.provisioners -FoggProvisionersPath $FoggProvisionersPath
+
+    # Check the global firewall rules are valid
+    Test-FirewallRules -FirewallRules $template.firewall
+
+    # Check the template section
+    Test-Template -Template $template.template -FoggObject $FoggObject -OS $template.os | Out-Null
+
+    # return the template for further usage
+    return $template
+}
+
+
+
 # Output the version
 Write-Host 'Fogg v$version$' -ForegroundColor Cyan
 if ($Version)
@@ -138,20 +170,15 @@ $timer = [DateTime]::UtcNow
 try
 {
     # validate the template files and section
+    Write-Information "Verifying template files"
+
     foreach ($FoggObject in $FoggObjects.Groups)
     {
-        # Parse the contents of the template file
-        $template = Get-JSONContent $FoggObject.TemplatePath
-
-        # Check that the Provisioner script paths exist
-        Test-Provisioners -FoggObject $FoggObject -Paths $template.provisioners -FoggRootPath $FoggObjects.FoggProvisionersPath
-
-        # Check the global firewall rules are valid
-        Test-FirewallRules -FirewallRules $template.firewall
-
-        # Check the template section
-        $vmCount = Test-Template -Template $template.template -FoggObject $FoggObject -OS $template.os
+        Write-Host "> Verifying: $($FoggObject.TemplatePath)"
+        Test-Files -FoggObject $FoggObject -FoggProvisionersPath $FoggObjects.FoggProvisionersPath | Out-Null
     }
+
+    Write-Success "Templates verified"
 
 
     # if we're only validating, return
@@ -164,6 +191,15 @@ try
     # Login to Azure Subscription
     Add-FoggAccount -FoggObject $FoggObjects
 
+
+    # Before we attempt anything, ensure that all the VMs we're about to deploy don't exceed the Max Core limit
+    # This cannot be done during normal validation, as we require the user to be logged in first
+    if (Test-VMCoresExceedMax -Groups $FoggObjects.Groups)
+    {
+        return
+    }
+
+
     # Set the VM admin credentials
     Add-FoggAdminAccount -FoggObject $FoggObjects
 
@@ -171,18 +207,8 @@ try
     # loop through each group within the FoggObject
     foreach ($FoggObject in $FoggObjects.Groups)
     {
-        # Parse the contents of the template file
-        $template = Get-JSONContent $FoggObject.TemplatePath
-
-        # Check that the Provisioner script paths exist
-        Test-Provisioners -FoggObject $FoggObject -Paths $template.provisioners -FoggRootPath $FoggObjects.FoggProvisionersPath
-
-        # Check the global firewall rules are valid
-        Test-FirewallRules -FirewallRules $template.firewall
-
-        # Check the template section
-        $vmCount = Test-Template -Template $template.template -FoggObject $FoggObject -OS $template.os
-
+        # Retrieve the template for the current Group
+        $template = Test-Files -FoggObject $FoggObject -FoggProvisionersPath $FoggObjects.FoggProvisionersPath
 
         # If we have a pretag on the template, set against this FoggObject
         if (![string]::IsNullOrWhiteSpace($template.pretag))
@@ -204,7 +230,7 @@ try
         try
         {
             # Create the resource group
-            $rg = New-FoggResourceGroup -FoggObject $FoggObject
+            New-FoggResourceGroup -FoggObject $FoggObject | Out-Null
 
 
             # only create storage account if we have VMs
