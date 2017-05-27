@@ -18,7 +18,7 @@
                 "skus": "2016-Datacenter"
             },
             "firewall": {
-                "http": true
+                "http|both": true
             }
         }
     ],
