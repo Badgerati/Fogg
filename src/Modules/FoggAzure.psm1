@@ -340,6 +340,10 @@ function Set-ProvisionVM
             $key = $arr[0].Trim()
             $_args = $arr[1].Trim()
         }
+        else
+        {
+            $_args = $null
+        }
 
         # DSC
         if ($map['dsc'].ContainsKey($key))
@@ -364,6 +368,8 @@ function Set-ProvisionVM
             {
                 $_args = $choco[1]
             }
+
+            Write-Host "Chocolatey Provisioner: $($key) ($($_args))" -ForegroundColor Cyan
 
             Set-FoggCustomConfig -FoggObject $FoggObject -VMName $VMName -StorageAccount $StorageAccount `
                 -ContainerName 'chocolatey' -ScriptPath $choco[0] -Arguments $_args

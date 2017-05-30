@@ -7,7 +7,8 @@
             "count": 1,
             "provisioners": [
                 "remoting",
-                "choco"
+                "choco",
+                "other"
             ],
             "usePublicIP": true,
             "os": {
@@ -21,7 +22,8 @@
     ],
     "provisioners": {
         "remoting": "dsc: @{remoting}",
-        "choco": "choco: 7zip.install, visualstudiocode"
+        "choco": "choco: 7zip.install, visualstudiocode",
+        "other": "choco: notepadplusplus.install"
     },
     "firewall": {
         "rdp": true
