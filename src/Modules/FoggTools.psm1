@@ -25,6 +25,19 @@ function Write-Information
 }
 
 
+function Write-Details
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Message
+    )
+
+    Write-Host $Message -ForegroundColor Cyan
+}
+
+
 function Write-Notice
 {
     param (
@@ -235,6 +248,8 @@ function Test-VMCoresExceedMax
         return $true
     }
 
+    Write-Details "Your Azure Subscription in $($loc) has a maximum limit of $($azureMax) cores"
+    Write-Details "You are currently using $($azureCurrent) of those cores, and are now deploying a further $($cores) core(s)"
     return $false
 }
 

@@ -369,7 +369,7 @@ function Set-ProvisionVM
                 $_args = $choco[1]
             }
 
-            Write-Host "Chocolatey Provisioner: $($key) ($($_args))" -ForegroundColor Cyan
+            Write-Details "Chocolatey Provisioner: $($key) ($($_args))"
 
             Set-FoggCustomConfig -FoggObject $FoggObject -VMName $VMName -StorageAccount $StorageAccount `
                 -ContainerName 'chocolatey' -ScriptPath $choco[0] -Arguments $_args
