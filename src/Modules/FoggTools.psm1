@@ -1285,7 +1285,8 @@ function New-DeployTemplateVM
     $tag = $VMTemplate.tag.ToLowerInvariant()
     $tagname = "$($FoggObject.PreTag)-$($tag)"
     $usePublicIP = [bool]$VMTemplate.usePublicIP
-    $subnetId = ($VNet.Subnets | Where-Object { $_.Name -ieq "$($tagname)-snet" }).Id
+    $subnetPrefix = $FoggObject.SubnetAddressMap[$tag]
+    $subnetId = ($VNet.Subnets | Where-Object { $_.Name -ieq "$($tagname)-snet" -or $_.AddressPrefix -ieq $subnetPrefix }).Id
 
     # are we using a load balancer and availability set?
     $useLoadBalancer = $true

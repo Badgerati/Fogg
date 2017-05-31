@@ -572,7 +572,7 @@ function Remove-FoggCustomScriptExtension
     $ext = Get-FoggCustomScriptExtension -ResourceGroupName $rg -VMName $VMName -Name $name
     if ($ext -ne $null)
     {
-        Write-Information "Uninstalling $($name) from $($VMName)"
+        Write-Information "Uninstalling $($name) from $($VMName)`n"
         Remove-AzureRmVMCustomScriptExtension -ResourceGroupName $rg -VMName $VMName -Name $name -Force | Out-Null
     }
 }
@@ -1204,6 +1204,12 @@ function Add-FoggSubnetToVNet
     if (($VNet.Subnets | Where-Object { $_.Name -ieq $SubnetName } | Measure-Object).Count -gt 0)
     {
         Write-Notice "Subnet $($SubnetName) already exists against $($name)`n"
+        return $VNet
+    }
+
+    if (($VNet.Subnets | Where-Object { $_.AddressPrefix -ieq $Address } | Measure-Object).Count -gt 0)
+    {
+        Write-Notice "Subnet with address $($Address) already exists against $($name)`n"
         return $VNet
     }
 
