@@ -1401,7 +1401,13 @@ function New-FoggVirtualNetworkGateway
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
         [string]
-        $GatewaySku
+        $GatewaySku,
+
+        [string]
+        $ClientAddressPool = $null,
+
+        [string]
+        $PublicCertificatePath = $null
     )
 
     $Name = $Name.ToLowerInvariant()
@@ -1435,8 +1441,26 @@ function New-FoggVirtualNetworkGateway
     }
 
     # create the vnet gateway
-    $gw = New-AzureRmVirtualNetworkGateway -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Location $FoggObject.Location `
-        -IpConfigurations $config -GatewayType Vpn -VpnType $VpnType -GatewaySku $GatewaySku -Force
+    if (!(Test-Empty $ClientAddressPool) -and !(Test-Empty $PublicCertificatePath))
+    {
+        # serialise the certificate
+        $certName = Split-Path -Leaf -Path $PublicCertificatePath
+        $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($PublicCertificatePath)
+        $certBase64 = [System.Convert]::ToBase64String($cert.RawData)
+        $p2sRootCert = New-AzureRmVpnClientRootCertificate -Name $certName -PublicCertData $certBase64
+
+        # create the gateway
+        $gw = New-AzureRmVirtualNetworkGateway -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name `
+            -Location $FoggObject.Location -IpConfigurations $config -GatewayType Vpn -VpnType $VpnType -GatewaySku $GatewaySku `
+            -EnableBgp $false -VpnClientAddressPool $ClientAddressPool -VpnClientRootCertificates $p2sRootCert -Force
+    }
+    else
+    {
+        $gw = New-AzureRmVirtualNetworkGateway -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name `
+            -Location $FoggObject.Location -IpConfigurations $config -GatewayType Vpn -VpnType $VpnType `
+            -GatewaySku $GatewaySku -Force
+    }
+
     if (!$?)
     {
         throw "Failed to create virtual network gateway $($Name)"

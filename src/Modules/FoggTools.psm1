@@ -361,21 +361,7 @@ function Test-TemplateVPN
     # ensure that the VPN object has a subnet map
     if (!$FoggObject.SubnetAddressMap.Contains($tag))
     {
-        throw "No subnet address mapped for the $($tag) VPN template object"
-    }
-
-    # ensure we have a VPN Gateway IP in subnet map
-    $tagGIP = "$($tag)-gip"
-    if (!$FoggObject.SubnetAddressMap.Contains($tagGIP))
-    {
-        throw "No Gateway IP mapped for the $($tag) VPN: $($tagGIP)"
-    }
-
-    # ensure we have a on-premises address prefixes in subnet map
-    $tagOpm = "$($tag)-opm"
-    if (!$FoggObject.SubnetAddressMap.Contains($tagOpm))
-    {
-        throw "No On-Premises address prefix(es) mapped for the $($tag) VPN: $($tagOpm)"
+        throw "No subnet address mapped for the VPN template object"
     }
 
     # ensure we have a valid VPN type
@@ -387,19 +373,80 @@ function Test-TemplateVPN
     # ensure we have a Gateway SKU
     if (Test-Empty $VPN.gatewaySku)
     {
-        throw "VPN $($tag) has no Gateway SKU specified: Basic, Standard, or HighPerformance"
+        throw "VPN has no Gateway SKU specified: Basic, Standard, or HighPerformance"
     }
 
     # PolicyBased VPN can only have a SKU of Basic
     if ($VPN.vpnType -ieq 'PolicyBased' -and $VPN.gatewaySku -ine 'Basic')
     {
-        throw "PolicyBased VPN $($tag) can only have a Gateway SKU of 'Basic'"
+        throw "PolicyBased VPN can only have a Gateway SKU of 'Basic'"
     }
 
-    # ensure we have a shared key
-    if (Test-Empty $VPN.sharedKey)
+    # Do we have a valid VPN config
+    $configTypes = @('s2s', 'p2s', 'v2v')
+    if ((Test-Empty $VPN.configType) -or $configTypes -inotcontains $VPN.configType)
     {
-        throw "VPN $($tag) has no shared key specified"
+        throw "VPN configuration must be one of the following: $($configTypes -join ', ')"
+    }
+
+    # continue rest of validation based on VPN configuration
+    switch ($VPN.configType.ToLowerInvariant())
+    {
+        's2s'
+            {
+                # ensure we have a VPN Gateway IP in subnet map
+                $tagGIP = "$($tag)-gip"
+                if (!$FoggObject.SubnetAddressMap.Contains($tagGIP))
+                {
+                    throw "No Gateway IP mapped for the VPN: $($tagGIP)"
+                }
+
+                # ensure we have a on-premises address prefixes in subnet map
+                $tagOpm = "$($tag)-opm"
+                if (!$FoggObject.SubnetAddressMap.Contains($tagOpm))
+                {
+                    throw "No On-Premises address prefix(es) mapped for the VPN: $($tagOpm)"
+                }
+
+                # ensure we have a shared key
+                if (Test-Empty $VPN.sharedKey)
+                {
+                    throw "VPN has no shared key specified"
+                }
+            }
+
+        'p2s'
+            {
+                # ensure we have a VPN client address pool in subnet map
+                $tagCAP = "$($tag)-cap"
+                if (!$FoggObject.SubnetAddressMap.Contains($tagCAP))
+                {
+                    throw "No VPN Client Address Pool mapped for the VPN: $($tagCAP)"
+                }
+
+                # ensure we have a cert path, and it exists
+                if (Test-Empty $VPN.certPath)
+                {
+                    throw "VPN has no public certificate (.cer) path specified"
+                }
+
+                if (!(Test-Path $VPN.certPath))
+                {
+                    throw "VPN public certificate path does not exist: $($VPN.certPath)"
+                }
+
+                # ensure the certificate extension is .cer
+                $file = Split-Path -Leaf -Path $VPN.certPath
+                if ([System.IO.Path]::GetExtension($file) -ine '.cer')
+                {
+                    throw "VPN public certificate is not a valid .cer file: $($file)"
+                }
+            }
+
+        default
+            {
+                throw 'VNet-to-VNet VPN configurations are not supported yet'
+            }
     }
 }
 
@@ -1390,21 +1437,38 @@ function New-DeployTemplateVPN
     $tag = $VPNTemplate.tag.ToLowerInvariant()
     $tagname = "$($FoggObject.PreTag)-$($tag)"
 
-    $gatewaySubnetId = ($VNet.Subnets | Where-Object { $_.Name -ieq 'GatewaySubnet' }).Id
-    $gatewayIP = $FoggObject.SubnetAddressMap["$($tag)-gip"]
-    $addressOnPrem = $FoggObject.SubnetAddressMap["$($tag)-opm"]
-
     Write-Information "Deploying VPN for $($tag)"
 
-    # create the local network gateway for the VPN
-    $lng = New-FoggLocalNetworkGateway -FoggObject $FoggObject -Name "$($tagname)-lng" `
-        -GatewayIPAddress $gatewayIP -Address $addressOnPrem
+    switch ($VPNTemplate.configType.ToLowerInvariant())
+    {
+        's2s'
+            {
+                # get required IP addresses
+                $gatewayIP = $FoggObject.SubnetAddressMap["$($tag)-gip"]
+                $addressOnPrem = $FoggObject.SubnetAddressMap["$($tag)-opm"]
 
-    # create public vnet gateway
-    $gw = New-FoggVirtualNetworkGateway -FoggObject $FoggObject -Name "$($tagname)-gw" -VNet $VNet `
-        -VpnType $VPNTemplate.vpnType -GatewaySku $VPNTemplate.gatewaySku
+                # create the local network gateway for the VPN
+                $lng = New-FoggLocalNetworkGateway -FoggObject $FoggObject -Name "$($tagname)-lng" `
+                    -GatewayIPAddress $gatewayIP -Address $addressOnPrem
 
-    # create VPN connection
-    New-FoggVirtualNetworkGatewayConnection -FoggObject $FoggObject -Name "$($tagname)-con" `
-        -LocalNetworkGateway $lng -VirtualNetworkGateway $gw -SharedKey $VPNTemplate.sharedKey | Out-Null
+                # create public vnet gateway
+                $gw = New-FoggVirtualNetworkGateway -FoggObject $FoggObject -Name "$($tagname)-gw" -VNet $VNet `
+                    -VpnType $VPNTemplate.vpnType -GatewaySku $VPNTemplate.gatewaySku
+
+                # create VPN connection
+                New-FoggVirtualNetworkGatewayConnection -FoggObject $FoggObject -Name "$($tagname)-con" `
+                    -LocalNetworkGateway $lng -VirtualNetworkGateway $gw -SharedKey $VPNTemplate.sharedKey | Out-Null
+            }
+
+        'p2s'
+            {
+                # get required IP addresses
+                $clientPool = $FoggObject.SubnetAddressMap["$($tag)-cap"]
+
+                # create public vnet gateway
+                New-FoggVirtualNetworkGateway -FoggObject $FoggObject -Name "$($tagname)-gw" -VNet $VNet `
+                    -VpnType $VPNTemplate.vpnType -GatewaySku $VPNTemplate.gatewaySku -ClientAddressPool $clientPool `
+                    -PublicCertificatePath $VPNTemplate.certPath | Out-Null
+            }
+    }
 }
