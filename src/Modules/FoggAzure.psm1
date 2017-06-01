@@ -1425,7 +1425,7 @@ function New-FoggVirtualNetworkGateway
 
     # create dynamic public IP
     $pipId = (New-AzureRmPublicIpAddress -ResourceGroupName $FoggObject.ResourceGroupName -Name "$($Name)-ip" `
-        -Location $FoggObject.Location -AllocationMethod Dynamic).Id
+        -Location $FoggObject.Location -AllocationMethod Dynamic -Force).Id
 
     # create the gateway config
     $config = New-AzureRmVirtualNetworkGatewayIpConfig -Name "$($Name)-cfg" -SubnetId $gatewaySubnetId -PublicIpAddressId $pipId
@@ -1699,7 +1699,7 @@ function New-FoggLoadBalancer
     if ($PublicIP)
     {
         $pipId = (New-AzureRmPublicIpAddress -ResourceGroupName $FoggObject.ResourceGroupName -Name "$($Name)-ip" `
-            -Location $FoggObject.Location -AllocationMethod Static).Id
+            -Location $FoggObject.Location -AllocationMethod Static -Force).Id
     }
     else
     {
@@ -1887,7 +1887,7 @@ function New-FoggVM
     if ($PublicIP)
     {
         $pipId = (New-AzureRmPublicIpAddress -ResourceGroupName $FoggObject.ResourceGroupName -Name "$($VMName)-ip" `
-            -Location $FoggObject.Location -AllocationMethod Static).Id
+            -Location $FoggObject.Location -AllocationMethod Static -Force).Id
     }
 
     # create the NIC
