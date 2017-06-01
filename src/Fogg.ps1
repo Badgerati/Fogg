@@ -246,7 +246,7 @@ try
             }
 
 
-            # create the virtual network, or use existing one
+            # create the virtual network, or use existing one (by name and resource group)
             if ($FoggObject.UseExistingVNet)
             {
                 $vnet = Get-FoggVirtualNetwork -ResourceGroupName $FoggObject.VNetResourceGroupName -Name $FoggObject.VNetName

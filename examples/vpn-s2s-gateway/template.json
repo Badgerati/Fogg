@@ -3,6 +3,7 @@
         {
             "tag": "vpn",
             "type": "vpn",
+            "configType": "s2s",
             "vpnType": "RouteBased",
             "gatewaySku": "Standard",
             "sharedKey": "123"
