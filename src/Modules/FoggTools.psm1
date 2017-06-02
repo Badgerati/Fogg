@@ -186,10 +186,12 @@ function Test-VMCoresExceedMax
     }
 
     # current amount of cores to use
-    $cores = 0
-    $loc = [string]::Empty
+    $totalCores = 0
 
-    # loop through each group, tallying up the cores
+    # set up the regions and individual core counts
+    $regions = @{}
+
+    # loop through each group, tallying up the cores per region
     foreach ($group in $groups)
     {
         $template = Get-JSONContent $group.TemplatePath
@@ -200,6 +202,15 @@ function Test-VMCoresExceedMax
         {
             continue
         }
+
+        # setup the region with an initial count
+        if (!$regions.ContainsKey($group.Location))
+        {
+            $regions.Add($group.Location, 0)
+        }
+
+        # store the VM size details to stop multiple calls
+        $details = Get-AzureRmVMSize -Location $group.Location
 
         # loop through each template object - only including VM types
         foreach ($obj in $template.template)
@@ -219,38 +230,43 @@ function Test-VMCoresExceedMax
                 $size = $obj.os.size
             }
 
-            # get the number of cores and add to total
-            if ([string]::IsNullOrWhiteSpace($loc))
-            {
-                $loc = $group.Location
-            }
-
-            $cores += (Get-AzureRmVMSize -Location $group.Location | Where-Object { $_.Name -ieq $size }).NumberOfCores
+            # add VM size cores to total cores and regional cores
+            $cores = ($details | Where-Object { $_.Name -ieq $size }).NumberOfCores * $obj.count
+            $totalCores += $cores
+            $regions[$group.Location] += $cores
         }
     }
 
-    # if cores is still 0, then just return false
-    if ($cores -eq 0)
+    # if total cores is 0 or no regions, then just return false
+    if ($totalCores -eq 0 -or (Test-ArrayEmpty $regions))
     {
         return $false
     }
 
-    # check to see if this exceeds the max
-    $azureTotal = (Get-AzureRmVMUsage -Location $loc | Where-Object { $_.Name.Value -ieq 'cores' })
-    $azureCurrent = $azureTotal.CurrentValue
-    $azureMax = $azureTotal.Limit
-    $azureToBe = ($azureCurrent + $cores)
+    # check to see if this exceeds the max for each region
+    $exceeded = $false
 
-    if ($azureToBe -gt $azureMax)
-    {
-        Write-Notice "Your Azure Subscription in $($loc) has a maximum limit of $($azureMax) cores"
-        Write-Notice "You are currently using $($azureCurrent) of those cores, and are attempting to deploy a further $($cores) core(s)"
-        return $true
+    $regions.Keys | ForEach-Object {
+        $azureTotal = (Get-AzureRmVMUsage -Location $_ | Where-Object { $_.Name.Value -ieq 'cores' })
+        $azureCurrent = $azureTotal.CurrentValue
+        $azureMax = $azureTotal.Limit
+        $azureToBe = ($azureCurrent + $regions[$_])
+
+        if ($azureToBe -gt $azureMax)
+        {
+            Write-Notice "Your Azure Subscription in $($_) has a maximum limit of $($azureMax) cores"
+            Write-Notice "You are currently using $($azureCurrent) of those cores, and are attempting to deploy a further $($regions[$_]) core(s)`n"
+            $exceeded = $true
+        }
+        else
+        {
+            Write-Details "Your Azure Subscription in $($_) has a maximum limit of $($azureMax) cores"
+            Write-Details "You are currently using $($azureCurrent) of those cores, and are now deploying a further $($regions[$_]) core(s)`n"
+        }
     }
 
-    Write-Details "Your Azure Subscription in $($loc) has a maximum limit of $($azureMax) cores"
-    Write-Details "You are currently using $($azureCurrent) of those cores, and are now deploying a further $($cores) core(s)"
-    return $false
+    # return whether we exceeded a regional limit
+    return $exceeded
 }
 
 
