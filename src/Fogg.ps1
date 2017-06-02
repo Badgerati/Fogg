@@ -49,6 +49,12 @@
     .PARAMETER Version
         Switch parameter, if passed will display the current version of Fogg and end execution
 
+    .PARAMETER Validate
+        Switch parameter, if passed will only run validation on the Foggfile and templates
+
+    .PARAMETER IgnoreCores
+        Switch parameter, if passed will ignore the exceeding cores limit and continue to deploy to Azure
+
     .EXAMPLE
         fogg -SubscriptionName "AzureSub" -ResourceGroupName "basic-rg" -Location "westeurope" -VNetAddress "10.1.0.0/16" -SubnetAddresses @{"vm"="10.1.0.0/24"} -TemplatePath "./path/to/template.json"
         Passing the parameters if you don't use a Foggfile
@@ -98,7 +104,10 @@ param (
     $Version,
 
     [switch]
-    $Validate
+    $Validate,
+
+    [switch]
+    $IgnoreCores
 )
 
 $ErrorActionPreference = 'Stop'
@@ -196,7 +205,14 @@ try
     # This cannot be done during normal validation, as we require the user to be logged in first
     if (Test-VMCoresExceedMax -Groups $FoggObjects.Groups)
     {
-        return
+        if ($IgnoreCores)
+        {
+            Write-Notice 'Deployment exceeds a regional limit, but IgnoreCores has been specified'
+        }
+        else
+        {
+            return
+        }
     }
 
 
