@@ -25,6 +25,19 @@ function Write-Information
 }
 
 
+function Write-Details
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Message
+    )
+
+    Write-Host $Message -ForegroundColor Cyan
+}
+
+
 function Write-Notice
 {
     param (
@@ -48,6 +61,33 @@ function Write-Fail
     )
 
     Write-Host $Message -ForegroundColor Red
+}
+
+
+function Write-Duration
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [DateTime]
+        $StartTime,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $PreText,
+
+        [switch]
+        $NewLine
+    )
+
+    $end = [DateTime]::UtcNow - $StartTime
+
+    if ($NewLine)
+    {
+        $n = "`n"
+    }
+
+    Write-Details "$($n)$($PreText): $($end.ToString())"
 }
 
 
@@ -173,10 +213,12 @@ function Test-VMCoresExceedMax
     }
 
     # current amount of cores to use
-    $cores = 0
-    $loc = [string]::Empty
+    $totalCores = 0
 
-    # loop through each group, tallying up the cores
+    # set up the regions and individual core counts
+    $regions = @{}
+
+    # loop through each group, tallying up the cores per region
     foreach ($group in $groups)
     {
         $template = Get-JSONContent $group.TemplatePath
@@ -187,6 +229,15 @@ function Test-VMCoresExceedMax
         {
             continue
         }
+
+        # setup the region with an initial count
+        if (!$regions.ContainsKey($group.Location))
+        {
+            $regions.Add($group.Location, 0)
+        }
+
+        # store the VM size details to stop multiple calls
+        $details = Get-AzureRmVMSize -Location $group.Location
 
         # loop through each template object - only including VM types
         foreach ($obj in $template.template)
@@ -206,36 +257,43 @@ function Test-VMCoresExceedMax
                 $size = $obj.os.size
             }
 
-            # get the number of cores and add to total
-            if ([string]::IsNullOrWhiteSpace($loc))
-            {
-                $loc = $group.Location
-            }
-
-            $cores += (Get-AzureRmVMSize -Location $group.Location | Where-Object { $_.Name -ieq $size }).NumberOfCores
+            # add VM size cores to total cores and regional cores
+            $cores = ($details | Where-Object { $_.Name -ieq $size }).NumberOfCores * $obj.count
+            $totalCores += $cores
+            $regions[$group.Location] += $cores
         }
     }
 
-    # if cores is still 0, then just return false
-    if ($cores -eq 0)
+    # if total cores is 0 or no regions, then just return false
+    if ($totalCores -eq 0 -or (Test-ArrayEmpty $regions))
     {
         return $false
     }
 
-    # check to see if this exceeds the max
-    $azureTotal = (Get-AzureRmVMUsage -Location $loc | Where-Object { $_.Name.Value -ieq 'cores' })
-    $azureCurrent = $azureTotal.CurrentValue
-    $azureMax = $azureTotal.Limit
-    $azureToBe = ($azureCurrent + $cores)
+    # check to see if this exceeds the max for each region
+    $exceeded = $false
 
-    if ($azureToBe -gt $azureMax)
-    {
-        Write-Notice "Your Azure Subscription in $($loc) has a maximum limit of $($azureMax) cores"
-        Write-Notice "You are currently using $($azureCurrent) of those cores, and are attempting to deploy a further $($cores) core(s)"
-        return $true
+    $regions.Keys | ForEach-Object {
+        $azureTotal = (Get-AzureRmVMUsage -Location $_ | Where-Object { $_.Name.Value -ieq 'cores' })
+        $azureCurrent = $azureTotal.CurrentValue
+        $azureMax = $azureTotal.Limit
+        $azureToBe = ($azureCurrent + $regions[$_])
+
+        if ($azureToBe -gt $azureMax)
+        {
+            Write-Notice "Your Azure Subscription in $($_) has a maximum limit of $($azureMax) cores"
+            Write-Notice "You are currently using $($azureCurrent) of those cores, and are attempting to deploy a further $($regions[$_]) core(s)`n"
+            $exceeded = $true
+        }
+        else
+        {
+            Write-Details "Your Azure Subscription in $($_) has a maximum limit of $($azureMax) cores"
+            Write-Details "You are currently using $($azureCurrent) of those cores, and are now deploying a further $($regions[$_]) core(s)`n"
+        }
     }
 
-    return $false
+    # return whether we exceeded a regional limit
+    return $exceeded
 }
 
 
@@ -346,21 +404,7 @@ function Test-TemplateVPN
     # ensure that the VPN object has a subnet map
     if (!$FoggObject.SubnetAddressMap.Contains($tag))
     {
-        throw "No subnet address mapped for the $($tag) VPN template object"
-    }
-
-    # ensure we have a VPN Gateway IP in subnet map
-    $tagGIP = "$($tag)-gip"
-    if (!$FoggObject.SubnetAddressMap.Contains($tagGIP))
-    {
-        throw "No Gateway IP mapped for the $($tag) VPN: $($tagGIP)"
-    }
-
-    # ensure we have a on-premises address prefixes in subnet map
-    $tagOpm = "$($tag)-opm"
-    if (!$FoggObject.SubnetAddressMap.Contains($tagOpm))
-    {
-        throw "No On-Premises address prefix(es) mapped for the $($tag) VPN: $($tagOpm)"
+        throw "No subnet address mapped for the VPN template object"
     }
 
     # ensure we have a valid VPN type
@@ -372,19 +416,80 @@ function Test-TemplateVPN
     # ensure we have a Gateway SKU
     if (Test-Empty $VPN.gatewaySku)
     {
-        throw "VPN $($tag) has no Gateway SKU specified: Basic, Standard, or HighPerformance"
+        throw "VPN has no Gateway SKU specified: Basic, Standard, or HighPerformance"
     }
 
     # PolicyBased VPN can only have a SKU of Basic
     if ($VPN.vpnType -ieq 'PolicyBased' -and $VPN.gatewaySku -ine 'Basic')
     {
-        throw "PolicyBased VPN $($tag) can only have a Gateway SKU of 'Basic'"
+        throw "PolicyBased VPN can only have a Gateway SKU of 'Basic'"
     }
 
-    # ensure we have a shared key
-    if (Test-Empty $VPN.sharedKey)
+    # Do we have a valid VPN config
+    $configTypes = @('s2s', 'p2s', 'v2v')
+    if ((Test-Empty $VPN.configType) -or $configTypes -inotcontains $VPN.configType)
     {
-        throw "VPN $($tag) has no shared key specified"
+        throw "VPN configuration must be one of the following: $($configTypes -join ', ')"
+    }
+
+    # continue rest of validation based on VPN configuration
+    switch ($VPN.configType.ToLowerInvariant())
+    {
+        's2s'
+            {
+                # ensure we have a VPN Gateway IP in subnet map
+                $tagGIP = "$($tag)-gip"
+                if (!$FoggObject.SubnetAddressMap.Contains($tagGIP))
+                {
+                    throw "No Gateway IP mapped for the VPN: $($tagGIP)"
+                }
+
+                # ensure we have a on-premises address prefixes in subnet map
+                $tagOpm = "$($tag)-opm"
+                if (!$FoggObject.SubnetAddressMap.Contains($tagOpm))
+                {
+                    throw "No On-Premises address prefix(es) mapped for the VPN: $($tagOpm)"
+                }
+
+                # ensure we have a shared key
+                if (Test-Empty $VPN.sharedKey)
+                {
+                    throw "VPN has no shared key specified"
+                }
+            }
+
+        'p2s'
+            {
+                # ensure we have a VPN client address pool in subnet map
+                $tagCAP = "$($tag)-cap"
+                if (!$FoggObject.SubnetAddressMap.Contains($tagCAP))
+                {
+                    throw "No VPN Client Address Pool mapped for the VPN: $($tagCAP)"
+                }
+
+                # ensure we have a cert path, and it exists
+                if (Test-Empty $VPN.certPath)
+                {
+                    throw "VPN has no public certificate (.cer) path specified"
+                }
+
+                if (!(Test-Path $VPN.certPath))
+                {
+                    throw "VPN public certificate path does not exist: $($VPN.certPath)"
+                }
+
+                # ensure the certificate extension is .cer
+                $file = Split-Path -Leaf -Path $VPN.certPath
+                if ([System.IO.Path]::GetExtension($file) -ine '.cer')
+                {
+                    throw "VPN public certificate is not a valid .cer file: $($file)"
+                }
+            }
+
+        default
+            {
+                throw 'VNet-to-VNet VPN configurations are not supported yet'
+            }
     }
 }
 
@@ -936,6 +1041,19 @@ function Get-SubnetPort
 }
 
 
+function Get-NameFromAzureId
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Id
+    )
+
+    return (Split-Path -Leaf -Path $Id).ToLowerInvariant()
+}
+
+
 function New-FoggObject
 {
     param (
@@ -1036,8 +1154,6 @@ function New-FoggObject
     # if we aren't using a Foggfile, set params directly
     if (!$useFoggfile)
     {
-        Write-Information 'Loading template configuration from CLI'
-
         $group = New-FoggGroupObject -ResourceGroupName $ResourceGroupName -Location $Location `
             -SubnetAddresses $SubnetAddresses -TemplatePath $TemplatePath -FoggfilePath $FoggfilePath `
             -VNetAddress $VNetAddress -VNetResourceGroupName $VNetResourceGroupName -VNetName $VNetName
@@ -1048,8 +1164,6 @@ function New-FoggObject
     # else, we're using a Foggfile, set params and groups appropriately
     elseif ($useFoggfile)
     {
-        Write-Information 'Loading template from Foggfile'
-
         # load Foggfile
         $file = Get-JSONContent $FoggfilePath
 
@@ -1270,7 +1384,8 @@ function New-DeployTemplateVM
     $tag = $VMTemplate.tag.ToLowerInvariant()
     $tagname = "$($FoggObject.PreTag)-$($tag)"
     $usePublicIP = [bool]$VMTemplate.usePublicIP
-    $subnetId = ($VNet.Subnets | Where-Object { $_.Name -ieq "$($tagname)-snet" }).Id
+    $subnetPrefix = $FoggObject.SubnetAddressMap[$tag]
+    $subnetId = ($VNet.Subnets | Where-Object { $_.Name -ieq "$($tagname)-snet" -or $_.AddressPrefix -ieq $subnetPrefix }).Id
 
     # are we using a load balancer and availability set?
     $useLoadBalancer = $true
@@ -1293,19 +1408,16 @@ function New-DeployTemplateVM
 
     Write-Information "Deploying VMs for $($tag)"
 
-    # if we have more than one server count, create an availability set and load balancer
-    if ($VMTemplate.count -gt 1)
+    # create an availability set and, if VM count > 1, a load balancer
+    if ($useAvailabilitySet)
     {
-        if ($useAvailabilitySet)
-        {
-            $avset = New-FoggAvailabilitySet -FoggObject $FoggObject -Name "$($tagname)-as"
-        }
+        $avset = New-FoggAvailabilitySet -FoggObject $FoggObject -Name "$($tagname)-as"
+    }
 
-        if ($useLoadBalancer)
-        {
-            $lb = New-FoggLoadBalancer -FoggObject $FoggObject -Name "$($tagname)-lb" -SubnetId $subnetId `
-                -Port $VMTemplate.port -PublicIP:$usePublicIP
-        }
+    if ($useLoadBalancer -and $VMTemplate.count -gt 1)
+    {
+        $lb = New-FoggLoadBalancer -FoggObject $FoggObject -Name "$($tagname)-lb" -SubnetId $subnetId `
+            -Port $VMTemplate.port -PublicIP:$usePublicIP
     }
 
     # create each of the VMs
@@ -1333,6 +1445,9 @@ function New-DeployTemplateVM
             continue
         }
 
+        $startTime = [DateTime]::UtcNow
+
+        # deploy the VM
         Save-FoggVM -FoggObject $FoggObject -VM $_vm -LoadBalancer $lb
 
         # see if we need to provision the machine
@@ -1340,6 +1455,10 @@ function New-DeployTemplateVM
 
         # due to a bug with the CustomScriptExtension, if we have any uninstall the extension
         Remove-FoggCustomScriptExtension -FoggObject $FoggObject -VMName $_vm.Name
+
+        # output the time taken to create VM
+        Write-Duration $startTime -PreText 'VM Duration'
+        Write-Host ([string]::Empty)
     }
 
     # turn off some of the VMs if needed
@@ -1371,24 +1490,45 @@ function New-DeployTemplateVPN
         $VNet
     )
 
+    $startTime = [DateTime]::UtcNow
     $tag = $VPNTemplate.tag.ToLowerInvariant()
     $tagname = "$($FoggObject.PreTag)-$($tag)"
 
-    $gatewaySubnetId = ($VNet.Subnets | Where-Object { $_.Name -ieq 'GatewaySubnet' }).Id
-    $gatewayIP = $FoggObject.SubnetAddressMap["$($tag)-gip"]
-    $addressOnPrem = $FoggObject.SubnetAddressMap["$($tag)-opm"]
-
     Write-Information "Deploying VPN for $($tag)"
 
-    # create the local network gateway for the VPN
-    $lng = New-FoggLocalNetworkGateway -FoggObject $FoggObject -Name "$($tagname)-lng" `
-        -GatewayIPAddress $gatewayIP -Address $addressOnPrem
+    switch ($VPNTemplate.configType.ToLowerInvariant())
+    {
+        's2s'
+            {
+                # get required IP addresses
+                $gatewayIP = $FoggObject.SubnetAddressMap["$($tag)-gip"]
+                $addressOnPrem = $FoggObject.SubnetAddressMap["$($tag)-opm"]
 
-    # create public vnet gateway
-    $gw = New-FoggVirtualNetworkGateway -FoggObject $FoggObject -Name "$($tagname)-gw" -VNet $VNet `
-        -VpnType $VPNTemplate.vpnType -GatewaySku $VPNTemplate.gatewaySku
+                # create the local network gateway for the VPN
+                $lng = New-FoggLocalNetworkGateway -FoggObject $FoggObject -Name "$($tagname)-lng" `
+                    -GatewayIPAddress $gatewayIP -Address $addressOnPrem
 
-    # create VPN connection
-    New-FoggVirtualNetworkGatewayConnection -FoggObject $FoggObject -Name "$($tagname)-con" `
-        -LocalNetworkGateway $lng -VirtualNetworkGateway $gw -SharedKey $VPNTemplate.sharedKey | Out-Null
+                # create public vnet gateway
+                $gw = New-FoggVirtualNetworkGateway -FoggObject $FoggObject -Name "$($tagname)-gw" -VNet $VNet `
+                    -VpnType $VPNTemplate.vpnType -GatewaySku $VPNTemplate.gatewaySku
+
+                # create VPN connection
+                New-FoggVirtualNetworkGatewayConnection -FoggObject $FoggObject -Name "$($tagname)-con" `
+                    -LocalNetworkGateway $lng -VirtualNetworkGateway $gw -SharedKey $VPNTemplate.sharedKey | Out-Null
+            }
+
+        'p2s'
+            {
+                # get required IP addresses
+                $clientPool = $FoggObject.SubnetAddressMap["$($tag)-cap"]
+
+                # create public vnet gateway
+                New-FoggVirtualNetworkGateway -FoggObject $FoggObject -Name "$($tagname)-gw" -VNet $VNet `
+                    -VpnType $VPNTemplate.vpnType -GatewaySku $VPNTemplate.gatewaySku -ClientAddressPool $clientPool `
+                    -PublicCertificatePath $VPNTemplate.certPath | Out-Null
+            }
+    }
+
+    # output the time taken to create VM
+    Write-Duration $startTime -PreText 'VPN Duration'
 }

@@ -47,6 +47,8 @@ function Add-FoggAdminAccount
         {
             throw 'No Azure VM Administrator credentials passed'
         }
+
+        Write-Success "VM admin credentials setup`n"
     }
 }
 
@@ -340,6 +342,10 @@ function Set-ProvisionVM
             $key = $arr[0].Trim()
             $_args = $arr[1].Trim()
         }
+        else
+        {
+            $_args = $null
+        }
 
         # DSC
         if ($map['dsc'].ContainsKey($key))
@@ -364,6 +370,8 @@ function Set-ProvisionVM
             {
                 $_args = $choco[1]
             }
+
+            Write-Details "Chocolatey Provisioner: $($key) ($($_args))"
 
             Set-FoggCustomConfig -FoggObject $FoggObject -VMName $VMName -StorageAccount $StorageAccount `
                 -ContainerName 'chocolatey' -ScriptPath $choco[0] -Arguments $_args
@@ -568,6 +576,7 @@ function Remove-FoggCustomScriptExtension
     {
         Write-Information "Uninstalling $($name) from $($VMName)"
         Remove-AzureRmVMCustomScriptExtension -ResourceGroupName $rg -VMName $VMName -Name $name -Force | Out-Null
+        Write-Success "Extension uninstalled from $($VMName)`n"
     }
 }
 
@@ -1201,6 +1210,12 @@ function Add-FoggSubnetToVNet
         return $VNet
     }
 
+    if (($VNet.Subnets | Where-Object { $_.AddressPrefix -ieq $Address } | Measure-Object).Count -gt 0)
+    {
+        Write-Notice "Subnet with address $($Address) already exists against $($name)`n"
+        return $VNet
+    }
+
     # attempt to add subnet to the vnet
     if ($NetworkSecurityGroup -eq $null)
     {
@@ -1389,7 +1404,13 @@ function New-FoggVirtualNetworkGateway
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
         [string]
-        $GatewaySku
+        $GatewaySku,
+
+        [string]
+        $ClientAddressPool = $null,
+
+        [string]
+        $PublicCertificatePath = $null
     )
 
     $Name = $Name.ToLowerInvariant()
@@ -1412,8 +1433,7 @@ function New-FoggVirtualNetworkGateway
     }
 
     # create dynamic public IP
-    $pipId = (New-AzureRmPublicIpAddress -ResourceGroupName $FoggObject.ResourceGroupName -Name "$($Name)-ip" `
-        -Location $FoggObject.Location -AllocationMethod Dynamic).Id
+    $pipId = (New-FoggPublicIpAddress -FoggObject $FoggObject -Name "$($Name)-ip" -AllocationMethod 'Dynamic').Id
 
     # create the gateway config
     $config = New-AzureRmVirtualNetworkGatewayIpConfig -Name "$($Name)-cfg" -SubnetId $gatewaySubnetId -PublicIpAddressId $pipId
@@ -1423,8 +1443,26 @@ function New-FoggVirtualNetworkGateway
     }
 
     # create the vnet gateway
-    $gw = New-AzureRmVirtualNetworkGateway -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Location $FoggObject.Location `
-        -IpConfigurations $config -GatewayType Vpn -VpnType $VpnType -GatewaySku $GatewaySku -Force
+    if (!(Test-Empty $ClientAddressPool) -and !(Test-Empty $PublicCertificatePath))
+    {
+        # serialise the certificate
+        $certName = Split-Path -Leaf -Path $PublicCertificatePath
+        $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($PublicCertificatePath)
+        $certBase64 = [System.Convert]::ToBase64String($cert.RawData)
+        $p2sRootCert = New-AzureRmVpnClientRootCertificate -Name $certName -PublicCertData $certBase64
+
+        # create the gateway
+        $gw = New-AzureRmVirtualNetworkGateway -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name `
+            -Location $FoggObject.Location -IpConfigurations $config -GatewayType Vpn -VpnType $VpnType -GatewaySku $GatewaySku `
+            -EnableBgp $false -VpnClientAddressPool $ClientAddressPool -VpnClientRootCertificates $p2sRootCert -Force
+    }
+    else
+    {
+        $gw = New-AzureRmVirtualNetworkGateway -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name `
+            -Location $FoggObject.Location -IpConfigurations $config -GatewayType Vpn -VpnType $VpnType `
+            -GatewaySku $GatewaySku -Force
+    }
+
     if (!$?)
     {
         throw "Failed to create virtual network gateway $($Name)"
@@ -1686,8 +1724,7 @@ function New-FoggLoadBalancer
     # create public IP address
     if ($PublicIP)
     {
-        $pipId = (New-AzureRmPublicIpAddress -ResourceGroupName $FoggObject.ResourceGroupName -Name "$($Name)-ip" `
-            -Location $FoggObject.Location -AllocationMethod Static).Id
+        $pipId = (New-FoggPublicIpAddress -FoggObject $FoggObject -Name "$($Name)-ip" -AllocationMethod 'Static').Id
     }
     else
     {
@@ -1847,9 +1884,6 @@ function New-FoggVM
 
         $AvailabilitySet,
 
-        [string]
-        $NetworkSecurityGroupId,
-
         [switch]
         $PublicIP
     )
@@ -1867,19 +1901,19 @@ function New-FoggVM
     $vm = Get-FoggVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $VMName
     if ($vm -ne $null)
     {
-        Write-Notice "Using existing VM for $($VMName)`n"
+        Write-Notice "Updating existing VM for $($VMName)`n"
+        $vm = Update-FoggVM -FoggObject $FoggObject -BaseName $Name -VMName $VMName -SubnetId $SubnetId -VMSize $VMSize -PublicIP:$PublicIP
         return $vm
     }
 
     # create public IP address
     if ($PublicIP)
     {
-        $pipId = (New-AzureRmPublicIpAddress -ResourceGroupName $FoggObject.ResourceGroupName -Name "$($VMName)-ip" `
-            -Location $FoggObject.Location -AllocationMethod Static).Id
+        $pipId = (New-FoggPublicIpAddress -FoggObject $FoggObject -Name "$($VMName)-ip" -AllocationMethod 'Static').Id
     }
 
     # create the NIC
-    $VMNIC = New-FoggNetworkInterface -FoggObject $FoggObject -Name "$($VMName)-nic" -SubnetId $SubnetId `
+    $nic = New-FoggNetworkInterface -FoggObject $FoggObject -Name "$($VMName)-nic" -SubnetId $SubnetId `
         -PublicIpId $pipId -NetworkSecurityGroupId $FoggObject.NsgMap[$Name]
 
     # setup initial VM config
@@ -1900,7 +1934,7 @@ function New-FoggVM
     # assign images and OS to VM
     $VM = Set-AzureRmVMOperatingSystem -VM $VM -Windows -ComputerName $VMName -Credential $VMCredentials -ProvisionVMAgent
     $VM = Set-AzureRmVMSourceImage -VM $VM -PublisherName $VMPublisher -Offer $VMOffer -Skus $VMSkus -Version 'latest'
-    $VM = Add-AzureRmVMNetworkInterface -VM $VM -Id $VMNIC.Id
+    $VM = Add-AzureRmVMNetworkInterface -VM $VM -Id $nic.Id
 
     switch ($VMType.ToLowerInvariant())
     {
@@ -1922,6 +1956,73 @@ function New-FoggVM
 
     Write-Success "VM $($VMName) created`n"
     return $VM
+}
+
+
+function Update-FoggVM
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        $FoggObject,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $BaseName,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $VMName,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $SubnetId,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $VMSize,
+
+        [switch]
+        $PublicIP
+    )
+
+    $BaseName = $BaseName.ToLowerInvariant()
+    $VMName = $VMName.ToLowerInvariant()
+
+    # variables
+    $pipName = "$($VMName)-ip"
+    $nicName = "$($VMName)-nic"
+
+    # create public IP address if one doesn't already exist
+    if ($PublicIP)
+    {
+        $pipId = (New-FoggPublicIpAddress -FoggObject $FoggObject -Name $pipName -AllocationMethod 'Static').Id
+    }
+
+    # update the NIC, assigning the Public IP and NSG if we have one
+    New-FoggNetworkInterface -FoggObject $FoggObject -Name $nicName -SubnetId $SubnetId `
+        -PublicIpId $pipId -NetworkSecurityGroupId $FoggObject.NsgMap[$BaseName] | Out-Null
+
+    # update the VM size if it's different
+    $vm = Get-FoggVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $VMName
+    if ($vm.HardwareProfile.VmSize -ine $VMSize)
+    {
+        Write-Information "Updating VM size to $($VMSize)"
+        Stop-FoggVM -FoggObject $FoggObject -Name $VMName
+
+        $vm.HardwareProfile.VmSize = $VMSize
+        Update-AzureRmVM -ResourceGroupName $FoggObject.ResourceGroupName -VM $vm | Out-Null
+
+        Start-FoggVM -FoggObject $FoggObject -Name $VMName
+        Write-Success "Size of VM updated`n"
+    }
+
+    # return the updated VM
+    return (Get-FoggVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $VMName)
 }
 
 
@@ -2007,13 +2108,47 @@ function Stop-FoggVM
         return
     }
 
-    $output = Stop-AzureRmVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Force
+    $output = Stop-AzureRmVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -StayProvisioned -Force
     if (!$?)
     {
         throw "Failed to stop the VM $($Name): $($output)"
     }
 
     Write-Notice "VM $($Name) stopped"
+}
+
+
+function Start-FoggVM
+{
+    param(
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        $FoggObject,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Name
+    )
+
+    $Name = $Name.ToLowerInvariant()
+
+    Write-Information "Starting VM $($Name) in $($FoggObject.ResourceGroupName)"
+
+    # ensure the VM exists
+    if ((Get-FoggVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name) -eq $null)
+    {
+        Write-Notice "VM $($Name) does not exist"
+        return
+    }
+
+    $output = Start-AzureRmVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name
+    if (!$?)
+    {
+        throw "Failed to start the VM $($Name): $($output)"
+    }
+
+    Write-Success "VM $($Name) started"
 }
 
 
@@ -2091,6 +2226,7 @@ function New-FoggNetworkInterface
     if ($nic -ne $null)
     {
         Write-Notice "Using existing network interface for $($Name)`n"
+        $nic = Update-FoggNetworkInterface -FoggObject $FoggObject -Name $Name -PublicIpId $PublicIpId -NetworkSecurityGroupId $NetworkSecurityGroupId
         return $nic
     }
 
@@ -2104,4 +2240,150 @@ function New-FoggNetworkInterface
 
     Write-Success "Network Interface $($Name) created"
     return $nic
+}
+
+
+function Update-FoggNetworkInterface
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        $FoggObject,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Name,
+
+        [string]
+        $PublicIpId,
+
+        [string]
+        $NetworkSecurityGroupId
+    )
+
+    $Name = $Name.ToLowerInvariant()
+    $changes = $false
+
+    # get the existing NIC
+    $nic = Get-FoggNetworkInterface -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name
+    if ($nic -eq $null)
+    {
+        return
+    }
+
+    # assign Public IP if one doesn't already exist
+    if (!(Test-Empty $PublicIpId) -and $nic.IpConfigurations[0].PublicIpAddress -eq $null)
+    {
+        $pipName = Get-NameFromAzureId $PublicIpId
+        $pip = Get-FoggPublicIpAddress -ResourceGroupName $FoggObject.ResourceGroupName -Name $pipName
+
+        Write-Information "Updating $($Name) with Public IP $($pipName)"
+        $nic.IpConfigurations[0].PublicIpAddress = $pip
+        $changes = $true
+    }
+
+    # assign NSG if one doesn't already exist
+    if (!(Test-Empty $NetworkSecurityGroupId) -and $nic.NetworkSecurityGroup -eq $null)
+    {
+        $nsgName = Get-NameFromAzureId $NetworkSecurityGroupId
+        $nsg = Get-FoggNetworkSecurityGroup -ResourceGroupName $FoggObject.ResourceGroupName -Name $nsgName
+
+        Write-Information "Updating $($Name) with NSG $($nsg)"
+        $nic.NetworkSecurityGroup = $nsg
+        $changes = $true
+    }
+
+    # save possible changes
+    if ($changes)
+    {
+        Set-AzureRmNetworkInterface -NetworkInterface $nic | Out-Null
+    }
+
+    # return the updated NIC
+    return (Get-FoggNetworkInterface -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name)
+}
+
+
+function Get-FoggPublicIpAddress
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $ResourceGroupName,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Name
+    )
+
+    $ResourceGroupName = $ResourceGroupName.ToLowerInvariant()
+    $Name = $Name.ToLowerInvariant()
+
+    try
+    {
+        $pip = Get-AzureRmPublicIpAddress -ResourceGroupName $ResourceGroupName -Name $Name
+        if (!$?)
+        {
+            throw "Failed to make Azure call to retrieve Public IP Address: $($Name) in $($ResourceGroupName)"
+        }
+    }
+    catch [exception]
+    {
+        if ($_.Exception.Message -ilike '*was not found*')
+        {
+            $pip = $null
+        }
+        else
+        {
+            throw
+        }
+    }
+
+    return $pip
+}
+
+
+function New-FoggPublicIpAddress
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        $FoggObject,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Name,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $AllocationMethod
+    )
+
+    $Name = $Name.ToLowerInvariant()
+
+    Write-Information "Creating Public IP Address $($Name)"
+
+    # check to see if the IP already exists
+    $pip = Get-FoggPublicIpAddress -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name
+    if ($pip -ne $null)
+    {
+        Write-Notice "Using existing Public IP Address for $($Name)`n"
+        return $pip
+    }
+
+    $pip = New-AzureRmPublicIpAddress -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Location $FoggObject.Location `
+        -AllocationMethod $AllocationMethod -Force
+
+    if (!$?)
+    {
+        throw "Failed to create Public IP Address $($Name)"
+    }
+
+    Write-Success "Public IP Address $($Name) created`n"
+    return $pip
 }

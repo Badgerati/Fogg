@@ -14,8 +14,11 @@ if (($rule | Measure-Object).Count -eq 0)
 }
 
 # create Self Signed certificate and store thumbprint
-$thumbprint = (New-SelfSignedCertificate -DnsName $hostName -CertStoreLocation Cert:\LocalMachine\My).Thumbprint
+if ((((Get-ChildItem Cert:\LocalMachine\My\).Subject -ilike "CN=$($hostName)") | Measure-Object).Count -eq 0)
+{
+    $thumbprint = (New-SelfSignedCertificate -DnsName $hostName -CertStoreLocation Cert:\LocalMachine\My).Thumbprint
 
-# run winrm command
-$cmd = "winrm create winrm/config/Listener?Address=*+Transport=HTTPS @{Hostname=`"$($hostName)`";CertificateThumbprint=`"$($thumbprint)`"}"
-cmd.exe /C $cmd
+    # run winrm command
+    $cmd = "winrm create winrm/config/Listener?Address=*+Transport=HTTPS @{Hostname=`"$($hostName)`";CertificateThumbprint=`"$($thumbprint)`"}"
+    cmd.exe /C $cmd
+}

@@ -49,6 +49,12 @@
     .PARAMETER Version
         Switch parameter, if passed will display the current version of Fogg and end execution
 
+    .PARAMETER Validate
+        Switch parameter, if passed will only run validation on the Foggfile and templates
+
+    .PARAMETER IgnoreCores
+        Switch parameter, if passed will ignore the exceeding cores limit and continue to deploy to Azure
+
     .EXAMPLE
         fogg -SubscriptionName "AzureSub" -ResourceGroupName "basic-rg" -Location "westeurope" -VNetAddress "10.1.0.0/16" -SubnetAddresses @{"vm"="10.1.0.0/24"} -TemplatePath "./path/to/template.json"
         Passing the parameters if you don't use a Foggfile
@@ -98,7 +104,10 @@ param (
     $Version,
 
     [switch]
-    $Validate
+    $Validate,
+
+    [switch]
+    $IgnoreCores
 )
 
 $ErrorActionPreference = 'Stop'
@@ -145,7 +154,10 @@ function Test-Files
 
 
 # Output the version
-Write-Host 'Fogg v$version$' -ForegroundColor Cyan
+$ver = 'v$version$'
+Write-Details "Fogg $($ver)`n"
+
+# if we were only after the version, just return
 if ($Version)
 {
     return
@@ -178,7 +190,7 @@ try
         Test-Files -FoggObject $FoggObject -FoggProvisionersPath $FoggObjects.FoggProvisionersPath | Out-Null
     }
 
-    Write-Success "Templates verified"
+    Write-Success "Templates verified`n"
 
 
     # if we're only validating, return
@@ -196,7 +208,14 @@ try
     # This cannot be done during normal validation, as we require the user to be logged in first
     if (Test-VMCoresExceedMax -Groups $FoggObjects.Groups)
     {
-        return
+        if ($IgnoreCores)
+        {
+            Write-Notice 'Deployment exceeds a regional limit, but IgnoreCores has been specified'
+        }
+        else
+        {
+            return
+        }
     }
 
 
@@ -246,7 +265,7 @@ try
             }
 
 
-            # create the virtual network, or use existing one
+            # create the virtual network, or use existing one (by name and resource group)
             if ($FoggObject.UseExistingVNet)
             {
                 $vnet = Get-FoggVirtualNetwork -ResourceGroupName $FoggObject.VNetResourceGroupName -Name $FoggObject.VNetName
@@ -313,18 +332,16 @@ try
 
             if (!(Test-ArrayEmpty $ips))
             {
-                Write-Information "Public IP Addresses:"
+                Write-Information "`nPublic IP Addresses:"
 
                 $ips | ForEach-Object {
                     Write-Host "> $($_.Name): $($_.IpAddress)"
                 }
-
-                Write-Host ([string]::Empty)
             }
         }
         catch [exception]
         {
-            Write-Fail 'Fogg failed to deploy to Azure:'
+            Write-Fail "`nFogg failed to deploy to Azure:"
             Write-Fail $_.Exception.Message
             throw
         }
@@ -333,7 +350,6 @@ try
 finally
 {
     # Output the total time taken
-    $timer = [DateTime]::UtcNow - $timer
-    Write-Host "Duration: $($timer.ToString())"
+    Write-Duration $timer -PreText 'Total Duration' -NewLine
 }
 
