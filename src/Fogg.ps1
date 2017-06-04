@@ -154,7 +154,10 @@ function Test-Files
 
 
 # Output the version
-Write-Host 'Fogg v$version$' -ForegroundColor Cyan
+$ver = 'v$version$'
+Write-Details "Fogg $($ver)`n"
+
+# if we were only after the version, just return
 if ($Version)
 {
     return
@@ -187,7 +190,7 @@ try
         Test-Files -FoggObject $FoggObject -FoggProvisionersPath $FoggObjects.FoggProvisionersPath | Out-Null
     }
 
-    Write-Success "Templates verified"
+    Write-Success "Templates verified`n"
 
 
     # if we're only validating, return
@@ -329,18 +332,16 @@ try
 
             if (!(Test-ArrayEmpty $ips))
             {
-                Write-Information "Public IP Addresses:"
+                Write-Information "`nPublic IP Addresses:"
 
                 $ips | ForEach-Object {
                     Write-Host "> $($_.Name): $($_.IpAddress)"
                 }
-
-                Write-Host ([string]::Empty)
             }
         }
         catch [exception]
         {
-            Write-Fail 'Fogg failed to deploy to Azure:'
+            Write-Fail "`nFogg failed to deploy to Azure:"
             Write-Fail $_.Exception.Message
             throw
         }
@@ -349,7 +350,6 @@ try
 finally
 {
     # Output the total time taken
-    $timer = [DateTime]::UtcNow - $timer
-    Write-Host "Duration: $($timer.ToString())"
+    Write-Duration $timer -PreText 'Total Duration' -NewLine
 }
 

@@ -47,6 +47,8 @@ function Add-FoggAdminAccount
         {
             throw 'No Azure VM Administrator credentials passed'
         }
+
+        Write-Success "VM admin credentials setup`n"
     }
 }
 
@@ -572,8 +574,9 @@ function Remove-FoggCustomScriptExtension
     $ext = Get-FoggCustomScriptExtension -ResourceGroupName $rg -VMName $VMName -Name $name
     if ($ext -ne $null)
     {
-        Write-Information "Uninstalling $($name) from $($VMName)`n"
+        Write-Information "Uninstalling $($name) from $($VMName)"
         Remove-AzureRmVMCustomScriptExtension -ResourceGroupName $rg -VMName $VMName -Name $name -Force | Out-Null
+        Write-Success "Extension uninstalled from $($VMName)`n"
     }
 }
 

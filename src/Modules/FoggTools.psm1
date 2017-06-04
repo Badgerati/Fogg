@@ -64,6 +64,33 @@ function Write-Fail
 }
 
 
+function Write-Duration
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [DateTime]
+        $StartTime,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $PreText,
+
+        [switch]
+        $NewLine
+    )
+
+    $end = [DateTime]::UtcNow - $StartTime
+
+    if ($NewLine)
+    {
+        $n = "`n"
+    }
+
+    Write-Details "$($n)$($PreText): $($end.ToString())"
+}
+
+
 function Test-PathExists
 {
     param (
@@ -1114,8 +1141,6 @@ function New-FoggObject
     # if we aren't using a Foggfile, set params directly
     if (!$useFoggfile)
     {
-        Write-Information 'Loading template configuration from CLI'
-
         $group = New-FoggGroupObject -ResourceGroupName $ResourceGroupName -Location $Location `
             -SubnetAddresses $SubnetAddresses -TemplatePath $TemplatePath -FoggfilePath $FoggfilePath `
             -VNetAddress $VNetAddress -VNetResourceGroupName $VNetResourceGroupName -VNetName $VNetName
@@ -1126,8 +1151,6 @@ function New-FoggObject
     # else, we're using a Foggfile, set params and groups appropriately
     elseif ($useFoggfile)
     {
-        Write-Information 'Loading template from Foggfile'
-
         # load Foggfile
         $file = Get-JSONContent $FoggfilePath
 
@@ -1412,6 +1435,9 @@ function New-DeployTemplateVM
             continue
         }
 
+        $startTime = [DateTime]::UtcNow
+
+        # deploy the VM
         Save-FoggVM -FoggObject $FoggObject -VM $_vm -LoadBalancer $lb
 
         # see if we need to provision the machine
@@ -1419,6 +1445,10 @@ function New-DeployTemplateVM
 
         # due to a bug with the CustomScriptExtension, if we have any uninstall the extension
         Remove-FoggCustomScriptExtension -FoggObject $FoggObject -VMName $_vm.Name
+
+        # output the time taken to create VM
+        Write-Duration $startTime -PreText 'VM Duration'
+        Write-Host ([string]::Empty)
     }
 
     # turn off some of the VMs if needed
@@ -1450,6 +1480,7 @@ function New-DeployTemplateVPN
         $VNet
     )
 
+    $startTime = [DateTime]::UtcNow
     $tag = $VPNTemplate.tag.ToLowerInvariant()
     $tagname = "$($FoggObject.PreTag)-$($tag)"
 
@@ -1487,4 +1518,7 @@ function New-DeployTemplateVPN
                     -PublicCertificatePath $VPNTemplate.certPath | Out-Null
             }
     }
+
+    # output the time taken to create VM
+    Write-Duration $startTime -PreText 'VPN Duration'
 }
