@@ -39,7 +39,8 @@ choco install fogg
   * Network Security Groups with firewall rules
   * Availability Sets and Load Balancers
   * Public IP addresses for your VMs/Load Balancers
-  * VPN Gateways for site-to-site connections
+  * VPN Gateways for site-to-site and point-to-site connections
+* Immediate feedback if your template is about to exceed the core limit in a location
 
 ## Description
 
@@ -73,7 +74,7 @@ The first thing you will need is a template file, which will look as follows:
 }
 ```
 
-The above template will be used by Fogg to deploy one public Windows 2016 VM. You will notice the `count` value, changing this to 2, 3 or more will deploy 2, 3 or more of this VM type. (Note, if you deploy a VM type with a count > 1, Fogg will automatically create an availability set and load balance your VMs for you, this can be disabled via: `"useLoadBalancer": false`, though you will still get an availability set).
+The above template will be used by Fogg to deploy one public Windows 2016 VM. You will notice the `count` value, changing this to 2, 3 or more will deploy 2, 3 or more of this VM type. (Note, if you deploy a VM type with a count > 1, Fogg will automatically load balance your VMs for you, this can be disabled via: `"useLoadBalancer": false`, though you will still get an availability set).
 
 The `tag` and `type` values for template objects are mandatory. the `tag` can be any unique alphanumeric string (though try and keep it short). The `type` value can only be one of either `"vm"` or `"vpn"`.
 
@@ -92,6 +93,7 @@ This will tell Fogg to use the above template against your Subscription in Azure
 * Create a Storage Account called `basicstdsa` (or `basic-std-sa` for Standard Storage)
 * Create a Virtual Network called `basic-vnet` for address `10.1.0.0/16`
 * Create a Network Security Group (`basic-vm-nsg`) and Subnet (`basic-vm-snet`) for address `10.1.0.0/24`
+* Create an Availability Set called `basic-vm-as`
 * A Virtual Machine called `basic-vm1` will then be deployed under the `basic-vm-snet` Subnet
 
 To create a Foggfile of the above, stored at the root of the repo (can be else where as a `-FoggfilePath` can be supplied), would look like the folllowing:

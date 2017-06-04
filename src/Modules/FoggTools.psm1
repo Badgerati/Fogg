@@ -1041,6 +1041,19 @@ function Get-SubnetPort
 }
 
 
+function Get-NameFromAzureId
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Id
+    )
+
+    return (Split-Path -Leaf -Path $Id).ToLowerInvariant()
+}
+
+
 function New-FoggObject
 {
     param (
@@ -1395,19 +1408,16 @@ function New-DeployTemplateVM
 
     Write-Information "Deploying VMs for $($tag)"
 
-    # if we have more than one server count, create an availability set and load balancer
-    if ($VMTemplate.count -gt 1)
+    # create an availability set and, if VM count > 1, a load balancer
+    if ($useAvailabilitySet)
     {
-        if ($useAvailabilitySet)
-        {
-            $avset = New-FoggAvailabilitySet -FoggObject $FoggObject -Name "$($tagname)-as"
-        }
+        $avset = New-FoggAvailabilitySet -FoggObject $FoggObject -Name "$($tagname)-as"
+    }
 
-        if ($useLoadBalancer)
-        {
-            $lb = New-FoggLoadBalancer -FoggObject $FoggObject -Name "$($tagname)-lb" -SubnetId $subnetId `
-                -Port $VMTemplate.port -PublicIP:$usePublicIP
-        }
+    if ($useLoadBalancer -and $VMTemplate.count -gt 1)
+    {
+        $lb = New-FoggLoadBalancer -FoggObject $FoggObject -Name "$($tagname)-lb" -SubnetId $subnetId `
+            -Port $VMTemplate.port -PublicIP:$usePublicIP
     }
 
     # create each of the VMs
