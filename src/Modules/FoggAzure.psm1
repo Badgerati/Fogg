@@ -467,7 +467,7 @@ function Set-FoggCustomConfig
     # parse the arguments - if we have any - into the write format
     if (!(Test-Empty $Arguments))
     {
-        $Arguments = "`"" + (($Arguments -split '\|') -join "`" `"") + "`""
+        $Arguments = "`"" + (($Arguments -split '\|' | ForEach-Object { $_.Trim() }) -join "`" `"") + "`""
     }
 
     # grab the storage account name and key
