@@ -237,7 +237,7 @@ function Test-VMCoresExceedMax
         }
 
         # store the VM size details to stop multiple calls
-        $details = Get-AzureRmVMSize -Location $group.Location
+        $details = Get-FoggVMSizeDetails $group.Location
 
         # loop through each template object - only including VM types
         foreach ($obj in $template.template)
@@ -274,7 +274,7 @@ function Test-VMCoresExceedMax
     $exceeded = $false
 
     $regions.Keys | ForEach-Object {
-        $azureTotal = (Get-AzureRmVMUsage -Location $_ | Where-Object { $_.Name.Value -ieq 'cores' })
+        $azureTotal = (Get-FoggVMUsageDetails -Location $_ | Where-Object { $_.Name.Value -ieq 'cores' })
         $azureCurrent = $azureTotal.CurrentValue
         $azureMax = $azureTotal.Limit
         $azureToBe = ($azureCurrent + $regions[$_])

@@ -328,7 +328,7 @@ try
             }
 
             # attempt to output any public IP addresses
-            $ips = Get-AzureRmPublicIpAddress -ResourceGroupName $FoggObject.ResourceGroupName
+            $ips = Get-FoggPublicIpAddresses $FoggObject.ResourceGroupName
 
             if (!(Test-ArrayEmpty $ips))
             {

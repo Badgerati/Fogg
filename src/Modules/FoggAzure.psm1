@@ -2305,6 +2305,41 @@ function Update-FoggNetworkInterface
 }
 
 
+function Get-FoggPublicIpAddresses
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $ResourceGroupName
+    )
+
+    $ResourceGroupName = $ResourceGroupName.ToLowerInvariant()
+
+    try
+    {
+        $pips = Get-AzureRmPublicIpAddress -ResourceGroupName $ResourceGroupName
+        if (!$?)
+        {
+            throw "Failed to make Azure call to retrieve Public IP Addresses in $($ResourceGroupName)"
+        }
+    }
+    catch [exception]
+    {
+        if ($_.Exception.Message -ilike '*was not found*')
+        {
+            $pips = $null
+        }
+        else
+        {
+            throw
+        }
+    }
+
+    return $pips
+}
+
+
 function Get-FoggPublicIpAddress
 {
     param (
@@ -2386,4 +2421,30 @@ function New-FoggPublicIpAddress
 
     Write-Success "Public IP Address $($Name) created`n"
     return $pip
+}
+
+
+function Get-FoggVMSizeDetails
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Location
+    )
+
+    return Get-AzureRmVMSize -Location $Location
+}
+
+
+function Get-FoggVMUsageDetails
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Location
+    )
+
+    return Get-AzureRmVMUsage -Location $Location
 }
