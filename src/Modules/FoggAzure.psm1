@@ -1827,6 +1827,41 @@ function Get-FoggVM
 }
 
 
+function Get-FoggVMs
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $ResourceGroupName
+    )
+
+    $ResourceGroupName = $ResourceGroupName.ToLowerInvariant()
+
+    try
+    {
+        $vms = Get-AzureRmVM -ResourceGroupName $ResourceGroupName
+        if (!$?)
+        {
+            throw "Failed to make Azure call to retrieve VMs in $($ResourceGroupName)"
+        }
+    }
+    catch [exception]
+    {
+        if ($_.Exception.Message -ilike '*was not found*')
+        {
+            $vms = $null
+        }
+        else
+        {
+            throw
+        }
+    }
+
+    return $vms
+}
+
+
 function New-FoggVM
 {
     param (
