@@ -1298,6 +1298,9 @@ function New-FoggGroupObject
     $group.HasProvisionScripts = $false
     $group.ProvisionMap = @{'dsc' = @{}; 'custom' = @{}; 'choco' = @{}}
     $group.NsgMap = @{}
+    $group.StorageAccountName = $null
+    $group.VirtualMachineInfo = @{}
+    $group.VPNInfo = @{}
 
     $groupObj = New-Object -TypeName PSObject -Property $group
 
@@ -1385,7 +1388,19 @@ function New-DeployTemplateVM
     $tagname = "$($FoggObject.PreTag)-$($tag)"
     $usePublicIP = [bool]$VMTemplate.usePublicIP
     $subnetPrefix = $FoggObject.SubnetAddressMap[$tag]
-    $subnetId = ($VNet.Subnets | Where-Object { $_.Name -ieq "$($tagname)-snet" -or $_.AddressPrefix -ieq $subnetPrefix }).Id
+    $subnet = ($VNet.Subnets | Where-Object { $_.Name -ieq "$($tagname)-snet" -or $_.AddressPrefix -ieq $subnetPrefix })
+    
+    # VM information
+    $FoggObject.VirtualMachineInfo.Add($tag, @{})
+    $vmInfo = $FoggObject.VirtualMachineInfo[$tag]
+    $vmInfo.Add('Subnet', @{})
+    $vmInfo.Add('AvailabilitySet', $null)
+    $vmInfo.Add('LoadBalancer', @{})
+    $vmInfo.Add('VirtualMachines', @())
+
+    # set subnet details against VM info
+    $vmInfo.Subnet.Add('Name', $subnet.Name)
+    $vmInfo.Subnet.Add('AddressPrefix', $subnetPrefix)
 
     # are we using a load balancer and availability set?
     $useLoadBalancer = $true
@@ -1411,13 +1426,21 @@ function New-DeployTemplateVM
     # create an availability set and, if VM count > 1, a load balancer
     if ($useAvailabilitySet)
     {
-        $avset = New-FoggAvailabilitySet -FoggObject $FoggObject -Name "$($tagname)-as"
+        $avsetName = "$($tagname)-as"
+        $avset = New-FoggAvailabilitySet -FoggObject $FoggObject -Name $avsetName
+        $vmInfo.AvailabilitySet = $avsetName
     }
 
     if ($useLoadBalancer -and $VMTemplate.count -gt 1)
     {
-        $lb = New-FoggLoadBalancer -FoggObject $FoggObject -Name "$($tagname)-lb" -SubnetId $subnetId `
+        $lbName = "$($tagname)-lb"
+        $lb = New-FoggLoadBalancer -FoggObject $FoggObject -Name $lbName -SubnetId $subnet.Id `
             -Port $VMTemplate.port -PublicIP:$usePublicIP
+
+        $vmInfo.LoadBalancer.Add('Name', $lbName)
+        $vmInfo.LoadBalancer.Add('PublicIP', $lb.FrontendIpConfigurations[0].PublicIpAddress)
+        $vmInfo.LoadBalancer.Add('PrivateIP', $lb.FrontendIpConfigurations[0].PrivateIpAddress)
+        $vmInfo.LoadBalancer.Add('Port', $VMTemplate.port)
     }
 
     # create each of the VMs
@@ -1433,7 +1456,7 @@ function New-DeployTemplateVM
 
         # create the VM
         $_vms += (New-FoggVM -FoggObject $FoggObject -Name $tagname -VMIndex $_ -VMCredentials $VMCredentials `
-            -StorageAccount $StorageAccount -SubnetId $subnetId -VMSize $os.size -VMSkus $os.skus -VMOffer $os.offer `
+            -StorageAccount $StorageAccount -SubnetId $subnet.Id -VMSize $os.size -VMSkus $os.skus -VMOffer $os.offer `
             -VMType $os.type -VMPublisher $os.publisher -AvailabilitySet $avset -PublicIP:$usePublicIP)
     }
 
@@ -1455,6 +1478,17 @@ function New-DeployTemplateVM
 
         # due to a bug with the CustomScriptExtension, if we have any uninstall the extension
         Remove-FoggCustomScriptExtension -FoggObject $FoggObject -VMName $_vm.Name
+
+        # get VM's NIC
+        $nicId = Get-NameFromAzureId $_vm.NetworkProfile.NetworkInterfaces[0].Id
+        $nicIPs = (Get-FoggNetworkInterface -ResourceGroupName $FoggObject.ResourceGroupName -Name $nicId).IpConfigurations[0]
+
+        # save VM info details
+        $vmInfo.VirtualMachines += @{
+            'Name' = $_vm.Name;
+            'PrivateIP' = $nicIPs.PrivateIpAddress;
+            'PublicIP' = $nicIPs.PublicIpAddress;
+        }
 
         # output the time taken to create VM
         Write-Duration $startTime -PreText 'VM Duration'
@@ -1493,8 +1527,11 @@ function New-DeployTemplateVPN
     $startTime = [DateTime]::UtcNow
     $tag = $VPNTemplate.tag.ToLowerInvariant()
     $tagname = "$($FoggObject.PreTag)-$($tag)"
+    
+    # VPN information
+    $FoggObject.VPNInfo.Add($tag, @{})
 
-    Write-Information "Deploying VPN for $($tag)"
+    Write-Information "Deploying VPN for '$($tag)' template"
 
     switch ($VPNTemplate.configType.ToLowerInvariant())
     {
