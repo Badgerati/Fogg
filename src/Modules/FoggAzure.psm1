@@ -1433,7 +1433,7 @@ function New-FoggVirtualNetworkGateway
     }
 
     # create dynamic public IP
-    $pipId = (New-FoggPublicIpAddress -FoggObject $FoggObject -Name "$($Name)-ip" -AllocationMethod 'Dynamic').Id
+    $pipId = (New-FoggPublicIpAddress -FoggObject $FoggObject -Name $Name -AllocationMethod 'Dynamic').Id
 
     # create the gateway config
     $config = New-AzureRmVirtualNetworkGatewayIpConfig -Name "$($Name)-cfg" -SubnetId $gatewaySubnetId -PublicIpAddressId $pipId
@@ -1724,7 +1724,7 @@ function New-FoggLoadBalancer
     # create public IP address
     if ($PublicIP)
     {
-        $pipId = (New-FoggPublicIpAddress -FoggObject $FoggObject -Name "$($Name)-ip" -AllocationMethod 'Static').Id
+        $pipId = (New-FoggPublicIpAddress -FoggObject $FoggObject -Name $Name -AllocationMethod 'Static').Id
     }
     else
     {
@@ -1909,7 +1909,7 @@ function New-FoggVM
     # create public IP address
     if ($PublicIP)
     {
-        $pipId = (New-FoggPublicIpAddress -FoggObject $FoggObject -Name "$($VMName)-ip" -AllocationMethod 'Static').Id
+        $pipId = (New-FoggPublicIpAddress -FoggObject $FoggObject -Name $VMName -AllocationMethod 'Static').Id
     }
 
     # create the NIC
@@ -1994,13 +1994,12 @@ function Update-FoggVM
     $VMName = $VMName.ToLowerInvariant()
 
     # variables
-    $pipName = "$($VMName)-ip"
     $nicName = "$($VMName)-nic"
 
     # create public IP address if one doesn't already exist
     if ($PublicIP)
     {
-        $pipId = (New-FoggPublicIpAddress -FoggObject $FoggObject -Name $pipName -AllocationMethod 'Static').Id
+        $pipId = (New-FoggPublicIpAddress -FoggObject $FoggObject -Name $VMName -AllocationMethod 'Static').Id
     }
 
     # update the NIC, assigning the Public IP and NSG if we have one
@@ -2377,6 +2376,12 @@ function Get-FoggPublicIpAddress
         }
     }
 
+    # TODO: Remove backwards compatibility
+    if ($pip -eq $null -and $Name -ilike '*-pip')
+    {
+        return (Get-FoggPublicIpAddress -ResourceGroupName $ResourceGroupName -Name ($Name -ireplace '-pip', '-ip'))
+    }
+
     return $pip
 }
 
@@ -2399,7 +2404,7 @@ function New-FoggPublicIpAddress
         $AllocationMethod
     )
 
-    $Name = $Name.ToLowerInvariant()
+    $Name = "$($Name.ToLowerInvariant())-pip"
 
     Write-Information "Creating Public IP Address $($Name)"
 
