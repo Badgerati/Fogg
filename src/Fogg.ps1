@@ -3,7 +3,7 @@
         Fogg is a PowerShell tool to aide and simplify the creation, deployment and provisioning of infrastructure in Azure
 
     .DESCRIPTION
-        Fogg is a PowerShell tool to aide and simplify the creation, deployment and provisioning of infrastructure in Azur
+        Fogg is a PowerShell tool to aide and simplify the creation, deployment and provisioning of infrastructure in Azure
 
     .PARAMETER ResourceGroupName
         The name of the Resource Group you wish to create or use in Azure
@@ -258,7 +258,6 @@ try
                 # Create the storage account
                 $usePremiumStorage = [bool]$template.usePremiumStorage
                 $sa = New-FoggStorageAccount -FoggObject $FoggObject -Premium:$usePremiumStorage
-
 
                 # publish Provisioner scripts to storage account
                 Publish-ProvisionerScripts -FoggObject $FoggObject -StorageAccount $sa
