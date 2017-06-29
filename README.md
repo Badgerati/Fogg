@@ -41,6 +41,7 @@ choco install fogg
   * Public IP addresses for your VMs/Load Balancers
   * VPN Gateways for site-to-site and point-to-site connections
 * Immediate feedback if your template is about to exceed the core limit in a location
+* Returns an object containing the information of what was deployed
 
 ## Description
 

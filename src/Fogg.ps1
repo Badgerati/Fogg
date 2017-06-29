@@ -55,6 +55,9 @@
     .PARAMETER IgnoreCores
         Switch parameter, if passed will ignore the exceeding cores limit and continue to deploy to Azure
 
+    .PARAMETER NoOutput
+        Switch parameter, if passed, the resultant object with information of what was deployed will not be returned
+
     .EXAMPLE
         fogg -SubscriptionName "AzureSub" -ResourceGroupName "basic-rg" -Location "westeurope" -VNetAddress "10.1.0.0/16" -SubnetAddresses @{"vm"="10.1.0.0/24"} -TemplatePath "./path/to/template.json"
         Passing the parameters if you don't use a Foggfile
@@ -107,7 +110,10 @@ param (
     $Validate,
 
     [switch]
-    $IgnoreCores
+    $IgnoreCores,
+
+    [switch]
+    $NoOutput
 )
 
 $ErrorActionPreference = 'Stop'
@@ -362,6 +368,13 @@ finally
 }
 
 
+# if we don't care about the resultant object, just return
+if ($NoOutput)
+{
+    return
+}
+
+
 # re-loop through each group, constructing result object to return
 $result = @{}
 
@@ -377,7 +390,7 @@ foreach ($FoggObject in $FoggObjects.Groups)
 
     # set location info
     $rg.Location = $FoggObject.Location
-    
+
     # set vnet info
     $rg.VirtualNetwork = @{
         'Name' = $FoggObject.VNetName;

@@ -1474,7 +1474,10 @@ function New-DeployTemplateVM
         Save-FoggVM -FoggObject $FoggObject -VM $_vm -LoadBalancer $lb
 
         # see if we need to provision the machine
-        Set-ProvisionVM -FoggObject $FoggObject -Provisioners $VMTemplate.provisioners -VMName $_vm.Name -StorageAccount $StorageAccount
+        if ($FoggObject.HasProvisionScripts)
+        {
+            Set-ProvisionVM -FoggObject $FoggObject -Provisioners $VMTemplate.provisioners -VMName $_vm.Name -StorageAccount $StorageAccount
+        }
 
         # due to a bug with the CustomScriptExtension, if we have any uninstall the extension
         Remove-FoggCustomScriptExtension -FoggObject $FoggObject -VMName $_vm.Name
@@ -1483,11 +1486,18 @@ function New-DeployTemplateVM
         $nicId = Get-NameFromAzureId $_vm.NetworkProfile.NetworkInterfaces[0].Id
         $nicIPs = (Get-FoggNetworkInterface -ResourceGroupName $FoggObject.ResourceGroupName -Name $nicId).IpConfigurations[0]
 
+        # get VM's public IP
+        if (!(Test-Empty $nicIPs.PublicIpAddress))
+        {
+            $pipId = Get-NameFromAzureId $nicIPs.PublicIpAddress[0].Id
+            $pipIP = (Get-FoggPublicIpAddress -ResourceGroupName $FoggObject.ResourceGroupName -Name $pipId).IpAddress
+        }
+
         # save VM info details
         $vmInfo.VirtualMachines += @{
             'Name' = $_vm.Name;
             'PrivateIP' = $nicIPs.PrivateIpAddress;
-            'PublicIP' = $nicIPs.PublicIpAddress;
+            'PublicIP' = $pipIP;
         }
 
         # output the time taken to create VM
