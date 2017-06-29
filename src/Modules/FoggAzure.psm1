@@ -2379,7 +2379,9 @@ function Get-FoggPublicIpAddress
     # TODO: Remove backwards compatibility
     if ($pip -eq $null -and $Name -ilike '*-pip')
     {
-        return (Get-FoggPublicIpAddress -ResourceGroupName $ResourceGroupName -Name ($Name -ireplace '-pip', '-ip'))
+        $backwards = $Name -ireplace '-pip', '-ip'
+        Write-Notice "Could not find public IP $($Name), attempting back compatibility for: $($backwards)"
+        return (Get-FoggPublicIpAddress -ResourceGroupName $ResourceGroupName -Name $back)
     }
 
     return $pip
