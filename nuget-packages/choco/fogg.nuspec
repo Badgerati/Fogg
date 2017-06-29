@@ -31,6 +31,7 @@ Fogg is a PowerShell v4.0+ tool to aide and simplify the creation, deployment an
   * Public IP addresses for your VMs/Load Balancers
   * VPN Gateways for site-to-site and point-to-site connections
 * Immediate feedback if your template is about to exceed the core limit in a location
+* Ability to append new VMs rather than always creating and updating the same ones
     </description>
     <projectUrl>https://github.com/Badgerati/Fogg</projectUrl>
     <packageSourceUrl>https://github.com/Badgerati/Fogg/tree/master/nuget-packages</packageSourceUrl>
