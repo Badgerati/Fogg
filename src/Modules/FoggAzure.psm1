@@ -2416,7 +2416,7 @@ function Get-FoggPublicIpAddress
     {
         $backwards = $Name -ireplace '-pip', '-ip'
         Write-Notice "Could not find public IP $($Name), attempting back compatibility for: $($backwards)"
-        return (Get-FoggPublicIpAddress -ResourceGroupName $ResourceGroupName -Name $back)
+        return (Get-FoggPublicIpAddress -ResourceGroupName $ResourceGroupName -Name $backwards)
     }
 
     return $pip
