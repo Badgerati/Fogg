@@ -3,7 +3,7 @@
         Fogg is a PowerShell tool to aide and simplify the creation, deployment and provisioning of infrastructure in Azure
 
     .DESCRIPTION
-        Fogg is a PowerShell tool to aide and simplify the creation, deployment and provisioning of infrastructure in Azur
+        Fogg is a PowerShell tool to aide and simplify the creation, deployment and provisioning of infrastructure in Azure
 
     .PARAMETER ResourceGroupName
         The name of the Resource Group you wish to create or use in Azure

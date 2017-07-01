@@ -524,6 +524,12 @@ function Test-TemplateVM
         throw "VM count cannot be null, 0 or negative for $($tag): $($vm.count)"
     }
 
+    # ensure that if append is true, off count is not supplied
+    if ($vm.append -and $vm.off -ne $null -and $vm.off -gt 0)
+    {
+        throw "VMs to turn off cannot be supplied if append property is true for $($tag)"
+    }
+
     # ensure the off count is not negative or greater than VM count
     if ($vm.off -ne $null -and ($vm.off -le 0 -or $vm.off -gt $vm.count))
     {
@@ -1421,7 +1427,7 @@ function New-DeployTemplateVM
         $useLoadBalancer = $false
     }
 
-    Write-Information "Deploying VMs for $($tag)"
+    Write-Information "Deploying $($VMTemplate.count) VM(s) for the '$($tag)' template"
 
     # create an availability set and, if VM count > 1, a load balancer
     if ($useAvailabilitySet)
@@ -1443,6 +1449,28 @@ function New-DeployTemplateVM
         $vmInfo.LoadBalancer.Add('Port', $VMTemplate.port)
     }
 
+    # work out the base index of the VM, if we're appending instead of creating
+    $baseIndex = 0
+
+    if ($VMTemplate.append)
+    {
+        # get list of all VMs
+        $rg_vms = Get-FoggVMs -ResourceGroupName $FoggObject.ResourceGroupName
+
+        # if no VMs returned, keep default base index as 0
+        if (!(Test-ArrayEmpty $rg_vms))
+        {
+            # filter on base VM name to get last VM deployed
+            $name = ($rg_vms | Where-Object { $_.Name -ilike "$($tagname)*" } | Select-Object -Last 1 -ExpandProperty Name)
+
+            # if name has a value at the end, take it as the base index
+            if ($name -imatch "^$($tagname)(\d+)")
+            {
+                $baseIndex = ([int]$Matches[1])
+            }
+        }
+    }
+
     # create each of the VMs
     $_vms = @()
 
@@ -1455,7 +1483,7 @@ function New-DeployTemplateVM
         }
 
         # create the VM
-        $_vms += (New-FoggVM -FoggObject $FoggObject -Name $tagname -VMIndex $_ -VMCredentials $VMCredentials `
+        $_vms += (New-FoggVM -FoggObject $FoggObject -Name $tagname -VMIndex ($_ + $baseIndex) -VMCredentials $VMCredentials `
             -StorageAccount $StorageAccount -SubnetId $subnet.Id -VMSize $os.size -VMSkus $os.skus -VMOffer $os.offer `
             -VMType $os.type -VMPublisher $os.publisher -AvailabilitySet $avset -PublicIP:$usePublicIP)
     }

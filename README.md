@@ -42,6 +42,7 @@ choco install fogg
   * VPN Gateways for site-to-site and point-to-site connections
 * Immediate feedback if your template is about to exceed the core limit in a location
 * Returns an object containing the information of what was deployed
+* Ability to append new VMs rather than always creating and updating the same ones
 
 ## Description
 

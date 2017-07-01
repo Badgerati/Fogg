@@ -1432,7 +1432,7 @@ function New-FoggVirtualNetworkGateway
     }
 
     # create dynamic public IP
-    $pipId = (New-FoggPublicIpAddress -FoggObject $FoggObject -Name "$($Name)-ip" -AllocationMethod 'Dynamic').Id
+    $pipId = (New-FoggPublicIpAddress -FoggObject $FoggObject -Name $Name -AllocationMethod 'Dynamic').Id
 
     # create the gateway config
     $config = New-AzureRmVirtualNetworkGatewayIpConfig -Name "$($Name)-cfg" -SubnetId $gatewaySubnetId -PublicIpAddressId $pipId
@@ -1723,7 +1723,7 @@ function New-FoggLoadBalancer
     # create public IP address
     if ($PublicIP)
     {
-        $pipId = (New-FoggPublicIpAddress -FoggObject $FoggObject -Name "$($Name)-ip" -AllocationMethod 'Static').Id
+        $pipId = (New-FoggPublicIpAddress -FoggObject $FoggObject -Name $Name -AllocationMethod 'Static').Id
     }
     else
     {
@@ -1826,6 +1826,41 @@ function Get-FoggVM
 }
 
 
+function Get-FoggVMs
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $ResourceGroupName
+    )
+
+    $ResourceGroupName = $ResourceGroupName.ToLowerInvariant()
+
+    try
+    {
+        $vms = Get-AzureRmVM -ResourceGroupName $ResourceGroupName
+        if (!$?)
+        {
+            throw "Failed to make Azure call to retrieve VMs in $($ResourceGroupName)"
+        }
+    }
+    catch [exception]
+    {
+        if ($_.Exception.Message -ilike '*was not found*')
+        {
+            $vms = $null
+        }
+        else
+        {
+            throw
+        }
+    }
+
+    return $vms
+}
+
+
 function New-FoggVM
 {
     param (
@@ -1908,7 +1943,7 @@ function New-FoggVM
     # create public IP address
     if ($PublicIP)
     {
-        $pipId = (New-FoggPublicIpAddress -FoggObject $FoggObject -Name "$($VMName)-ip" -AllocationMethod 'Static').Id
+        $pipId = (New-FoggPublicIpAddress -FoggObject $FoggObject -Name $VMName -AllocationMethod 'Static').Id
     }
 
     # create the NIC
@@ -1993,13 +2028,12 @@ function Update-FoggVM
     $VMName = $VMName.ToLowerInvariant()
 
     # variables
-    $pipName = "$($VMName)-ip"
     $nicName = "$($VMName)-nic"
 
     # create public IP address if one doesn't already exist
     if ($PublicIP)
     {
-        $pipId = (New-FoggPublicIpAddress -FoggObject $FoggObject -Name $pipName -AllocationMethod 'Static').Id
+        $pipId = (New-FoggPublicIpAddress -FoggObject $FoggObject -Name $VMName -AllocationMethod 'Static').Id
     }
 
     # update the NIC, assigning the Public IP and NSG if we have one
@@ -2376,6 +2410,14 @@ function Get-FoggPublicIpAddress
         }
     }
 
+    # TODO: Remove backwards compatibility
+    if ($pip -eq $null -and $Name -ilike '*-pip')
+    {
+        $backwards = $Name -ireplace '-pip', '-ip'
+        Write-Notice "Could not find public IP $($Name), attempting back compatibility for: $($backwards)"
+        return (Get-FoggPublicIpAddress -ResourceGroupName $ResourceGroupName -Name $backwards)
+    }
+
     return $pip
 }
 
@@ -2398,7 +2440,7 @@ function New-FoggPublicIpAddress
         $AllocationMethod
     )
 
-    $Name = $Name.ToLowerInvariant()
+    $Name = "$($Name.ToLowerInvariant())-pip"
 
     Write-Information "Creating Public IP Address $($Name)"
 
