@@ -95,7 +95,7 @@ This will tell Fogg to use the above template against your Subscription in Azure
 * Create a Virtual Network called `basic-vnet` for address `10.1.0.0/16`
 * Create a Network Security Group (`basic-vm-nsg`) and Subnet (`basic-vm-snet`) for address `10.1.0.0/24`
 * Create an Availability Set called `basic-vm-as`
-* A Virtual Machine called `basic-vm1` will then be deployed under the `basic-vm-snet` Subnet
+* A Virtual Machine called `basic-test1` will then be deployed under the `basic-vm-snet` Subnet
 
 To create a Foggfile of the above, stored at the root of the repo (can be else where as a `-FoggfilePath` can be supplied), would look like the folllowing:
 
@@ -126,6 +126,38 @@ fogg
 ```
 
 If you pass in the parameters on the CLI while using a Foggfile, the parameters from the CLI have higher precidence and will override the Foggfile's values. (ie: passing `-SubscriptionName` will override the `"SubscriptionName"` in the Foggfile)
+
+On a successful deployment, Fogg will return a resultant object that contains the information of the infrastructure that was just deployed.
+This will contain the names of resources like the VNETs, Subnets and VMs; to the IPs of them, and Ports of Load Balancer. For the above example:
+
+```powershell
+@{
+    'ResourceGroup' = @{
+        'Name' = 'basic-rg';
+    };
+    'VirtualNetwork' = @{
+        'Name' = 'basic-vnet';
+        'AddressPrefix' = '10.1.0.0/16';
+    };
+    'StorageAccount' = @{
+        'Name' = 'basicstdsa'
+    };
+    'VirtualMachineInfo' = @{
+        'test' = @{
+            'Subnet' = '10.1.0.0/24';
+            'AvailabilitySet' = 'basic-test-as';
+            'LoadBalancer' = @{};
+            'VirtualMachines' = @(
+                @{
+                    'Name' = 'basic-test1';
+                    'PrivateIP' = '10.1.0.1';
+                    'PublicIP' = '52.139.128.96';
+                };
+            );
+        };
+    };
+}
+```
 
 ## TODO
 
