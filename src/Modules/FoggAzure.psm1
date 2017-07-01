@@ -311,7 +311,6 @@ function Set-ProvisionVM
         $FoggObject,
 
         [Parameter(Mandatory=$true)]
-        [ValidateNotNullOrEmpty()]
         $Provisioners,
 
         [Parameter(Mandatory=$true)]

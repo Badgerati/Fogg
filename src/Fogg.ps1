@@ -55,6 +55,9 @@
     .PARAMETER IgnoreCores
         Switch parameter, if passed will ignore the exceeding cores limit and continue to deploy to Azure
 
+    .PARAMETER NoOutput
+        Switch parameter, if passed, the resultant object with information of what was deployed will not be returned
+
     .EXAMPLE
         fogg -SubscriptionName "AzureSub" -ResourceGroupName "basic-rg" -Location "westeurope" -VNetAddress "10.1.0.0/16" -SubnetAddresses @{"vm"="10.1.0.0/24"} -TemplatePath "./path/to/template.json"
         Passing the parameters if you don't use a Foggfile
@@ -107,7 +110,10 @@ param (
     $Validate,
 
     [switch]
-    $IgnoreCores
+    $IgnoreCores,
+
+    [switch]
+    $NoOutput
 )
 
 $ErrorActionPreference = 'Stop'
@@ -258,6 +264,7 @@ try
                 # Create the storage account
                 $usePremiumStorage = [bool]$template.usePremiumStorage
                 $sa = New-FoggStorageAccount -FoggObject $FoggObject -Premium:$usePremiumStorage
+                $FoggObject.StorageAccountName = $sa.StorageAccountName
 
                 # publish Provisioner scripts to storage account
                 Publish-ProvisionerScripts -FoggObject $FoggObject -StorageAccount $sa
@@ -273,6 +280,11 @@ try
             {
                 $vnet = New-FoggVirtualNetwork -FoggObject $FoggObject
             }
+            
+            # set vnet group information
+            $FoggObject.VNetAddress = $vnet.AddressSpace.AddressPrefixes[0]
+            $FoggObject.VNetResourceGroupName = $vnet.ResourceGroupName
+            $FoggObject.VNetName = $vnet.Name
 
 
             # Create virtual subnets and security groups for VM objects in template
@@ -325,24 +337,27 @@ try
                         }
                 }
             }
-
-            # attempt to output any public IP addresses
-            $ips = Get-FoggPublicIpAddresses $FoggObject.ResourceGroupName
-
-            if (!(Test-ArrayEmpty $ips))
-            {
-                Write-Information "`nPublic IP Addresses:"
-
-                $ips | ForEach-Object {
-                    Write-Host "> $($_.Name): $($_.IpAddress)"
-                }
-            }
         }
         catch [exception]
         {
             Write-Fail "`nFogg failed to deploy to Azure:"
             Write-Fail $_.Exception.Message
             throw
+        }
+    }
+
+    # attempt to output any public IP addresses
+    Write-Information "`nPublic IP Addresses:"
+
+    foreach ($FoggObject in $FoggObjects.Groups)
+    {
+        $ips = Get-FoggPublicIpAddresses $FoggObject.ResourceGroupName
+
+        if (!(Test-ArrayEmpty $ips))
+        {
+            $ips | ForEach-Object {
+                Write-Host "> $($_.Name): $($_.IpAddress)"
+            }
         }
     }
 }
@@ -352,3 +367,67 @@ finally
     Write-Duration $timer -PreText 'Total Duration' -NewLine
 }
 
+
+# if we don't care about the resultant object, just return
+if ($NoOutput)
+{
+    return
+}
+
+
+# re-loop through each group, constructing result object to return
+$result = @{}
+
+foreach ($FoggObject in $FoggObjects.Groups)
+{
+    # check if resource group already exists in result
+    if (!$result.ContainsKey($FoggObject.ResourceGroupName))
+    {
+        $result.Add($FoggObject.ResourceGroupName, @{})
+    }
+
+    $rg = $result[$FoggObject.ResourceGroupName]
+
+    # set location info
+    $rg.Location = $FoggObject.Location
+
+    # set vnet info
+    $rg.VirtualNetwork = @{
+        'Name' = $FoggObject.VNetName;
+        'ResourceGroupName' = $FoggObject.VNetResourceGroupName;
+        'Address' = $FoggObject.VNetAddress;
+    }
+
+    # set storage account info
+    $rg.StorageAccount = @{
+        'Name' = $FoggObject.StorageAccountName;
+    }
+
+    # set vm info
+    if ($rg.VirtualMachineInfo -eq $null)
+    {
+        $rg.VirtualMachineInfo = @{}
+    }
+
+    $info = @{}
+    $FoggObject.VirtualMachineInfo.GetEnumerator() | 
+        Where-Object { !$rg.VirtualMachineInfo.ContainsKey($_.Name) } |
+        ForEach-Object { $info.Add($_.Name, $_.Value) }
+
+    $rg.VirtualMachineInfo += $info
+
+    # set vpn info
+    if ($rg.VPNInfo -eq $null)
+    {
+        $rg.VPNInfo = @{}
+    }
+
+    $info = @{}
+    $FoggObject.VPNInfo.GetEnumerator() | 
+        Where-Object { !$rg.VPNInfo.ContainsKey($_.Name) } |
+        ForEach-Object { $info.Add($_.Name, $_.Value) }
+
+    $rg.VPNInfo += $info
+}
+
+return $result
