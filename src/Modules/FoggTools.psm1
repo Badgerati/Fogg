@@ -473,9 +473,10 @@ function Test-TemplateVPN
                     throw "VPN has no public certificate (.cer) path specified"
                 }
 
-                if (!(Test-Path $VPN.certPath))
+                $certPath = Resolve-Path -Path $VPN.certPath
+                if (!(Test-Path $certPath))
                 {
-                    throw "VPN public certificate path does not exist: $($VPN.certPath)"
+                    throw "VPN public certificate path does not exist: $($certPath)"
                 }
 
                 # ensure the certificate extension is .cer
@@ -1597,10 +1598,13 @@ function New-DeployTemplateVPN
                 # get required IP addresses
                 $clientPool = $FoggObject.SubnetAddressMap["$($tag)-cap"]
 
+                # resolve the cert path
+                $certPath = Resolve-Path -Path $VPNTemplate.certPath
+
                 # create public vnet gateway
                 New-FoggVirtualNetworkGateway -FoggObject $FoggObject -Name "$($tagname)-gw" -VNet $VNet `
                     -VpnType $VPNTemplate.vpnType -GatewaySku $VPNTemplate.gatewaySku -ClientAddressPool $clientPool `
-                    -PublicCertificatePath $VPNTemplate.certPath | Out-Null
+                    -PublicCertificatePath $certPath | Out-Null
             }
     }
 
