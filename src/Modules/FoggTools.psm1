@@ -473,10 +473,9 @@ function Test-TemplateVPN
                     throw "VPN has no public certificate (.cer) path specified"
                 }
 
-                $certPath = Resolve-Path -Path $VPN.certPath
-                if (!(Test-Path $certPath))
+                if (!(Test-PathExists $VPN.certPath))
                 {
-                    throw "VPN public certificate path does not exist: $($certPath)"
+                    throw "VPN public certificate path does not exist: $($VPN.certPath)"
                 }
 
                 # ensure the certificate extension is .cer
@@ -882,7 +881,7 @@ function Test-Provisioners
             else
             {
                 # it's a custom script
-                $scriptPath = Resolve-Path (Join-Path $FoggObject.TemplateParent $value)
+                $scriptPath = Resolve-Path (Join-Path $FoggObject.TemplateParent $value) -ErrorAction Ignore
             }
 
             # ensure the provisioner script path exists
@@ -1117,22 +1116,22 @@ function New-FoggObject
     # are we needing to use a Foggfile? (either path passed, or all params empty)
     if (!(Test-Empty $FoggfilePath))
     {
-        $FoggfilePath = (Resolve-Path $FoggfilePath)
-
-        if (!(Test-Path $FoggfilePath))
+        $path = (Resolve-Path $FoggfilePath -ErrorAction Ignore)
+        if (!(Test-PathExists $FoggfilePath))
         {
             throw "Path to Foggfile does not exist: $($FoggfilePath)"
         }
 
-        if ((Get-Item $FoggfilePath) -is [System.IO.DirectoryInfo])
+        if ((Get-Item $path) -is [System.IO.DirectoryInfo])
         {
-            $FoggfilePath = Join-Path $FoggfilePath 'Foggfile'
-            if (!(Test-Path $FoggfilePath))
+            $path = Join-Path $path 'Foggfile'
+            if (!(Test-PathExists $path))
             {
-                throw "Path to Foggfile does not exist: $($FoggfilePath)"
+                throw "Path to Foggfile does not exist: $($path)"
             }
         }
 
+        $FoggfilePath = $path
         $useFoggfile = $true
     }
 
@@ -1150,12 +1149,12 @@ function New-FoggObject
 
     if (!$useFoggfile -and (Test-ArrayEmpty $foggParams))
     {
-        if (!(Test-Path 'Foggfile'))
+        if (!(Test-PathExists 'Foggfile'))
         {
             throw 'No Foggfile found in current directory'
         }
 
-        $FoggfilePath = (Resolve-Path '.\Foggfile')
+        $FoggfilePath = (Resolve-Path '.\Foggfile' -ErrorAction Ignore)
         $useFoggfile = $true
     }
 
@@ -1365,7 +1364,7 @@ function Test-FoggObjectParameters
     }
 
     # if the template path doesn't exist, fail
-    if (!(Test-Path $FoggObject.TemplatePath))
+    if (!(Test-PathExists $FoggObject.TemplatePath))
     {
         throw "Template path supplied does not exist: $($FoggObject.TemplatePath)"
     }
@@ -1609,7 +1608,7 @@ function New-DeployTemplateVPN
                 $clientPool = $FoggObject.SubnetAddressMap["$($tag)-cap"]
 
                 # resolve the cert path
-                $certPath = Resolve-Path -Path $VPNTemplate.certPath
+                $certPath = Resolve-Path -Path $VPNTemplate.certPath -ErrorAction Ignore
 
                 # create public vnet gateway
                 New-FoggVirtualNetworkGateway -FoggObject $FoggObject -Name "$($tagname)-gw" -VNet $VNet `
