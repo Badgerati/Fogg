@@ -473,10 +473,9 @@ function Test-TemplateVPN
                     throw "VPN has no public certificate (.cer) path specified"
                 }
 
-                $certPath = Resolve-Path -Path $VPN.certPath
-                if (!(Test-Path $certPath))
+                if (!(Test-PathExists $VPN.certPath))
                 {
-                    throw "VPN public certificate path does not exist: $($certPath)"
+                    throw "VPN public certificate path does not exist: $($VPN.certPath)"
                 }
 
                 # ensure the certificate extension is .cer
@@ -551,13 +550,13 @@ function Test-TemplateVM
 
     if ($vm.count -gt 1 -and $useLoadBalancer -and (Test-Empty $vm.port))
     {
-        throw "A valid port value is required for the $($tag) VM template object for load balancing"
+        throw "A valid port value is required for the '$($tag)' VM template for load balancing"
     }
 
     # ensure that each VM has an OS setting if global OS does not exist
     if (!$hasOS -and $vm.os -eq $null)
     {
-        throw "VM $($tag) is missing OS settings section"
+        throw "The '$($tag)' VM template is missing the OS settings section"
     }
 
     if ($vm.os -ne $null)
@@ -568,15 +567,22 @@ function Test-TemplateVM
     # ensure that the provisioner keys exist
     if (!$FoggObject.HasProvisionScripts -and !(Test-ArrayEmpty $vm.provisioners))
     {
-        throw "VM $($tag) specifies provisioners, but there is not Provisioner section"
+        throw "The '$($tag)' VM template specifies provisioners, but there is no Provisioner section"
     }
 
     if ($FoggObject.HasProvisionScripts -and !(Test-ArrayEmpty $vm.provisioners))
     {
         $vm.provisioners | ForEach-Object {
-            if (!(Test-ProvisionerExists -FoggObject $FoggObject -ProvisionerName $_))
+            $key = ($_ -split '\:')[0]
+
+            if (Test-Empty $key)
             {
-                throw "Provisioner key not specified in Provisioners section for $($tag): $($_)"
+                throw "Provisioner key cannot be empty in '$($tag)' VM template"
+            }
+
+            if (!(Test-ProvisionerExists -FoggObject $FoggObject -ProvisionerName $key))
+            {
+                throw "Provisioner key not specified in Provisioners section for the '$($tag)' VM template: $($key)"
             }
         }
     }
@@ -750,6 +756,7 @@ function Test-ProvisionerExists
         $FoggObject,
 
         [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
         $ProvisionerName
     )
 
@@ -757,6 +764,8 @@ function Test-ProvisionerExists
     {
         return $false
     }
+
+    $ProvisionerName = $ProvisionerName.Trim()
 
     $dsc = $FoggObject.ProvisionMap['dsc'].ContainsKey($ProvisionerName)
     $custom =  $FoggObject.ProvisionMap['custom'].ContainsKey($ProvisionerName)
@@ -872,7 +881,7 @@ function Test-Provisioners
             else
             {
                 # it's a custom script
-                $scriptPath = Resolve-Path (Join-Path $FoggObject.TemplateParent $value)
+                $scriptPath = Resolve-Path (Join-Path $FoggObject.TemplateParent $value) -ErrorAction Ignore
             }
 
             # ensure the provisioner script path exists
@@ -1107,22 +1116,22 @@ function New-FoggObject
     # are we needing to use a Foggfile? (either path passed, or all params empty)
     if (!(Test-Empty $FoggfilePath))
     {
-        $FoggfilePath = (Resolve-Path $FoggfilePath)
-
-        if (!(Test-Path $FoggfilePath))
+        $path = (Resolve-Path $FoggfilePath -ErrorAction Ignore)
+        if (!(Test-PathExists $FoggfilePath))
         {
             throw "Path to Foggfile does not exist: $($FoggfilePath)"
         }
 
-        if ((Get-Item $FoggfilePath) -is [System.IO.DirectoryInfo])
+        if ((Get-Item $path) -is [System.IO.DirectoryInfo])
         {
-            $FoggfilePath = Join-Path $FoggfilePath 'Foggfile'
-            if (!(Test-Path $FoggfilePath))
+            $path = Join-Path $path 'Foggfile'
+            if (!(Test-PathExists $path))
             {
-                throw "Path to Foggfile does not exist: $($FoggfilePath)"
+                throw "Path to Foggfile does not exist: $($path)"
             }
         }
 
+        $FoggfilePath = $path
         $useFoggfile = $true
     }
 
@@ -1140,12 +1149,12 @@ function New-FoggObject
 
     if (!$useFoggfile -and (Test-ArrayEmpty $foggParams))
     {
-        if (!(Test-Path 'Foggfile'))
+        if (!(Test-PathExists 'Foggfile'))
         {
             throw 'No Foggfile found in current directory'
         }
 
-        $FoggfilePath = (Resolve-Path '.\Foggfile')
+        $FoggfilePath = (Resolve-Path '.\Foggfile' -ErrorAction Ignore)
         $useFoggfile = $true
     }
 
@@ -1355,7 +1364,7 @@ function Test-FoggObjectParameters
     }
 
     # if the template path doesn't exist, fail
-    if (!(Test-Path $FoggObject.TemplatePath))
+    if (!(Test-PathExists $FoggObject.TemplatePath))
     {
         throw "Template path supplied does not exist: $($FoggObject.TemplatePath)"
     }
@@ -1599,7 +1608,7 @@ function New-DeployTemplateVPN
                 $clientPool = $FoggObject.SubnetAddressMap["$($tag)-cap"]
 
                 # resolve the cert path
-                $certPath = Resolve-Path -Path $VPNTemplate.certPath
+                $certPath = Resolve-Path -Path $VPNTemplate.certPath -ErrorAction Ignore
 
                 # create public vnet gateway
                 New-FoggVirtualNetworkGateway -FoggObject $FoggObject -Name "$($tagname)-gw" -VNet $VNet `
