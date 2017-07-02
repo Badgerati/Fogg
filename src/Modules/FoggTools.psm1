@@ -551,13 +551,13 @@ function Test-TemplateVM
 
     if ($vm.count -gt 1 -and $useLoadBalancer -and (Test-Empty $vm.port))
     {
-        throw "A valid port value is required for the $($tag) VM template object for load balancing"
+        throw "A valid port value is required for the '$($tag)' VM template for load balancing"
     }
 
     # ensure that each VM has an OS setting if global OS does not exist
     if (!$hasOS -and $vm.os -eq $null)
     {
-        throw "VM $($tag) is missing OS settings section"
+        throw "The '$($tag)' VM template is missing the OS settings section"
     }
 
     if ($vm.os -ne $null)
@@ -568,15 +568,22 @@ function Test-TemplateVM
     # ensure that the provisioner keys exist
     if (!$FoggObject.HasProvisionScripts -and !(Test-ArrayEmpty $vm.provisioners))
     {
-        throw "VM $($tag) specifies provisioners, but there is not Provisioner section"
+        throw "The '$($tag)' VM template specifies provisioners, but there is no Provisioner section"
     }
 
     if ($FoggObject.HasProvisionScripts -and !(Test-ArrayEmpty $vm.provisioners))
     {
         $vm.provisioners | ForEach-Object {
-            if (!(Test-ProvisionerExists -FoggObject $FoggObject -ProvisionerName $_))
+            $key = ($_ -split '\:')[0]
+
+            if (Test-Empty $key)
             {
-                throw "Provisioner key not specified in Provisioners section for $($tag): $($_)"
+                throw "Provisioner key cannot be empty in '$($tag)' VM template"
+            }
+
+            if (!(Test-ProvisionerExists -FoggObject $FoggObject -ProvisionerName $key))
+            {
+                throw "Provisioner key not specified in Provisioners section for the '$($tag)' VM template: $($key)"
             }
         }
     }
@@ -750,6 +757,7 @@ function Test-ProvisionerExists
         $FoggObject,
 
         [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
         $ProvisionerName
     )
 
@@ -757,6 +765,8 @@ function Test-ProvisionerExists
     {
         return $false
     }
+
+    $ProvisionerName = $ProvisionerName.Trim()
 
     $dsc = $FoggObject.ProvisionMap['dsc'].ContainsKey($ProvisionerName)
     $custom =  $FoggObject.ProvisionMap['custom'].ContainsKey($ProvisionerName)
