@@ -473,9 +473,10 @@ function Test-TemplateVPN
                     throw "VPN has no public certificate (.cer) path specified"
                 }
 
-                if (!(Test-Path (Resolve-Path -Path $VPN.certPath)))
+                $certPath = Resolve-Path -Path $VPN.certPath
+                if (!(Test-Path $certPath))
                 {
-                    throw "VPN public certificate path does not exist: $($VPN.certPath)"
+                    throw "VPN public certificate path does not exist: $($certPath)"
                 }
 
                 # ensure the certificate extension is .cer
