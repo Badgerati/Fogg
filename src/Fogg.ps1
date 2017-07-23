@@ -151,7 +151,7 @@ function Test-Files
     Test-FirewallRules -FirewallRules $template.firewall
 
     # Check the template section
-    Test-Template -Template $template.template -FoggObject $FoggObject -OS $template.os | Out-Null
+    Test-Template -Template $template -FoggObject $FoggObject -OS $template.os | Out-Null
 
     # return the template for further usage
     return $template
