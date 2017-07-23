@@ -38,17 +38,50 @@ function Add-FoggAdminAccount
         $FoggObject
     )
 
-    if ($FoggObject.VMCredentials -eq $null)
+    $attempts = 0
+    $success = $false
+
+    while ($attempts -lt 3 -and !$success)
     {
-        Write-Information "Setting up VM admin credentials"
-
-        $FoggObject.VMCredentials = Get-Credential -Message 'Supply the Admininstrator username and password for the VMs in Azure'
-        if ($FoggObject.VMCredentials -eq $null)
+        try
         {
-            throw 'No Azure VM Administrator credentials passed'
-        }
+            # increment the number of attempts
+            $attempts++
 
-        Write-Success "VM admin credentials setup`n"
+            # only request for admin creds if they weren't supplied from the CLI
+            if ($FoggObject.VMCredentials -eq $null)
+            {
+                Write-Information "Setting up VM admin credentials"
+
+                $FoggObject.VMCredentials = Get-Credential -Message 'Supply the Admininstrator username and password for the VMs in Azure'
+                if ($FoggObject.VMCredentials -eq $null)
+                {
+                    throw 'No Azure VM Administrator credentials passed'
+                }
+
+                Write-Success "VM admin credentials setup`n"
+            }
+
+            # validate the admin username
+            Test-FoggVMUsername $FoggObject.VMCredentials.Username
+
+            # validate the admin password
+            Test-FoggVMPassword $FoggObject.VMCredentials.Password
+
+            # mark as successful
+            $success = $true
+        }
+        catch [exception]
+        {
+            Write-Host "$($_.Exception.Message)" -ForegroundColor Red
+            $FoggObject.VMCredentials = $null
+        }
+    }
+
+    # if we get here and attempts is 3+, fail
+    if ($attempts -ge 3 -and !$success)
+    {
+        throw 'You have failed to enter valid admin credentials 3 times, exitting'
     }
 }
 
@@ -143,6 +176,28 @@ function Test-FoggStorageAccount
 }
 
 
+function Get-FoggStorageAccountName
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $BaseName,
+
+        [switch]
+        $Premium
+    )
+
+    $tag = 'std'
+    if ($Premium)
+    {
+        $tag = 'prm'
+    }
+
+    return (("$($BaseName)-$($tag)-sa") -ireplace '-', '').ToLowerInvariant()
+}
+
+
 function New-FoggStorageAccount
 {
     param (
@@ -155,15 +210,12 @@ function New-FoggStorageAccount
     )
 
     $StorageType = 'Standard_LRS'
-    $StorageTag = 'std'
-
     if ($Premium)
     {
         $StorageType = 'Premium_LRS'
-        $StorageTag = 'prm'
     }
 
-    $Name = ("$($FoggObject.PreTag)-$($StorageTag)-sa") -ireplace '-', ''
+    $Name = Get-FoggStorageAccountName -BaseName $FoggObject.PreTag -Premium:$Premium
 
     Write-Information "Creating storage account $($Name) in resource group $($FoggObject.ResourceGroupName)"
 
@@ -1785,6 +1837,24 @@ function New-FoggLoadBalancer
 }
 
 
+function Get-FoggVMName
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $BaseName,
+        
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [int]
+        $Index
+    )
+
+    return ("$($BaseName)$($Index)").ToLowerInvariant()
+}
+
+
 function Get-FoggVM
 {
     param (
@@ -1871,12 +1941,12 @@ function New-FoggVM
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
         [string]
-        $Name,
+        $BaseName,
 
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
-        [int]
-        $VMIndex,
+        [string]
+        $VMName,
 
         [Parameter(Mandatory=$true)]
         [ValidateNotNull()]
@@ -1922,8 +1992,8 @@ function New-FoggVM
         $PublicIP
     )
 
-    $Name = $Name.ToLowerInvariant()
-    $VMName = "$($Name)$($VMIndex)"
+    $BaseName = $BaseName.ToLowerInvariant()
+    $VMName = $VMName.ToLowerInvariant()
 
     $DiskName = "$($VMName)-disk1"
     $BlobName = "vhds/$($DiskName).vhd"
@@ -1936,7 +2006,7 @@ function New-FoggVM
     if ($vm -ne $null)
     {
         Write-Notice "Updating existing VM for $($VMName)`n"
-        $vm = Update-FoggVM -FoggObject $FoggObject -BaseName $Name -VMName $VMName -SubnetId $SubnetId -VMSize $VMSize -PublicIP:$PublicIP
+        $vm = Update-FoggVM -FoggObject $FoggObject -BaseName $BaseName -VMName $VMName -SubnetId $SubnetId -VMSize $VMSize -PublicIP:$PublicIP
         return $vm
     }
 
@@ -1948,7 +2018,7 @@ function New-FoggVM
 
     # create the NIC
     $nic = New-FoggNetworkInterface -FoggObject $FoggObject -Name "$($VMName)-nic" -SubnetId $SubnetId `
-        -PublicIpId $pipId -NetworkSecurityGroupId $FoggObject.NsgMap[$Name]
+        -PublicIpId $pipId -NetworkSecurityGroupId $FoggObject.NsgMap[$BaseName]
 
     # setup initial VM config
     if ($AvailabilitySet -eq $null)
@@ -2488,4 +2558,165 @@ function Get-FoggVMUsageDetails
     )
 
     return Get-AzureRmVMUsage -Location $Location
+}
+
+
+function Test-FoggResourceGroupName
+{
+    param (
+        [string]
+        $ResourceGroupName,
+
+        [switch]
+        $Optional
+    )
+
+    if ($Optional -and (Test-Empty $ResourceGroupName))
+    {
+        return
+    }
+
+    $length = $ResourceGroupName.Length
+    if ($length -lt 1 -or $length -gt 90)
+    {
+        throw "Resource Group Name '$($ResourceGroupName)' must be between 1-90 characters"
+    }
+
+    $regex = '^[a-zA-Z0-9\._\-\(\)]*[a-zA-Z0-9_\-\(\)]$'
+    if ($ResourceGroupName -notmatch $regex)
+    {
+        throw "Resource Group Name '$($ResourceGroupName)' can only contain alphanumeric, hyphen, underscore, period and parenthesis characters, and cannot end with a period: '$($regex)'"
+    }
+}
+
+
+function Test-FoggVMUsername
+{
+    param (
+        [string]
+        $Username
+    )
+
+    if (Test-Empty $Username)
+    {
+        throw "No VM Admin username supplied"
+    }
+
+    $length = $Username.Length
+    if ($length -lt 1 -or $length -gt 15)
+    {
+        throw "VM Admin username must be between 1-15 characters"
+    }
+
+    $regex = '[\\\/\"\[\]\:\|\<\>\+=;,\?\*@]+'
+    if ($Username -match $regex -or $Username.EndsWith('.'))
+    {
+        throw "VM Admin username cannot end with a period or contain any of the following: \/`"[]:|<>+=;,?*@"
+    }
+
+    $reserved = @(
+        'administrator', 'admin', 'user', 'user1', 'test', 'user2', 'test1', 'user3',
+        'admin1', '1', '123', 'a', 'actuser', 'adm', 'admin2', 'aspnet', 'backup', 'console',
+        'david', 'guest', 'john', 'owner', 'root', 'server', 'sql', 'support', 'support_388945a0',
+        'sys', 'test2', 'test3', 'user4', 'user5')
+
+    if ($reserved -icontains $Username)
+    {
+        throw "VM Admin username '$($Username)' cannot be used as it is a reserved word"
+    }
+}
+
+
+function Test-FoggVMPassword
+{
+    param (
+        [securestring]
+        $Password
+    )
+
+    if ($Password -eq $null)
+    {
+        throw 'No VM Admin password supplied'
+    }
+
+    if ($Password.Length -lt 12 -or $Password.Length -gt 123)
+    {
+        throw 'VM Admin password must be between 12-123 characters'
+    }
+}
+
+
+function Test-FoggVMName
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $OSType,
+
+        [string]
+        $Name
+    )
+
+    if (Test-Empty $Name)
+    {
+        throw "No VM name supplied"
+    }
+
+    $maxLength = 15
+    switch ($OSType.ToLowerInvariant())
+    {
+        'windows'
+            {
+                $maxLength = 15
+            }
+        
+        'linux'
+            {
+                $maxLength = 64
+            }
+        
+        default
+            {
+                throw "Unrecognised OS type: $($OSType)"
+            }
+    }
+
+    $length = $Name.Length
+    if ($length -lt 1 -or $length -gt $maxLength)
+    {
+        throw "VM name '$($Name)' must be between 1-$($maxLength) characters"
+    }
+
+    $regex = '^[a-zA-Z0-9\-]+$'
+    if ($Name -notmatch $regex)
+    {
+        throw "VM name '$($Name)' can only contain alphanumeric and hyphen characters"
+    }
+}
+
+
+function Test-FoggStorageAccountName
+{
+    param (
+        [string]
+        $Name
+    )
+
+    if (Test-Empty $Name)
+    {
+        throw "No Storage Account name supplied"
+    }
+
+    $length = $Name.Length
+    if ($length -lt 3 -or $length -gt 24)
+    {
+        throw "Storage Account name '$($Name)' must be between 3-24 characters"
+    }
+
+    $regex = '^[a-z0-9]+$'
+    if ($Name -notmatch $regex)
+    {
+        throw "Storage Account name '$($Name)' can only contain lowercase alphanumeric characters"
+    }
 }

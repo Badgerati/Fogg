@@ -309,8 +309,11 @@ function Test-Template
         $OS
     )
 
+    # split out the template objects
+    $templateObjs = $Template.template
+
     # get the count of template objects to create
-    $templateCount = ($Template | Measure-Object).Count
+    $templateCount = ($templateObjs | Measure-Object).Count
     if ($templateCount -eq 0)
     {
         throw 'No template section was found in Fogg Azure template file'
@@ -322,12 +325,27 @@ function Test-Template
         Test-TemplateVMOS -Tag 'global' -OS $OS
     }
 
+    # get pretag
+    $pretag = $FoggObject.PreTag
+    if (![string]::IsNullOrWhiteSpace($Template.pretag))
+    {
+        $pretag = $Template.pretag.ToLowerInvariant()
+    }
+
+    # ensure the storage account name is valid - but only if we have VMs
+    if (Test-TemplateHasVMs $templateObjs)
+    {
+        $usePremiumStorage = [bool]$Template.usePremiumStorage
+        $saName = Get-FoggStorageAccountName -BaseName $pretag -Premium:$usePremiumStorage
+        Test-FoggStorageAccountName $saName
+    }
+
     # flag variable helpers
     $alreadyHasVpn = $false
     $tagMap = @()
 
     # loop through each template object, verifying it
-    foreach ($obj in $Template)
+    foreach ($obj in $templateObjs)
     {
         # ensure each template has a tag, and a type
         $tag = $obj.tag
@@ -363,7 +381,7 @@ function Test-Template
         {
             'vm'
                 {
-                    Test-TemplateVM -VM $obj -FoggObject $FoggObject -OS $OS
+                    Test-TemplateVM -VM $obj -PreTag $pretag -FoggObject $FoggObject -OS $OS
                 }
 
             'vpn'
@@ -373,7 +391,7 @@ function Test-Template
                         throw "Cannot have 2 VPN template objects"
                     }
 
-                    Test-TemplateVPN -VPN $obj -FoggObject $FoggObject
+                    Test-TemplateVPN -VPN $obj -PreTag $pretag -FoggObject $FoggObject
                     $alreadyHasVpn = $true
                 }
 
@@ -393,6 +411,9 @@ function Test-TemplateVPN
     param (
         [Parameter(Mandatory=$true)]
         $VPN,
+
+        [Parameter(Mandatory=$true)]
+        $PreTag,
 
         [Parameter(Mandatory=$true)]
         $FoggObject
@@ -501,6 +522,9 @@ function Test-TemplateVM
         $VM,
 
         [Parameter(Mandatory=$true)]
+        $PreTag,
+
+        [Parameter(Mandatory=$true)]
         $FoggObject,
 
         $OS
@@ -508,6 +532,7 @@ function Test-TemplateVM
 
     # is there an OS section?
     $hasOS = ($OS -ne $null)
+    $mainOS = $OS
 
     # get tag
     $tag = $VM.tag.ToLowerInvariant()
@@ -562,7 +587,12 @@ function Test-TemplateVM
     if ($vm.os -ne $null)
     {
         Test-TemplateVMOS -Tag $tag -OS $vm.os
+        $mainOS = $vm.os
     }
+
+    # ensure the VM name is valid
+    $vmName = Get-FoggVMName -BaseName "$($PreTag)-$($tag)" -Index $vm.count
+    Test-FoggVMName -OSType $mainOS.type -Name $vmName
 
     # ensure that the provisioner keys exist
     if (!$FoggObject.HasProvisionScripts -and !(Test-ArrayEmpty $vm.provisioners))
@@ -1320,7 +1350,7 @@ function New-FoggGroupObject
 
     $groupObj = New-Object -TypeName PSObject -Property $group
 
-    # test the fogg parameters
+    # validate the fogg parameters
     Test-FoggObjectParameters $groupObj
 
     # post param alterations
@@ -1368,6 +1398,10 @@ function Test-FoggObjectParameters
     {
         throw "Template path supplied does not exist: $($FoggObject.TemplatePath)"
     }
+
+    # validate resource group name lengths
+    Test-FoggResourceGroupName $FoggObject.ResourceGroupName
+    Test-FoggResourceGroupName $FoggObject.VNetResourceGroupName -Optional
 }
 
 
@@ -1493,7 +1527,8 @@ function New-DeployTemplateVM
         }
 
         # create the VM
-        $_vms += (New-FoggVM -FoggObject $FoggObject -Name $tagname -VMIndex ($_ + $baseIndex) -VMCredentials $VMCredentials `
+        $vmname = Get-FoggVMName -BaseName $tagname -Index ($_ + $baseIndex)
+        $_vms += (New-FoggVM -FoggObject $FoggObject -BaseName $tagname -VMName $vmname -VMCredentials $VMCredentials `
             -StorageAccount $StorageAccount -SubnetId $subnet.Id -VMSize $os.size -VMSkus $os.skus -VMOffer $os.offer `
             -VMType $os.type -VMPublisher $os.publisher -AvailabilitySet $avset -PublicIP:$usePublicIP)
     }
