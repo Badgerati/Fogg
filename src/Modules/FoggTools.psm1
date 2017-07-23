@@ -619,6 +619,18 @@ function Test-TemplateVM
 
     # ensure firewall rules are valid
     Test-FirewallRules -FirewallRules $vm.firewall
+
+    # if the VM has extra drives, ensure the section is valid and add the provisioner
+    if (!(Test-ArrayEmpty $vm.drives))
+    {
+        # get the drive names
+        $drives = $vm.drives.name -join ','
+        $letters = $vm.drives.letter -join ','
+
+        # add provisioner
+        $scriptPath = Get-ProvisionerInternalPath -FoggObject $FoggObject -Type 'drives' -ScriptName 'attach-drives' -OS 'win'
+        Add-Provisioner -FoggObject $FoggObject -Key 'drives' -Type 'drives' -ScriptPath $scriptPath -Arguments "$($letters) | $($drives)"
+    }
 }
 
 
@@ -811,11 +823,6 @@ function Test-Provisioners
         [Parameter(Mandatory=$true)]
         $FoggObject,
 
-        [Parameter(Mandatory=$true)]
-        [ValidateNotNullOrEmpty()]
-        [string]
-        $FoggProvisionersPath,
-
         $Paths
     )
 
@@ -824,14 +831,6 @@ function Test-Provisioners
     {
         $FoggObject.HasProvisionScripts = $false
         return
-    }
-
-    $FoggObject.HasProvisionScripts = $true
-
-    # ensure the root path exists
-    if (!(Test-PathExists $FoggProvisionersPath))
-    {
-        throw "Fogg root path for internal provisioners does not exist: $($FoggProvisionersPath)"
     }
 
     # convert the JSON map into a POSH map
@@ -884,29 +883,8 @@ function Test-Provisioners
                     $os = $Matches['os']
                 }
 
-                if (![string]::IsNullOrWhiteSpace($os))
-                {
-                    $os = $os.ToLowerInvariant()
-                }
-
-                # ensure the script exists internally
-                switch ($os)
-                {
-                    'win'
-                        {
-                            $scriptPath = Join-Path (Join-Path $FoggProvisionersPath $type) "$($name).ps1"
-                        }
-
-                    'unix'
-                        {
-                            $scriptPath = Join-Path (Join-Path $FoggProvisionersPath $type) "$($name).sh"
-                        }
-
-                    default
-                        {
-                            $scriptPath = Join-Path (Join-Path $FoggProvisionersPath $type) "$($name).ps1"
-                        }
-                }
+                # get the internal path
+                $scriptPath = Get-ProvisionerInternalPath -FoggObject $FoggObject -Type $type -ScriptName $name -OS $os
             }
             else
             {
@@ -914,39 +892,133 @@ function Test-Provisioners
                 $scriptPath = Resolve-Path (Join-Path $FoggObject.TemplateParent $value) -ErrorAction Ignore
             }
 
-            # ensure the provisioner script path exists
-            if (!(Test-PathExists $scriptPath))
-            {
-                throw "Provision script for $($type) does not exist: $($scriptPath)"
-            }
-
             # add to internal list of provisioners for later
-            if (!$FoggObject.ProvisionMap[$type].ContainsKey($_))
+            if ($isChoco)
             {
-                if ($isChoco)
-                {
-                    $FoggObject.ProvisionMap[$type].Add($_, @($scriptPath, $value))
-                }
-                else
-                {
-                    $FoggObject.ProvisionMap[$type].Add($_, $scriptPath)
-                }
+                Add-Provisioner -FoggObject $FoggObject -Key $_ -Type $type -ScriptPath $scriptPath -Arguments $value
             }
             else
             {
-                if ($isChoco)
-                {
-                    $FoggObject.ProvisionMap[$type][$_] = @($scriptPath, $value)
-                }
-                else
-                {
-                    $FoggObject.ProvisionMap[$type][$_] = $scriptPath
-                }
+                Add-Provisioner -FoggObject $FoggObject -Key $_ -Type $type -ScriptPath $scriptPath
             }
         }
         else
         {
             throw "Provisioner value is not in the correct format of '<type>: <value>': $($value)"
+        }
+    }
+}
+
+
+function Get-ProvisionerInternalPath
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        $FoggObject,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Type,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $ScriptName,
+
+        [string]
+        $OS = 'win'
+    )
+
+    # ensure the root path exists
+    if (!(Test-PathExists $FoggObject.ProvisionersPath))
+    {
+        throw "Fogg root path for internal provisioners does not exist: $($FoggObject.ProvisionersPath)"
+    }
+
+    # ensure OS type is lowercase
+    if (![string]::IsNullOrWhiteSpace($OS))
+    {
+        $OS = $OS.ToLowerInvariant()
+    }
+
+    # generate internal script path
+    switch ($OS)
+    {
+        'win'
+            {
+                $scriptPath = Join-Path (Join-Path $FoggObject.ProvisionersPath $Type) "$($ScriptName).ps1"
+            }
+
+        'unix'
+            {
+                $scriptPath = Join-Path (Join-Path $FoggObject.ProvisionersPath $Type) "$($ScriptName).sh"
+            }
+
+        default
+            {
+                $scriptPath = Join-Path (Join-Path $FoggObject.ProvisionersPath $Type) "$($ScriptName).ps1"
+            }
+    }
+
+    return $scriptPath
+}
+
+
+function Add-Provisioner
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        $FoggObject,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Key,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Type,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $ScriptPath,
+
+        [string]
+        $Arguments = $null
+    )
+
+    # ensure the provisioner script path exists
+    if (!(Test-PathExists $ScriptPath))
+    {
+        throw "Provision script for $($Key) does not exist: $($ScriptPath)"
+    }
+
+    $FoggObject.HasProvisionScripts = $true
+
+    # add provisioner to internal map
+    if (!$FoggObject.ProvisionMap[$Type].ContainsKey($Key))
+    {
+        if ($Arguments -eq $null)
+        {
+            $FoggObject.ProvisionMap[$Type].Add($Key, $ScriptPath)
+        }
+        else
+        {
+            $FoggObject.ProvisionMap[$Type].Add($Key, @($ScriptPath, $Arguments))
+        }
+    }
+    else
+    {
+        if ($Arguments -eq $null)
+        {
+            $FoggObject.ProvisionMap[$Type][$Key] = $ScriptPath
+        }
+        else
+        {
+            $FoggObject.ProvisionMap[$Type][$Key] = @($ScriptPath, $Arguments)
         }
     }
 }
@@ -1194,8 +1266,10 @@ function New-FoggObject
     $props.SubscriptionName = $SubscriptionName
     $props.SubscriptionCredentials = $SubscriptionCredentials
     $props.VMCredentials = $VMCredentials
-    $props.FoggProvisionersPath = Join-Path $FoggRootPath 'Provisioners'
     $foggObj = New-Object -TypeName PSObject -Property $props
+
+    # general paths
+    $provisionPath = Join-Path $FoggRootPath 'Provisioners'
 
     # if we aren't using a Foggfile, set params directly
     if (!$useFoggfile)
@@ -1204,6 +1278,7 @@ function New-FoggObject
             -SubnetAddresses $SubnetAddresses -TemplatePath $TemplatePath -FoggfilePath $FoggfilePath `
             -VNetAddress $VNetAddress -VNetResourceGroupName $VNetResourceGroupName -VNetName $VNetName
 
+        $group.ProvisionersPath = $provisionPath
         $foggObj.Groups += $group
     }
 
@@ -1232,6 +1307,7 @@ function New-FoggObject
                 -VNetAddress $VNetAddress -VNetResourceGroupName $VNetResourceGroupName `
                 -VNetName $VNetName -FoggParameters $_
 
+            $group.ProvisionersPath = $provisionPath
             $foggObj.Groups += $group
         }
     }
@@ -1342,8 +1418,9 @@ function New-FoggGroupObject
     $group.TemplatePath = $TemplatePath
     $group.TemplateParent = (Split-Path -Parent -Path $TemplatePath)
     $group.HasProvisionScripts = $false
-    $group.ProvisionMap = @{'dsc' = @{}; 'custom' = @{}; 'choco' = @{}}
+    $group.ProvisionMap = @{'dsc' = @{}; 'custom' = @{}; 'choco' = @{}; 'drives' = @{}}
     $group.NsgMap = @{}
+    $group.ProvisionersPath = $null
     $group.StorageAccountName = $null
     $group.VirtualMachineInfo = @{}
     $group.VPNInfo = @{}
@@ -1530,7 +1607,7 @@ function New-DeployTemplateVM
         $vmname = Get-FoggVMName -BaseName $tagname -Index ($_ + $baseIndex)
         $_vms += (New-FoggVM -FoggObject $FoggObject -BaseName $tagname -VMName $vmname -VMCredentials $VMCredentials `
             -StorageAccount $StorageAccount -SubnetId $subnet.Id -VMSize $os.size -VMSkus $os.skus -VMOffer $os.offer `
-            -VMType $os.type -VMPublisher $os.publisher -AvailabilitySet $avset -PublicIP:$usePublicIP)
+            -VMType $os.type -VMPublisher $os.publisher -AvailabilitySet $avset -Drives $VMTemplate.drives -PublicIP:$usePublicIP)
     }
 
     # loop through each VM and deploy it
@@ -1549,7 +1626,18 @@ function New-DeployTemplateVM
         # see if we need to provision the machine
         if ($FoggObject.HasProvisionScripts)
         {
-            Set-ProvisionVM -FoggObject $FoggObject -Provisioners $VMTemplate.provisioners -VMName $_vm.Name -StorageAccount $StorageAccount
+            $provs = $VMTemplate.provisioners
+            if (Test-ArrayEmpty $provs)
+            {
+                $provs = @()
+            }
+            
+            if (!(Test-ArrayEmpty $VMTemplate.drives))
+            {
+                $provs = @('drives') + $provs
+            }
+
+            Set-ProvisionVM -FoggObject $FoggObject -Provisioners $provs -VMName $_vm.Name -StorageAccount $StorageAccount
         }
 
         # due to a bug with the CustomScriptExtension, if we have any uninstall the extension

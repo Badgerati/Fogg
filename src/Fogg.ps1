@@ -133,19 +133,14 @@ function Test-Files
     param (
         [Parameter(Mandatory=$true)]
         [ValidateNotNull()]
-        $FoggObject,
-
-        [Parameter(Mandatory=$true)]
-        [ValidateNotNullOrEmpty()]
-        [string]
-        $FoggProvisionersPath
+        $FoggObject
     )
 
     # Parse the contents of the template file
     $template = Get-JSONContent $FoggObject.TemplatePath
 
     # Check that the Provisioner script paths exist
-    Test-Provisioners -FoggObject $FoggObject -Paths $template.provisioners -FoggProvisionersPath $FoggProvisionersPath
+    Test-Provisioners -FoggObject $FoggObject -Paths $template.provisioners
 
     # Check the global firewall rules are valid
     Test-FirewallRules -FirewallRules $template.firewall
@@ -193,7 +188,7 @@ try
     foreach ($FoggObject in $FoggObjects.Groups)
     {
         Write-Host "> Verifying: $($FoggObject.TemplatePath)"
-        Test-Files -FoggObject $FoggObject -FoggProvisionersPath $FoggObjects.FoggProvisionersPath | Out-Null
+        Test-Files -FoggObject $FoggObject | Out-Null
     }
 
     Write-Success "Templates verified`n"
@@ -233,7 +228,7 @@ try
     foreach ($FoggObject in $FoggObjects.Groups)
     {
         # Retrieve the template for the current Group
-        $template = Test-Files -FoggObject $FoggObject -FoggProvisionersPath $FoggObjects.FoggProvisionersPath
+        $template = Test-Files -FoggObject $FoggObject
 
         # If we have a pretag on the template, set against this FoggObject
         if (![string]::IsNullOrWhiteSpace($template.pretag))

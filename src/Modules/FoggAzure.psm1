@@ -267,7 +267,7 @@ function Publish-ProvisionerScripts
     # are there any custom scripts to publish? if so, need a storage container first
     if (!(Test-Empty $FoggObject.ProvisionMap['custom']))
     {
-        $container = New-FoggStorageContainer -FoggObject $FoggObject -StorageAccount $StorageAccount -Name 'provisioners'
+        $container = New-FoggStorageContainer -FoggObject $FoggObject -StorageAccount $StorageAccount -Name 'provs-custom'
 
         $FoggObject.ProvisionMap['custom'].Values | ForEach-Object {
             Publish-FoggCustomScript -FoggObject $FoggObject -StorageAccount $StorageAccount -Container $container -ScriptPath $_
@@ -277,8 +277,16 @@ function Publish-ProvisionerScripts
     # do we need to publish the choco-install script?
     if (!(Test-Empty $FoggObject.ProvisionMap['choco']))
     {
-        $container = New-FoggStorageContainer -FoggObject $FoggObject -StorageAccount $StorageAccount -Name 'chocolatey'
+        $container = New-FoggStorageContainer -FoggObject $FoggObject -StorageAccount $StorageAccount -Name 'provs-choco'
         $script = ($FoggObject.ProvisionMap['choco'].Values | Select-Object -First 1)[0]
+        Publish-FoggCustomScript -FoggObject $FoggObject -StorageAccount $StorageAccount -Container $container -ScriptPath $script
+    }
+
+    # do we need to publish any drives scripts?
+    if (!(Test-Empty $FoggObject.ProvisionMap['drives']))
+    {
+        $container = New-FoggStorageContainer -FoggObject $FoggObject -StorageAccount $StorageAccount -Name 'provs-drives'
+        $script = ($FoggObject.ProvisionMap['drives'].Values | Select-Object -First 1)[0]
         Publish-FoggCustomScript -FoggObject $FoggObject -StorageAccount $StorageAccount -Container $container -ScriptPath $script
     }
 }
@@ -409,7 +417,7 @@ function Set-ProvisionVM
         elseif ($map['custom'].ContainsKey($key))
         {
             Set-FoggCustomConfig -FoggObject $FoggObject -VMName $VMName -StorageAccount $StorageAccount `
-                -ContainerName 'provisioners' -ScriptPath $map['custom'][$key] -Arguments $_args
+                -ContainerName 'provs-custom' -ScriptPath $map['custom'][$key] -Arguments $_args
         }
 
         # Chocolatey
@@ -425,7 +433,17 @@ function Set-ProvisionVM
             Write-Details "Chocolatey Provisioner: $($key) ($($_args))"
 
             Set-FoggCustomConfig -FoggObject $FoggObject -VMName $VMName -StorageAccount $StorageAccount `
-                -ContainerName 'chocolatey' -ScriptPath $choco[0] -Arguments $_args
+                -ContainerName 'provs-choco' -ScriptPath $choco[0] -Arguments $_args
+        }
+
+        # Drives
+        elseif ($map['drives'].ContainsKey($key))
+        {
+            $drives = $map['drives'][$key]
+            $_args = $drives[1]
+
+            Set-FoggCustomConfig -FoggObject $FoggObject -VMName $VMName -StorageAccount $StorageAccount `
+                -ContainerName 'provs-drives' -ScriptPath $drives[0] -Arguments $_args
         }
     }
 }
@@ -1988,6 +2006,8 @@ function New-FoggVM
 
         $AvailabilitySet,
 
+        $Drives,
+
         [switch]
         $PublicIP
     )
@@ -1997,7 +2017,8 @@ function New-FoggVM
 
     $DiskName = "$($VMName)-disk1"
     $BlobName = "vhds/$($DiskName).vhd"
-    $OSDisk = $StorageAccount.PrimaryEndpoints.Blob.ToString() + $BlobName
+    $SAEndpoint = $StorageAccount.PrimaryEndpoints.Blob.ToString()
+    $OSDiskUri = "$($SAEndpoint)$($BlobName)"
 
     Write-Information "Creating VM $($VMName) in $($FoggObject.ResourceGroupName)"
 
@@ -2044,18 +2065,34 @@ function New-FoggVM
     {
         'windows'
             {
-                $VM = Set-AzureRmVMOSDisk -VM $VM -Name $DiskName -VhdUri $OSDisk -CreateOption FromImage -Windows
+                $VM = Set-AzureRmVMOSDisk -VM $VM -Name $DiskName -VhdUri $OSDiskUri -CreateOption FromImage -Windows
             }
 
         'linux'
             {
-                $VM = Set-AzureRmVMOSDisk -VM $VM -Name $DiskName -VhdUri $OSDisk -CreateOption FromImage -Linux
+                $VM = Set-AzureRmVMOSDisk -VM $VM -Name $DiskName -VhdUri $OSDiskUri -CreateOption FromImage -Linux
             }
     }
 
     if (!$?)
     {
         throw "Failed to assign the OS and Source Image Disks for $($VMName)"
+    }
+
+    # create any additional drives
+    if (!(Test-ArrayEmpty $Drives))
+    {
+        $lun = 1
+
+        $Drives | ForEach-Object {
+            $xDiskName = "$($VMName)-$($_.type.ToLowerInvariant())-$($_.name.ToLowerInvariant())"
+            $BlobName = "vhds/$($xDiskName).vhd"
+            $xDiskUri = "$($SAEndpoint)$($BlobName)"
+    
+            Write-Information "Creating drive: $($xDiskName)"
+            $VM = Add-AzureRmVMDataDisk -VM $VM -Name $xDiskName -VhdUri $xDiskUri -Lun $lun -Caching ReadOnly -DiskSizeInGB $_.size -CreateOption Empty
+            $lun++
+        }
     }
 
     Write-Success "VM $($VMName) created`n"
