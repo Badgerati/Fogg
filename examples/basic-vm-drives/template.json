@@ -25,6 +25,12 @@
                     "name": "Packages",
                     "letter": "G",
                     "size": 64
+                },
+                {
+                    "type": "data",
+                    "name": "Installs",
+                    "letter": "H",
+                    "size": 128
                 }
             ]
         }

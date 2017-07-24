@@ -173,6 +173,30 @@ function Test-ArrayEmpty
     return $true
 }
 
+function Test-ArrayIsUnique
+{
+    param (
+        $Values
+    )
+
+    if (Test-Empty $Values)
+    {
+        return $null
+    }
+
+    $dupe = $null
+
+    $Values | ForEach-Object {
+        $value = $_
+        if (($Values | Where-Object { $_ -ieq $value } | Measure-Object).Count -ne 1)
+        {
+            $dupe = $value
+        }
+    }
+
+    return $dupe
+}
+
 
 function Test-TemplateHasVMs
 {
@@ -623,6 +647,69 @@ function Test-TemplateVM
     # if the VM has extra drives, ensure the section is valid and add the provisioner
     if (!(Test-ArrayEmpty $vm.drives))
     {
+        # ensure other values are correct
+        $vm.drives | ForEach-Object {
+            # ensure sizes are greater than 0
+            if ($_.size -eq $null -or $_.size -le 0)
+            {
+                throw "Drive '$($_.name)' in the $($tag) VM template must have a size greater than 0Gb"
+            }
+
+            # ensure types are correct
+            if ($_.type -ine 'data')
+            {
+                throw "Drive '$($_.name)' in the $($tag) VM template has an invalid type, must be: data"
+            }
+
+            # ensure drives and letters aren't empty
+            if (Test-Empty $_.name)
+            {
+                throw "Drive '$($_.letter)' in the $($tag) VM template has no drive name supplied"
+            }
+
+            if (Test-Empty $_.letter)
+            {
+                throw "Drive '$($_.name)' in the $($tag) VM template has no drive letter supplied"
+            }
+
+            # ensure the drive letter is not one of the reserved ones
+            $reservedDrives = @('A', 'B', 'C', 'D', 'E', 'Z')
+            if ($reservedDrives -icontains $_.letter)
+            {
+                throw "Drive '$($_.name)' in the $($tag) VM template cannot be one of the following letters: $($reservedDrives -join ', ')"
+            }
+
+            if ($_.letter -inotmatch '^[a-z]+$')
+            {
+                throw "Drive '$($_.name)' in the $($tag) VM template must have a valid alpha drive letter"
+            }
+
+            # ensure the name is alphanumeric
+            if ($_.name -inotmatch '^[a-z0-9 ]+$')
+            {
+                throw "Drive '$($_.name)' in the $($tag) VM template must have a valid alphanumeric drive name"
+            }
+        }
+
+        # ensure the name are unique
+        $drive = Test-ArrayIsUnique $vm.drives.name
+        if ($drive -ne $null)
+        {
+            throw "Drive names need to be unique, found two drives with name '$($drive)' for the $($tag) VM template"
+        }
+
+        # ensure the letters are unique
+        $letter = Test-ArrayIsUnique $vm.drives.letter
+        if ($letter -ne $null)
+        {
+            throw "Drive letters need to be unique, found two drives with letter '$($letter)' for the $($tag) VM template"
+        }
+
+        if ($vm.count -eq $null -or $vm.count -le 0)
+        {
+            throw "VM count cannot be null, 0 or negative for $($tag): $($vm.count)"
+        }
+
         # get the drive names
         $drives = $vm.drives.name -join ','
         $letters = $vm.drives.letter -join ','

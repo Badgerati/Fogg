@@ -2027,7 +2027,8 @@ function New-FoggVM
     if ($vm -ne $null)
     {
         Write-Notice "Updating existing VM for $($VMName)`n"
-        $vm = Update-FoggVM -FoggObject $FoggObject -BaseName $BaseName -VMName $VMName -SubnetId $SubnetId -VMSize $VMSize -PublicIP:$PublicIP
+        $vm = Update-FoggVM -FoggObject $FoggObject -BaseName $BaseName -VMName $VMName -SubnetId $SubnetId `
+            -VMSize $VMSize -Drives $Drives -StorageAccount $StorageAccount -PublicIP:$PublicIP
         return $vm
     }
 
@@ -2118,6 +2119,9 @@ function Update-FoggVM
         $VMName,
 
         [Parameter(Mandatory=$true)]
+        $StorageAccount,
+
+        [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
         [string]
         $SubnetId,
@@ -2127,12 +2131,15 @@ function Update-FoggVM
         [string]
         $VMSize,
 
+        $Drives,
+
         [switch]
         $PublicIP
     )
 
     $BaseName = $BaseName.ToLowerInvariant()
     $VMName = $VMName.ToLowerInvariant()
+    $SAEndpoint = $StorageAccount.PrimaryEndpoints.Blob.ToString()
 
     # variables
     $nicName = "$($VMName)-nic"
@@ -2161,8 +2168,31 @@ function Update-FoggVM
         Write-Success "Size of VM updated`n"
     }
 
+    # re-retrieve the updated VM
+    $vm = Get-FoggVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $VMName
+
+    # update the VM with any additional drives not yet assigned
+    if (!(Test-ArrayEmpty $Drives))
+    {
+        $lun = $vm.StorageProfile.DataDisks.Count + 1
+
+        # check to see if we have any new drives
+        $Drives | ForEach-Object {
+            $xDiskName = "$($VMName)-$($_.type.ToLowerInvariant())-$($_.name.ToLowerInvariant())"
+            $BlobName = "vhds/$($xDiskName).vhd"
+            $xDiskUri = "$($SAEndpoint)$($BlobName)"
+
+            if ($vm.StorageProfile.DataDisks.Name -inotcontains $xDiskName)
+            {
+                Write-Information "Creating drive: $($xDiskName)"
+                $vm = Add-AzureRmVMDataDisk -VM $vm -Name $xDiskName -VhdUri $xDiskUri -Lun $lun -Caching ReadOnly -DiskSizeInGB $_.size -CreateOption Empty
+                $lun++
+            }
+        }
+    }
+
     # return the updated VM
-    return (Get-FoggVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $VMName)
+    return $vm
 }
 
 
@@ -2189,6 +2219,14 @@ function Save-FoggVM
         if (!$?)
         {
             throw "Failed to create VM $($VM.Name): $($output)"
+        }
+    }
+    else
+    {
+        $output = Update-AzureRmVM -ResourceGroupName $FoggObject.ResourceGroupName -VM $VM
+        if (!$?)
+        {
+            throw "Failed to update VM $($VM.Name): $($output)"
         }
     }
 
