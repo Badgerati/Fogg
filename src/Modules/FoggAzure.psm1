@@ -2081,20 +2081,7 @@ function New-FoggVM
     }
 
     # create any additional drives
-    if (!(Test-ArrayEmpty $Drives))
-    {
-        $lun = 1
-
-        $Drives | ForEach-Object {
-            $xDiskName = "$($VMName)-$($_.type.ToLowerInvariant())-$($_.name.ToLowerInvariant())"
-            $BlobName = "vhds/$($xDiskName).vhd"
-            $xDiskUri = "$($SAEndpoint)$($BlobName)"
-    
-            Write-Information "Creating drive: $($xDiskName)"
-            $VM = Add-AzureRmVMDataDisk -VM $VM -Name $xDiskName -VhdUri $xDiskUri -Lun $lun -Caching ReadOnly -DiskSizeInGB $_.size -CreateOption Empty
-            $lun++
-        }
-    }
+    $VM = Set-FoggDataDisk -VMName $VMName -VM $VM -StorageAccount $StorageAccount -Drives $Drives
 
     Write-Success "VM $($VMName) created`n"
     return $VM
@@ -2139,7 +2126,6 @@ function Update-FoggVM
 
     $BaseName = $BaseName.ToLowerInvariant()
     $VMName = $VMName.ToLowerInvariant()
-    $SAEndpoint = $StorageAccount.PrimaryEndpoints.Blob.ToString()
 
     # variables
     $nicName = "$($VMName)-nic"
@@ -2172,24 +2158,7 @@ function Update-FoggVM
     $vm = Get-FoggVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $VMName
 
     # update the VM with any additional drives not yet assigned
-    if (!(Test-ArrayEmpty $Drives))
-    {
-        $lun = $vm.StorageProfile.DataDisks.Count + 1
-
-        # check to see if we have any new drives
-        $Drives | ForEach-Object {
-            $xDiskName = "$($VMName)-$($_.type.ToLowerInvariant())-$($_.name.ToLowerInvariant())"
-            $BlobName = "vhds/$($xDiskName).vhd"
-            $xDiskUri = "$($SAEndpoint)$($BlobName)"
-
-            if ($vm.StorageProfile.DataDisks.Name -inotcontains $xDiskName)
-            {
-                Write-Information "Creating drive: $($xDiskName)"
-                $vm = Add-AzureRmVMDataDisk -VM $vm -Name $xDiskName -VhdUri $xDiskUri -Lun $lun -Caching ReadOnly -DiskSizeInGB $_.size -CreateOption Empty
-                $lun++
-            }
-        }
-    }
+    $vm = Set-FoggDataDisk -VMName $VMName -VM $vm -StorageAccount $StorageAccount -Drives $Drives
 
     # return the updated VM
     return $vm
@@ -2327,6 +2296,72 @@ function Start-FoggVM
     }
 
     Write-Success "VM $($Name) started"
+}
+
+
+function Set-FoggDataDisk
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $VMName,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        $VM,
+
+        [Parameter(Mandatory=$true)]
+        $StorageAccount,
+
+        [Parameter(Mandatory=$true)]
+        $Drives
+    )
+
+    # if no drives passed, just return the VM
+    if (!(Test-ArrayEmpty $Drives))
+    {
+        return $VM
+    }
+
+    # get the storage profile of the VM
+    $storage = $VM.StorageProfile
+
+    # set the next LUN value
+    if ($storage -eq $null)
+    {
+        $lun = 1
+    }
+    else
+    {
+        $lun = $storage.DataDisks.Count + 1
+    }
+
+    # set the storage account endpoint
+    $SAEndpoint = $StorageAccount.PrimaryEndpoints.Blob.ToString()
+
+    # loop through each of the drives, creating new ones or updating existing ones
+    $Drives | ForEach-Object {
+        $driveType = $_.type.ToLowerInvariant()
+        $driveName = $_.name.ToLowerInvariant()
+        $driveLetter = $_.letter.ToLowerInvariant()
+
+        $diskName = "$($VMName)-$($driveType)-$($driveLetter)-$($driveName)"
+        $blobName = "vhds/$($diskName).vhd"
+        $diskUri = "$($SAEndpoint)$($blobName)"
+
+        # if the profile doesn't contain the diskname, create a new disk
+        if ($storage -eq $null -or $storage.DataDisks.Name -inotcontains $diskName)
+        {
+            Write-Information "Creating drive: $($diskName)"
+            $VM = Add-AzureRmVMDataDisk -VM $VM -Name $diskName -VhdUri $diskUri -Lun $lun -Caching ReadOnly `
+                -DiskSizeInGB $_.size -CreateOption Empty
+            $lun++
+        }
+    }
+
+    # return the updated VM
+    return $VM
 }
 
 
