@@ -133,20 +133,22 @@ On a successful deployment, Fogg will return a resultant object that contains th
 This will contain the names of resources like the VNETs, Subnets and VMs; to the IPs of them, and Ports of Load Balancer. For the above example:
 
 ```powershell
-@{
-    'ResourceGroup' = @{
-        'Name' = 'basic-rg';
-    };
+'basic-rg' = @{
+    'Location' = 'westeurope';
     'VirtualNetwork' = @{
         'Name' = 'basic-vnet';
-        'AddressPrefix' = '10.1.0.0/16';
+        'ResourceGroupName' = 'basic-rg';
+        'Address' = '10.1.0.0/16';
     };
     'StorageAccount' = @{
         'Name' = 'basicstdsa'
     };
     'VirtualMachineInfo' = @{
         'test' = @{
-            'Subnet' = '10.1.0.0/24';
+            'Subnet' = @{ 
+                'Name' = 'basic-test-snet';
+                'Address' = '10.1.0.0/24';
+            };
             'AvailabilitySet' = 'basic-test-as';
             'LoadBalancer' = @{};
             'VirtualMachines' = @(
