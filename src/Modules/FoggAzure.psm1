@@ -222,7 +222,14 @@ function New-FoggStorageAccount
     if (Test-FoggStorageAccount $Name)
     {
         Write-Notice "Using existing storage account for $($Name)`n"
-        return (Get-AzureRmStorageAccount -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name)
+        
+        $storage = Get-AzureRmStorageAccount -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -ErrorAction Ignore
+        if ($storage -eq $null)
+        {
+            throw "The StorageAccount '$($Name)' does not exist under ResourceGroup '$($FoggObject.ResourceGroupName)'. This is likely because the name is in use by someone else, and StorageAccount names are unique globally for everybody"
+        }
+
+        return $storage
     }
 
     $sa = New-AzureRmStorageAccount -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -SkuName $StorageType `
