@@ -43,6 +43,7 @@ choco install fogg
 * Immediate feedback if your template is about to exceed the core limit in a location
 * Returns an object containing the information of what was deployed
 * Ability to append new VMs rather than always creating and updating the same ones
+* Add additional data drives to VMs and add them as new partitions
 
 ## Description
 

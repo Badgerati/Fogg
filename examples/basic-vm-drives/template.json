@@ -1,0 +1,42 @@
+{
+    "pretag": "ex-drives",
+    "template": [
+        {
+            "tag": "vm",
+            "type": "vm",
+            "count": 1,
+            "usePublicIP": true,
+            "os": {
+                "size": "Standard_DS1_v2",
+                "type": "Windows",
+                "publisher": "MicrosoftWindowsServer",
+                "offer": "WindowsServer",
+                "skus": "2016-Datacenter"
+            },
+            "drives": [
+                {
+                    "lun": 1,
+                    "name": "Logs",
+                    "letter": "K",
+                    "size": 256,
+                    "caching": "ReadOnly"
+                },
+                {
+                    "lun": 2,
+                    "name": "Packages",
+                    "letter": "G",
+                    "size": 64
+                },
+                {
+                    "lun": 3,
+                    "name": "Installs",
+                    "letter": "H",
+                    "size": 128
+                }
+            ]
+        }
+    ],
+    "firewall": {
+        "rdp": true
+    }
+}

@@ -64,6 +64,19 @@ function Write-Fail
 }
 
 
+function Write-Warning
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Message
+    )
+
+    Write-Host $Message -ForegroundColor DarkRed
+}
+
+
 function Write-Duration
 {
     param (
@@ -171,6 +184,30 @@ function Test-ArrayEmpty
     }
 
     return $true
+}
+
+function Test-ArrayIsUnique
+{
+    param (
+        $Values
+    )
+
+    if (Test-Empty $Values)
+    {
+        return $null
+    }
+
+    $dupe = $null
+
+    $Values | ForEach-Object {
+        $value = $_
+        if (($Values | Where-Object { $_ -ieq $value } | Measure-Object).Count -ne 1)
+        {
+            $dupe = $value
+        }
+    }
+
+    return $dupe
 }
 
 
@@ -619,6 +656,90 @@ function Test-TemplateVM
 
     # ensure firewall rules are valid
     Test-FirewallRules -FirewallRules $vm.firewall
+
+    # if the VM has extra drives, ensure the section is valid and add the provisioner
+    if (!(Test-ArrayEmpty $vm.drives))
+    {
+        # ensure other values are correct
+        $vm.drives | ForEach-Object {
+            # ensure sizes are greater than 0
+            if ($_.size -eq $null -or $_.size -le 0)
+            {
+                throw "Drive '$($_.name)' in the $($tag) VM template must have a size greater than 0Gb"
+            }
+
+            # ensure LUNs are greater than 0
+            if ($_.lun -eq $null -or $_.lun -le 0)
+            {
+                throw "Drive '$($_.name)' in the $($tag) VM template must have a LUN greater than 0"
+            }
+
+            # ensure drives and letters aren't empty
+            if (Test-Empty $_.name)
+            {
+                throw "Drive '$($_.letter)' in the $($tag) VM template has no drive name supplied"
+            }
+
+            if (Test-Empty $_.letter)
+            {
+                throw "Drive '$($_.name)' in the $($tag) VM template has no drive letter supplied"
+            }
+
+            # ensure the drive letter is not one of the reserved ones
+            $reservedDrives = @('A', 'B', 'C', 'D', 'E', 'Z')
+            if ($reservedDrives -icontains $_.letter)
+            {
+                throw "Drive '$($_.name)' in the $($tag) VM template cannot use one of the following drive letters: $($reservedDrives -join ', ')"
+            }
+
+            if ($_.letter -inotmatch '^[a-z]{1}$')
+            {
+                throw "Drive '$($_.name)' in the $($tag) VM template must have a valid alpha drive letter"
+            }
+
+            # ensure the name is alphanumeric
+            if ($_.name -inotmatch '^[a-z0-9 ]+$')
+            {
+                throw "Drive '$($_.name)' in the $($tag) VM template must have a valid alphanumeric drive name"
+            }
+
+            # ensure caching value is correct
+            $cachings = @('ReadOnly', 'ReadWrite', 'None')
+            if (![string]::IsNullOrWhiteSpace($_.caching) -and $cachings -inotcontains $_.caching)
+            {
+                throw "Drive '$($_.name)' in the $($tag) VM template has an invalid caching option '$($_.caching)', valid values: $($cachings -join ', ')"
+            }
+        }
+
+        # ensure the LUNs are unique
+        $dupe = Test-ArrayIsUnique $vm.drives.lun
+        if ($dupe -ne $null)
+        {
+            throw "Drive LUNs need to be unique, found two drives with LUN '$($dupe)' for the $($tag) VM template"
+        }
+
+        # ensure the name are unique
+        $dupe = Test-ArrayIsUnique $vm.drives.name
+        if ($dupe -ne $null)
+        {
+            throw "Drive names need to be unique, found two drives with name '$($dupe)' for the $($tag) VM template"
+        }
+
+        # ensure the letters are unique
+        $dupe = Test-ArrayIsUnique $vm.drives.letter
+        if ($dupe -ne $null)
+        {
+            throw "Drive letters need to be unique, found two drives with letter '$($dupe)' for the $($tag) VM template"
+        }
+
+        # get the drive names
+        $drives = $vm.drives.name -join ','
+        $letters = $vm.drives.letter -join ','
+
+        # add provisioner
+        $scriptPath = Get-ProvisionerInternalPath -FoggObject $FoggObject -Type 'drives' -ScriptName 'attach-drives' -OS 'win'
+        Add-Provisioner -FoggObject $FoggObject -Key 'drives' -Type 'drives' -ScriptPath $scriptPath -Arguments "$($letters) | $($drives)"
+    }
 }
 
 
@@ -811,11 +932,6 @@ function Test-Provisioners
         [Parameter(Mandatory=$true)]
         $FoggObject,
 
-        [Parameter(Mandatory=$true)]
-        [ValidateNotNullOrEmpty()]
-        [string]
-        $FoggProvisionersPath,
-
         $Paths
     )
 
@@ -824,14 +940,6 @@ function Test-Provisioners
     {
         $FoggObject.HasProvisionScripts = $false
         return
-    }
-
-    $FoggObject.HasProvisionScripts = $true
-
-    # ensure the root path exists
-    if (!(Test-PathExists $FoggProvisionersPath))
-    {
-        throw "Fogg root path for internal provisioners does not exist: $($FoggProvisionersPath)"
     }
 
     # convert the JSON map into a POSH map
@@ -884,29 +992,8 @@ function Test-Provisioners
                     $os = $Matches['os']
                 }
 
-                if (![string]::IsNullOrWhiteSpace($os))
-                {
-                    $os = $os.ToLowerInvariant()
-                }
-
-                # ensure the script exists internally
-                switch ($os)
-                {
-                    'win'
-                        {
-                            $scriptPath = Join-Path (Join-Path $FoggProvisionersPath $type) "$($name).ps1"
-                        }
-
-                    'unix'
-                        {
-                            $scriptPath = Join-Path (Join-Path $FoggProvisionersPath $type) "$($name).sh"
-                        }
-
-                    default
-                        {
-                            $scriptPath = Join-Path (Join-Path $FoggProvisionersPath $type) "$($name).ps1"
-                        }
-                }
+                # get the internal path
+                $scriptPath = Get-ProvisionerInternalPath -FoggObject $FoggObject -Type $type -ScriptName $name -OS $os
             }
             else
             {
@@ -914,39 +1001,133 @@ function Test-Provisioners
                 $scriptPath = Resolve-Path (Join-Path $FoggObject.TemplateParent $value) -ErrorAction Ignore
             }
 
-            # ensure the provisioner script path exists
-            if (!(Test-PathExists $scriptPath))
-            {
-                throw "Provision script for $($type) does not exist: $($scriptPath)"
-            }
-
             # add to internal list of provisioners for later
-            if (!$FoggObject.ProvisionMap[$type].ContainsKey($_))
+            if ($isChoco)
             {
-                if ($isChoco)
-                {
-                    $FoggObject.ProvisionMap[$type].Add($_, @($scriptPath, $value))
-                }
-                else
-                {
-                    $FoggObject.ProvisionMap[$type].Add($_, $scriptPath)
-                }
+                Add-Provisioner -FoggObject $FoggObject -Key $_ -Type $type -ScriptPath $scriptPath -Arguments $value
             }
             else
             {
-                if ($isChoco)
-                {
-                    $FoggObject.ProvisionMap[$type][$_] = @($scriptPath, $value)
-                }
-                else
-                {
-                    $FoggObject.ProvisionMap[$type][$_] = $scriptPath
-                }
+                Add-Provisioner -FoggObject $FoggObject -Key $_ -Type $type -ScriptPath $scriptPath
             }
         }
         else
         {
             throw "Provisioner value is not in the correct format of '<type>: <value>': $($value)"
+        }
+    }
+}
+
+
+function Get-ProvisionerInternalPath
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        $FoggObject,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Type,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $ScriptName,
+
+        [string]
+        $OS = 'win'
+    )
+
+    # ensure the root path exists
+    if (!(Test-PathExists $FoggObject.ProvisionersPath))
+    {
+        throw "Fogg root path for internal provisioners does not exist: $($FoggObject.ProvisionersPath)"
+    }
+
+    # ensure OS type is lowercase
+    if (![string]::IsNullOrWhiteSpace($OS))
+    {
+        $OS = $OS.ToLowerInvariant()
+    }
+
+    # generate internal script path
+    switch ($OS)
+    {
+        'win'
+            {
+                $scriptPath = Join-Path (Join-Path $FoggObject.ProvisionersPath $Type) "$($ScriptName).ps1"
+            }
+
+        'unix'
+            {
+                $scriptPath = Join-Path (Join-Path $FoggObject.ProvisionersPath $Type) "$($ScriptName).sh"
+            }
+
+        default
+            {
+                $scriptPath = Join-Path (Join-Path $FoggObject.ProvisionersPath $Type) "$($ScriptName).ps1"
+            }
+    }
+
+    return $scriptPath
+}
+
+
+function Add-Provisioner
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        $FoggObject,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Key,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Type,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $ScriptPath,
+
+        [string]
+        $Arguments = $null
+    )
+
+    # ensure the provisioner script path exists
+    if (!(Test-PathExists $ScriptPath))
+    {
+        throw "Provision script for $($Key) does not exist: $($ScriptPath)"
+    }
+
+    $FoggObject.HasProvisionScripts = $true
+
+    # add provisioner to internal map
+    if (!$FoggObject.ProvisionMap[$Type].ContainsKey($Key))
+    {
+        if ($Arguments -eq $null)
+        {
+            $FoggObject.ProvisionMap[$Type].Add($Key, $ScriptPath)
+        }
+        else
+        {
+            $FoggObject.ProvisionMap[$Type].Add($Key, @($ScriptPath, $Arguments))
+        }
+    }
+    else
+    {
+        if ($Arguments -eq $null)
+        {
+            $FoggObject.ProvisionMap[$Type][$Key] = $ScriptPath
+        }
+        else
+        {
+            $FoggObject.ProvisionMap[$Type][$Key] = @($ScriptPath, $Arguments)
         }
     }
 }
@@ -1194,8 +1375,10 @@ function New-FoggObject
     $props.SubscriptionName = $SubscriptionName
     $props.SubscriptionCredentials = $SubscriptionCredentials
     $props.VMCredentials = $VMCredentials
-    $props.FoggProvisionersPath = Join-Path $FoggRootPath 'Provisioners'
     $foggObj = New-Object -TypeName PSObject -Property $props
+
+    # general paths
+    $provisionPath = Join-Path $FoggRootPath 'Provisioners'
 
     # if we aren't using a Foggfile, set params directly
     if (!$useFoggfile)
@@ -1204,6 +1387,7 @@ function New-FoggObject
             -SubnetAddresses $SubnetAddresses -TemplatePath $TemplatePath -FoggfilePath $FoggfilePath `
             -VNetAddress $VNetAddress -VNetResourceGroupName $VNetResourceGroupName -VNetName $VNetName
 
+        $group.ProvisionersPath = $provisionPath
         $foggObj.Groups += $group
     }
 
@@ -1232,6 +1416,7 @@ function New-FoggObject
                 -VNetAddress $VNetAddress -VNetResourceGroupName $VNetResourceGroupName `
                 -VNetName $VNetName -FoggParameters $_
 
+            $group.ProvisionersPath = $provisionPath
             $foggObj.Groups += $group
         }
     }
@@ -1342,8 +1527,9 @@ function New-FoggGroupObject
     $group.TemplatePath = $TemplatePath
     $group.TemplateParent = (Split-Path -Parent -Path $TemplatePath)
     $group.HasProvisionScripts = $false
-    $group.ProvisionMap = @{'dsc' = @{}; 'custom' = @{}; 'choco' = @{}}
+    $group.ProvisionMap = @{'dsc' = @{}; 'custom' = @{}; 'choco' = @{}; 'drives' = @{}}
     $group.NsgMap = @{}
+    $group.ProvisionersPath = $null
     $group.StorageAccountName = $null
     $group.VirtualMachineInfo = @{}
     $group.VPNInfo = @{}
@@ -1530,7 +1716,7 @@ function New-DeployTemplateVM
         $vmname = Get-FoggVMName -BaseName $tagname -Index ($_ + $baseIndex)
         $_vms += (New-FoggVM -FoggObject $FoggObject -BaseName $tagname -VMName $vmname -VMCredentials $VMCredentials `
             -StorageAccount $StorageAccount -SubnetId $subnet.Id -VMSize $os.size -VMSkus $os.skus -VMOffer $os.offer `
-            -VMType $os.type -VMPublisher $os.publisher -AvailabilitySet $avset -PublicIP:$usePublicIP)
+            -VMType $os.type -VMPublisher $os.publisher -AvailabilitySet $avset -Drives $VMTemplate.drives -PublicIP:$usePublicIP)
     }
 
     # loop through each VM and deploy it
@@ -1549,7 +1735,18 @@ function New-DeployTemplateVM
         # see if we need to provision the machine
         if ($FoggObject.HasProvisionScripts)
         {
-            Set-ProvisionVM -FoggObject $FoggObject -Provisioners $VMTemplate.provisioners -VMName $_vm.Name -StorageAccount $StorageAccount
+            $provs = $VMTemplate.provisioners
+            if (Test-ArrayEmpty $provs)
+            {
+                $provs = @()
+            }
+            
+            if (!(Test-ArrayEmpty $VMTemplate.drives))
+            {
+                $provs = @('drives') + $provs
+            }
+
+            Set-ProvisionVM -FoggObject $FoggObject -Provisioners $provs -VMName $_vm.Name -StorageAccount $StorageAccount
         }
 
         # due to a bug with the CustomScriptExtension, if we have any uninstall the extension
@@ -1585,7 +1782,7 @@ function New-DeployTemplateVM
         $base = ($count - $VMTemplate.off) + 1
 
         $count..$base | ForEach-Object {
-            Stop-FoggVM -FoggObject $FoggObject -Name "$($tagname)$($_)"
+            Stop-FoggVM -FoggObject $FoggObject -Name "$($tagname)$($_)" -StayProvisioned
         }
     }
 }
