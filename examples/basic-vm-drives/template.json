@@ -15,19 +15,20 @@
             },
             "drives": [
                 {
-                    "type": "data",
+                    "lun": 1,
                     "name": "Logs",
-                    "letter": "F",
-                    "size": 256
+                    "letter": "K",
+                    "size": 256,
+                    "caching": "ReadOnly"
                 },
                 {
-                    "type": "data",
+                    "lun": 2,
                     "name": "Packages",
                     "letter": "G",
                     "size": 64
                 },
                 {
-                    "type": "data",
+                    "lun": 3,
                     "name": "Installs",
                     "letter": "H",
                     "size": 128

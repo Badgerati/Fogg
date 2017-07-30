@@ -18,6 +18,7 @@ $drivesArray = ($Drives -split ',' | ForEach-Object { $_.Trim() })
 $count = 0
 $updateNames = @()
 $updateLetters = @()
+$updateDrives = @()
 $newDrives = @()
 
 $lettersArray | ForEach-Object {
@@ -31,18 +32,26 @@ $lettersArray | ForEach-Object {
     if ($byLetter -ne $null -and $byName -eq $null)
     {
         $updateNames += "$($cLetter)|$($cName)"
+        $updateDrives += "$($cLetter)|$($cName)"
     }
 
     # does the name already exist? (we're updating the letter)
     elseif ($byName -ne $null -and $byLetter -eq $null)
     {
         $updateLetters += "$($cLetter)|$($cName)"
+        $updateDrives += "$($cLetter)|$($cName)"
     }
 
-    # else, this is a new drive partition
+    # if both both letter/name are null, this is a new drive partition
     elseif ($byLetter -eq $null -and $byName -eq $null)
     {
         $newDrives += "$($cLetter)|$($cName)"
+    }
+
+    # else, this drive already exists and could need it's partition size updating
+    else
+    {
+        $updateDrives += "$($cLetter)|$($cName)"
     }
 
     $count++
@@ -94,5 +103,20 @@ $updateLetters | ForEach-Object {
     {
         $drive.DriveLetter = "$($letter):"
         $drive.Put()
+    }
+}
+
+# loop through all existing drives, and attempt to resize their partition
+$updateDrives | ForEach-Object {
+    $split = $_ -split '\|'
+    $letter = $split[0]
+    
+    $maxSize = (Get-PartitionSupportedSize -DriveLetter $letter).SizeMax
+    $currentSize = (Get-Partition -DriveLetter $letter).Size
+
+    # only resize if the max-size of the data disk has changed
+    if ($maxSize -ne $currentSize)
+    {
+        Resize-Partition -DriveLetter $letter -Size $maxSize
     }
 }

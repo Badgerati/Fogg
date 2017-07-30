@@ -64,6 +64,19 @@ function Write-Fail
 }
 
 
+function Write-Warning
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Message
+    )
+
+    Write-Host $Message -ForegroundColor DarkRed
+}
+
+
 function Write-Duration
 {
     param (
@@ -655,10 +668,10 @@ function Test-TemplateVM
                 throw "Drive '$($_.name)' in the $($tag) VM template must have a size greater than 0Gb"
             }
 
-            # ensure types are correct
-            if ($_.type -ine 'data')
+            # ensure LUNs are greater than 0
+            if ($_.lun -eq $null -or $_.lun -le 0)
             {
-                throw "Drive '$($_.name)' in the $($tag) VM template has an invalid type, must be: data"
+                throw "Drive '$($_.name)' in the $($tag) VM template must have a LUN greater than 0"
             }
 
             # ensure drives and letters aren't empty
@@ -676,10 +689,10 @@ function Test-TemplateVM
             $reservedDrives = @('A', 'B', 'C', 'D', 'E', 'Z')
             if ($reservedDrives -icontains $_.letter)
             {
-                throw "Drive '$($_.name)' in the $($tag) VM template cannot be one of the following letters: $($reservedDrives -join ', ')"
+                throw "Drive '$($_.name)' in the $($tag) VM template cannot use one of the following drive letters: $($reservedDrives -join ', ')"
             }
 
-            if ($_.letter -inotmatch '^[a-z]+$')
+            if ($_.letter -inotmatch '^[a-z]{1}$')
             {
                 throw "Drive '$($_.name)' in the $($tag) VM template must have a valid alpha drive letter"
             }
@@ -689,25 +702,34 @@ function Test-TemplateVM
             {
                 throw "Drive '$($_.name)' in the $($tag) VM template must have a valid alphanumeric drive name"
             }
+
+            # ensure caching value is correct
+            $cachings = @('ReadOnly', 'ReadWrite', 'None')
+            if (![string]::IsNullOrWhiteSpace($_.caching) -and $cachings -inotcontains $_.caching)
+            {
+                throw "Drive '$($_.name)' in the $($tag) VM template has an invalid caching option '$($_.caching)', valid values: $($cachings -join ', ')"
+            }
+        }
+
+        # ensure the LUNs are unique
+        $dupe = Test-ArrayIsUnique $vm.drives.lun
+        if ($dupe -ne $null)
+        {
+            throw "Drive LUNs need to be unique, found two drives with LUN '$($dupe)' for the $($tag) VM template"
         }
 
         # ensure the name are unique
-        $drive = Test-ArrayIsUnique $vm.drives.name
-        if ($drive -ne $null)
+        $dupe = Test-ArrayIsUnique $vm.drives.name
+        if ($dupe -ne $null)
         {
-            throw "Drive names need to be unique, found two drives with name '$($drive)' for the $($tag) VM template"
+            throw "Drive names need to be unique, found two drives with name '$($dupe)' for the $($tag) VM template"
         }
 
         # ensure the letters are unique
-        $letter = Test-ArrayIsUnique $vm.drives.letter
-        if ($letter -ne $null)
+        $dupe = Test-ArrayIsUnique $vm.drives.letter
+        if ($dupe -ne $null)
         {
-            throw "Drive letters need to be unique, found two drives with letter '$($letter)' for the $($tag) VM template"
-        }
-
-        if ($vm.count -eq $null -or $vm.count -le 0)
-        {
-            throw "VM count cannot be null, 0 or negative for $($tag): $($vm.count)"
+            throw "Drive letters need to be unique, found two drives with letter '$($dupe)' for the $($tag) VM template"
         }
 
         # get the drive names
@@ -1760,7 +1782,7 @@ function New-DeployTemplateVM
         $base = ($count - $VMTemplate.off) + 1
 
         $count..$base | ForEach-Object {
-            Stop-FoggVM -FoggObject $FoggObject -Name "$($tagname)$($_)"
+            Stop-FoggVM -FoggObject $FoggObject -Name "$($tagname)$($_)" -StayProvisioned
         }
     }
 }

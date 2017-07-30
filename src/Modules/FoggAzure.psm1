@@ -656,6 +656,33 @@ function Get-FoggCustomScriptExtensionName
 }
 
 
+function Get-FoggStorageContext
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        $FoggObject,
+        
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        $StorageAccount
+    )
+
+    # get storage account name and key
+    $saName = $StorageAccount.StorageAccountName
+    $saKey = (Get-AzureRmStorageAccountKey -ResourceGroupName $FoggObject.ResourceGroupName -Name $saName).Value[0]
+
+    # create new storage context
+    $context = New-AzureStorageContext -StorageAccountName $saName -StorageAccountKey $saKey
+    if (!$?)
+    {
+        throw "Failed to create Storage Context for Storage Account $($saName)"
+    }
+
+    return $context
+}
+
+
 function Get-FoggStorageContainer
 {
     param (
@@ -699,7 +726,7 @@ function New-FoggStorageContainer
 {
     param (
         [Parameter(Mandatory=$true)]
-        [ValidateNotNullOrEmpty()]
+        [ValidateNotNull()]
         $FoggObject,
 
         [Parameter(Mandatory=$true)]
@@ -714,16 +741,11 @@ function New-FoggStorageContainer
 
     $Name = $Name.ToLowerInvariant()
 
-    # get storage account name and key
+    # get storage account name
     $saName = $StorageAccount.StorageAccountName
-    $saKey = (Get-AzureRmStorageAccountKey -ResourceGroupName $FoggObject.ResourceGroupName -Name $saName).Value[0]
 
     # create new storage context
-    $context = New-AzureStorageContext -StorageAccountName $saName -StorageAccountKey $saKey
-    if (!$?)
-    {
-        throw "Failed to create Storage Context for Storage Account $($saName)"
-    }
+    $context = Get-FoggStorageContext -FoggObject $FoggObject -StorageAccount $StorageAccount
 
     # check if container already exists
     $container = Get-FoggStorageContainer -Context $context -Name $Name
@@ -1884,7 +1906,10 @@ function Get-FoggVM
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
         [string]
-        $Name
+        $Name,
+
+        [switch]
+        $Status
     )
 
     $ResourceGroupName = $ResourceGroupName.ToLowerInvariant()
@@ -1892,7 +1917,7 @@ function Get-FoggVM
 
     try
     {
-        $vm = Get-AzureRmVM -ResourceGroupName $ResourceGroupName -Name $Name
+        $vm = Get-AzureRmVM -ResourceGroupName $ResourceGroupName -Name $Name -Status:$Status
         if (!$?)
         {
             throw "Failed to make Azure call to retrieve VM $($Name) in $($ResourceGroupName)"
@@ -2081,9 +2106,9 @@ function New-FoggVM
     }
 
     # create any additional drives
-    $VM = Set-FoggDataDisk -VMName $VMName -VM $VM -StorageAccount $StorageAccount -Drives $Drives
+    $VM = Add-FoggDataDisk -FoggObject $FoggObject -VMName $VMName -VM $VM -StorageAccount $StorageAccount -Drives $Drives
 
-    Write-Success "VM $($VMName) created`n"
+    Write-Success "VM $($VMName) prepared`n"
     return $VM
 }
 
@@ -2145,12 +2170,11 @@ function Update-FoggVM
     if ($vm.HardwareProfile.VmSize -ine $VMSize)
     {
         Write-Information "Updating VM size to $($VMSize)"
-        Stop-FoggVM -FoggObject $FoggObject -Name $VMName
+        Stop-FoggVM -FoggObject $FoggObject -Name $VMName -StayProvisioned
 
         $vm.HardwareProfile.VmSize = $VMSize
         Update-AzureRmVM -ResourceGroupName $FoggObject.ResourceGroupName -VM $vm | Out-Null
-
-        Start-FoggVM -FoggObject $FoggObject -Name $VMName
+        
         Write-Success "Size of VM updated`n"
     }
 
@@ -2158,7 +2182,7 @@ function Update-FoggVM
     $vm = Get-FoggVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $VMName
 
     # update the VM with any additional drives not yet assigned
-    $vm = Set-FoggDataDisk -VMName $VMName -VM $vm -StorageAccount $StorageAccount -Drives $Drives
+    $vm = Add-FoggDataDisk -FoggObject $FoggObject -VMName $VMName -VM $vm -StorageAccount $StorageAccount -Drives $Drives
 
     # return the updated VM
     return $vm
@@ -2178,11 +2202,11 @@ function Save-FoggVM
         $LoadBalancer
     )
 
-    Write-Information "Deploying VM $($VM.Name) in $($FoggObject.ResourceGroupName)"
-
     # first, ensure this VM doesn't alredy exist in Azure (avoiding re-redeploying)
     if ((Get-FoggVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $VM.Name) -eq $null)
     {
+        Write-Information "`nDeploying new VM '$($VM.Name)'"
+
         # create VM as it doesn't exist
         $output = New-AzureRmVM -ResourceGroupName $FoggObject.ResourceGroupName -Location $FoggObject.Location -VM $VM
         if (!$?)
@@ -2192,14 +2216,18 @@ function Save-FoggVM
     }
     else
     {
+        Write-Information "`nUpdating existing VM '$($VM.Name)'"
+
         $output = Update-AzureRmVM -ResourceGroupName $FoggObject.ResourceGroupName -VM $VM
         if (!$?)
         {
             throw "Failed to update VM $($VM.Name): $($output)"
         }
+
+        Start-FoggVM -FoggObject $FoggObject -Name $VM.Name
     }
 
-    Write-Success "Deployed VM $($VM.Name)`n"
+    Write-Success "Deployed $($VM.Name)`n"
 
     # check if we need to assign a load balancer
     if ($LoadBalancer -ne $null)
@@ -2241,27 +2269,44 @@ function Stop-FoggVM
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
         [string]
-        $Name
+        $Name,
+
+        [switch]
+        $StayProvisioned
     )
 
     $Name = $Name.ToLowerInvariant()
 
-    Write-Information "Stopping VM $($Name) in $($FoggObject.ResourceGroupName)"
-
     # ensure the VM exists
-    if ((Get-FoggVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name) -eq $null)
+    $vm = Get-FoggVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Status
+    if ($vm -eq $null)
     {
-        Write-Notice "VM $($Name) does not exist"
-        return
+        throw "The VM '$($Name)' does not exist to stop"
     }
 
-    $output = Stop-AzureRmVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -StayProvisioned -Force
-    if (!$?)
-    {
-        throw "Failed to stop the VM $($Name): $($output)"
-    }
+    $status = ($vm.Statuses.Code | Where-Object { $_ -ilike 'PowerState*' } | Select-Object -First 1)
 
-    Write-Notice "VM $($Name) stopped"
+    if ($status -ieq 'PowerState/running')
+    {
+        Write-Information "Stopping the VM '$($Name)'"
+
+        if (!$StayProvisioned)
+        {
+            Write-Warning 'The VM is being deallocated - IP addresses and other information could be lost'
+        }
+
+        $output = Stop-AzureRmVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -StayProvisioned:$StayProvisioned -Force
+        if (!$?)
+        {
+            throw "Failed to stop the VM '$($Name)': $($output)"
+        }
+
+        Write-Success "VM '$($Name)' stopped"
+    }
+    else
+    {
+        Write-Details "The VM is already stopped"
+    }
 }
 
 
@@ -2280,28 +2325,41 @@ function Start-FoggVM
 
     $Name = $Name.ToLowerInvariant()
 
-    Write-Information "Starting VM $($Name) in $($FoggObject.ResourceGroupName)"
-
     # ensure the VM exists
-    if ((Get-FoggVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name) -eq $null)
+    $vm = Get-FoggVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Status
+    if ($vm -eq $null)
     {
-        Write-Notice "VM $($Name) does not exist"
-        return
+        throw "The VM $($Name) does not exist to start"
     }
 
-    $output = Start-AzureRmVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name
-    if (!$?)
-    {
-        throw "Failed to start the VM $($Name): $($output)"
-    }
+    $status = ($vm.Statuses.Code | Where-Object { $_ -ilike 'PowerState*' } | Select-Object -First 1)
 
-    Write-Success "VM $($Name) started"
+    if ($status -ine 'PowerState/running')
+    {
+        Write-Information "Starting the VM '$($Name)'"
+
+        $output = Start-AzureRmVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name
+        if (!$?)
+        {
+            throw "Failed to start the VM '$($Name)': $($output)"
+        }
+
+        Write-Success "VM '$($Name)' started"
+    }
+    else
+    {
+        Write-Details "The VM is already running"
+    }
 }
 
 
-function Set-FoggDataDisk
+function Add-FoggDataDisk
 {
     param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        $FoggObject,
+
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
         [string]
@@ -2312,51 +2370,95 @@ function Set-FoggDataDisk
         $VM,
 
         [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
         $StorageAccount,
 
         [Parameter(Mandatory=$true)]
         $Drives
     )
 
+    Write-Information "Setting up additional data disks"
+
     # if no drives passed, just return the VM
-    if (!(Test-ArrayEmpty $Drives))
+    if (Test-ArrayEmpty $Drives)
     {
+        Write-Host 'No additional data drives to create passed'
         return $VM
     }
 
     # get the storage profile of the VM
     $storage = $VM.StorageProfile
 
-    # set the next LUN value
-    if ($storage -eq $null)
+    # get existing disks
+    if ($storage -ne $null -and ($storage.DataDisks | Measure-Object).Count -gt 0)
     {
-        $lun = 1
-    }
-    else
-    {
-        $lun = $storage.DataDisks.Count + 1
+        $diskNames = $storage.DataDisks.Name
+        Write-Notice "Existing data disks found on $($VMName):`n> $($diskNames -join "`n> ")"
     }
 
     # set the storage account endpoint
     $SAEndpoint = $StorageAccount.PrimaryEndpoints.Blob.ToString()
 
-    # loop through each of the drives, creating new ones or updating existing ones
+    # loop through each of the drives, creating new ones
     $Drives | ForEach-Object {
-        $driveType = $_.type.ToLowerInvariant()
-        $driveName = $_.name.ToLowerInvariant()
-        $driveLetter = $_.letter.ToLowerInvariant()
-
-        $diskName = "$($VMName)-$($driveType)-$($driveLetter)-$($driveName)"
+        # generate the disk name and blob URIs
+        $diskName = "$($VMName)-data-disk$($_.lun)"
         $blobName = "vhds/$($diskName).vhd"
         $diskUri = "$($SAEndpoint)$($blobName)"
 
-        # if the profile doesn't contain the diskname, create a new disk
-        if ($storage -eq $null -or $storage.DataDisks.Name -inotcontains $diskName)
+        # if the profile doesn't contain the diskname, create the disk
+        if ($diskNames -inotcontains $diskName)
         {
-            Write-Information "Creating drive: $($diskName)"
-            $VM = Add-AzureRmVMDataDisk -VM $VM -Name $diskName -VhdUri $diskUri -Lun $lun -Caching ReadOnly `
+            # check the LUN doesn't already exist
+            if ($storage.DataDisks.Lun -icontains $_.lun)
+            {
+                throw "The VM '$($VMName)' already has a data disk with a LUN of $($_.lun)"
+            }
+
+            # create new disk
+            Write-Details "`nCreating new disk: $($diskName), for drive $($_.name) ($($_.letter):)"
+            $VM = Add-AzureRmVMDataDisk -VM $VM -Name $diskName -VhdUri $diskUri -Lun $_.lun -Caching ReadOnly `
                 -DiskSizeInGB $_.size -CreateOption Empty
-            $lun++
+            
+                Write-Success 'New disk created'
+        }
+
+        # if a match is found, attempt to update the disk
+        else
+        {
+            Write-Details "`n$($diskName) already exists, checking if it needs updating"
+
+            # check if the disk needs any updates
+            $disk = ($storage.DataDisks | Where-Object { $_.Name -ieq $diskName } | Select-Object -First 1)
+
+            # get new size/caching values
+            $size = $_.size
+            $caching = $_.caching
+            if ([string]::IsNullOrWhiteSpace($caching))
+            {
+                $caching = 'ReadOnly'
+            }
+
+            # if the new size is less than the current one, error
+            if ($disk.DiskSizeGB -gt $size)
+            {
+                throw "Decreasing data disk size from $($disk.DiskSizeGB)GB to $($size)GB is not supported for drive $($_.name) ($($_.letter):)"
+            }
+
+            # do we need to update the disk?
+            if ($disk.DiskSizeGB -ne $size -or $disk.Caching -ine $caching)
+            {
+                Write-Information "Updating the disk to $($size)GB and caching of $($caching)"
+
+                Stop-FoggVM -FoggObject $FoggObject -Name $VM.Name
+                $VM = Set-AzureRmVMDataDisk -VM $VM -Lun $_.lun -Caching $caching -DiskSizeInGB $size
+
+                Write-Information 'Disk set to be updated'
+            }
+            else
+            {
+                Write-Success 'Disk is already up-to-date'
+            }
         }
     }
 
@@ -2451,7 +2553,7 @@ function New-FoggNetworkInterface
         throw "Failed to create Network Interface $($Name)"
     }
 
-    Write-Success "Network Interface $($Name) created"
+    Write-Success "Network Interface $($Name) created`n"
     return $nic
 }
 
