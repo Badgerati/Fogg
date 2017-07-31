@@ -3,7 +3,7 @@
         Fogg is a PowerShell tool to aide and simplify the creation, deployment and provisioning of infrastructure in Azure
 
     .DESCRIPTION
-        Fogg is a PowerShell tool to aide and simplify the creation, deployment and provisioning of infrastructure in Azur
+        Fogg is a PowerShell tool to aide and simplify the creation, deployment and provisioning of infrastructure in Azure
 
     .PARAMETER ResourceGroupName
         The name of the Resource Group you wish to create or use in Azure
@@ -54,6 +54,9 @@
 
     .PARAMETER IgnoreCores
         Switch parameter, if passed will ignore the exceeding cores limit and continue to deploy to Azure
+
+    .PARAMETER NoOutput
+        Switch parameter, if passed, the resultant object with information of what was deployed will not be returned
 
     .EXAMPLE
         fogg -SubscriptionName "AzureSub" -ResourceGroupName "basic-rg" -Location "westeurope" -VNetAddress "10.1.0.0/16" -SubnetAddresses @{"vm"="10.1.0.0/24"} -TemplatePath "./path/to/template.json"
@@ -107,7 +110,10 @@ param (
     $Validate,
 
     [switch]
-    $IgnoreCores
+    $IgnoreCores,
+
+    [switch]
+    $NoOutput
 )
 
 $ErrorActionPreference = 'Stop'
@@ -127,25 +133,20 @@ function Test-Files
     param (
         [Parameter(Mandatory=$true)]
         [ValidateNotNull()]
-        $FoggObject,
-
-        [Parameter(Mandatory=$true)]
-        [ValidateNotNullOrEmpty()]
-        [string]
-        $FoggProvisionersPath
+        $FoggObject
     )
 
     # Parse the contents of the template file
     $template = Get-JSONContent $FoggObject.TemplatePath
 
     # Check that the Provisioner script paths exist
-    Test-Provisioners -FoggObject $FoggObject -Paths $template.provisioners -FoggProvisionersPath $FoggProvisionersPath
+    Test-Provisioners -FoggObject $FoggObject -Paths $template.provisioners
 
     # Check the global firewall rules are valid
     Test-FirewallRules -FirewallRules $template.firewall
 
     # Check the template section
-    Test-Template -Template $template.template -FoggObject $FoggObject -OS $template.os | Out-Null
+    Test-Template -Template $template -FoggObject $FoggObject -OS $template.os | Out-Null
 
     # return the template for further usage
     return $template
@@ -187,7 +188,7 @@ try
     foreach ($FoggObject in $FoggObjects.Groups)
     {
         Write-Host "> Verifying: $($FoggObject.TemplatePath)"
-        Test-Files -FoggObject $FoggObject -FoggProvisionersPath $FoggObjects.FoggProvisionersPath | Out-Null
+        Test-Files -FoggObject $FoggObject | Out-Null
     }
 
     Write-Success "Templates verified`n"
@@ -227,7 +228,7 @@ try
     foreach ($FoggObject in $FoggObjects.Groups)
     {
         # Retrieve the template for the current Group
-        $template = Test-Files -FoggObject $FoggObject -FoggProvisionersPath $FoggObjects.FoggProvisionersPath
+        $template = Test-Files -FoggObject $FoggObject
 
         # If we have a pretag on the template, set against this FoggObject
         if (![string]::IsNullOrWhiteSpace($template.pretag))
@@ -258,7 +259,7 @@ try
                 # Create the storage account
                 $usePremiumStorage = [bool]$template.usePremiumStorage
                 $sa = New-FoggStorageAccount -FoggObject $FoggObject -Premium:$usePremiumStorage
-
+                $FoggObject.StorageAccountName = $sa.StorageAccountName
 
                 # publish Provisioner scripts to storage account
                 Publish-ProvisionerScripts -FoggObject $FoggObject -StorageAccount $sa
@@ -274,6 +275,11 @@ try
             {
                 $vnet = New-FoggVirtualNetwork -FoggObject $FoggObject
             }
+            
+            # set vnet group information
+            $FoggObject.VNetAddress = $vnet.AddressSpace.AddressPrefixes[0]
+            $FoggObject.VNetResourceGroupName = $vnet.ResourceGroupName
+            $FoggObject.VNetName = $vnet.Name
 
 
             # Create virtual subnets and security groups for VM objects in template
@@ -326,24 +332,27 @@ try
                         }
                 }
             }
-
-            # attempt to output any public IP addresses
-            $ips = Get-AzureRmPublicIpAddress -ResourceGroupName $FoggObject.ResourceGroupName
-
-            if (!(Test-ArrayEmpty $ips))
-            {
-                Write-Information "`nPublic IP Addresses:"
-
-                $ips | ForEach-Object {
-                    Write-Host "> $($_.Name): $($_.IpAddress)"
-                }
-            }
         }
         catch [exception]
         {
             Write-Fail "`nFogg failed to deploy to Azure:"
             Write-Fail $_.Exception.Message
             throw
+        }
+    }
+
+    # attempt to output any public IP addresses
+    Write-Information "`nPublic IP Addresses:"
+
+    foreach ($FoggObject in $FoggObjects.Groups)
+    {
+        $ips = Get-FoggPublicIpAddresses $FoggObject.ResourceGroupName
+
+        if (!(Test-ArrayEmpty $ips))
+        {
+            $ips | ForEach-Object {
+                Write-Host "> $($_.Name): $($_.IpAddress)"
+            }
         }
     }
 }
@@ -353,3 +362,67 @@ finally
     Write-Duration $timer -PreText 'Total Duration' -NewLine
 }
 
+
+# if we don't care about the resultant object, just return
+if ($NoOutput)
+{
+    return
+}
+
+
+# re-loop through each group, constructing result object to return
+$result = @{}
+
+foreach ($FoggObject in $FoggObjects.Groups)
+{
+    # check if resource group already exists in result
+    if (!$result.ContainsKey($FoggObject.ResourceGroupName))
+    {
+        $result.Add($FoggObject.ResourceGroupName, @{})
+    }
+
+    $rg = $result[$FoggObject.ResourceGroupName]
+
+    # set location info
+    $rg.Location = $FoggObject.Location
+
+    # set vnet info
+    $rg.VirtualNetwork = @{
+        'Name' = $FoggObject.VNetName;
+        'ResourceGroupName' = $FoggObject.VNetResourceGroupName;
+        'Address' = $FoggObject.VNetAddress;
+    }
+
+    # set storage account info
+    $rg.StorageAccount = @{
+        'Name' = $FoggObject.StorageAccountName;
+    }
+
+    # set vm info
+    if ($rg.VirtualMachineInfo -eq $null)
+    {
+        $rg.VirtualMachineInfo = @{}
+    }
+
+    $info = @{}
+    $FoggObject.VirtualMachineInfo.GetEnumerator() | 
+        Where-Object { !$rg.VirtualMachineInfo.ContainsKey($_.Name) } |
+        ForEach-Object { $info.Add($_.Name, $_.Value) }
+
+    $rg.VirtualMachineInfo += $info
+
+    # set vpn info
+    if ($rg.VPNInfo -eq $null)
+    {
+        $rg.VPNInfo = @{}
+    }
+
+    $info = @{}
+    $FoggObject.VPNInfo.GetEnumerator() | 
+        Where-Object { !$rg.VPNInfo.ContainsKey($_.Name) } |
+        ForEach-Object { $info.Add($_.Name, $_.Value) }
+
+    $rg.VPNInfo += $info
+}
+
+return $result

@@ -64,6 +64,19 @@ function Write-Fail
 }
 
 
+function Write-Warning
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Message
+    )
+
+    Write-Host $Message -ForegroundColor DarkRed
+}
+
+
 function Write-Duration
 {
     param (
@@ -173,6 +186,30 @@ function Test-ArrayEmpty
     return $true
 }
 
+function Test-ArrayIsUnique
+{
+    param (
+        $Values
+    )
+
+    if (Test-Empty $Values)
+    {
+        return $null
+    }
+
+    $dupe = $null
+
+    $Values | ForEach-Object {
+        $value = $_
+        if (($Values | Where-Object { $_ -ieq $value } | Measure-Object).Count -ne 1)
+        {
+            $dupe = $value
+        }
+    }
+
+    return $dupe
+}
+
 
 function Test-TemplateHasVMs
 {
@@ -237,7 +274,7 @@ function Test-VMCoresExceedMax
         }
 
         # store the VM size details to stop multiple calls
-        $details = Get-AzureRmVMSize -Location $group.Location
+        $details = Get-FoggVMSizeDetails $group.Location
 
         # loop through each template object - only including VM types
         foreach ($obj in $template.template)
@@ -274,7 +311,7 @@ function Test-VMCoresExceedMax
     $exceeded = $false
 
     $regions.Keys | ForEach-Object {
-        $azureTotal = (Get-AzureRmVMUsage -Location $_ | Where-Object { $_.Name.Value -ieq 'cores' })
+        $azureTotal = (Get-FoggVMUsageDetails -Location $_ | Where-Object { $_.Name.Value -ieq 'cores' })
         $azureCurrent = $azureTotal.CurrentValue
         $azureMax = $azureTotal.Limit
         $azureToBe = ($azureCurrent + $regions[$_])
@@ -309,8 +346,11 @@ function Test-Template
         $OS
     )
 
+    # split out the template objects
+    $templateObjs = $Template.template
+
     # get the count of template objects to create
-    $templateCount = ($Template | Measure-Object).Count
+    $templateCount = ($templateObjs | Measure-Object).Count
     if ($templateCount -eq 0)
     {
         throw 'No template section was found in Fogg Azure template file'
@@ -322,12 +362,27 @@ function Test-Template
         Test-TemplateVMOS -Tag 'global' -OS $OS
     }
 
+    # get pretag
+    $pretag = $FoggObject.PreTag
+    if (![string]::IsNullOrWhiteSpace($Template.pretag))
+    {
+        $pretag = $Template.pretag.ToLowerInvariant()
+    }
+
+    # ensure the storage account name is valid - but only if we have VMs
+    if (Test-TemplateHasVMs $templateObjs)
+    {
+        $usePremiumStorage = [bool]$Template.usePremiumStorage
+        $saName = Get-FoggStorageAccountName -BaseName $pretag -Premium:$usePremiumStorage
+        Test-FoggStorageAccountName $saName
+    }
+
     # flag variable helpers
     $alreadyHasVpn = $false
     $tagMap = @()
 
     # loop through each template object, verifying it
-    foreach ($obj in $Template)
+    foreach ($obj in $templateObjs)
     {
         # ensure each template has a tag, and a type
         $tag = $obj.tag
@@ -363,7 +418,7 @@ function Test-Template
         {
             'vm'
                 {
-                    Test-TemplateVM -VM $obj -FoggObject $FoggObject -OS $OS
+                    Test-TemplateVM -VM $obj -PreTag $pretag -FoggObject $FoggObject -OS $OS
                 }
 
             'vpn'
@@ -373,7 +428,7 @@ function Test-Template
                         throw "Cannot have 2 VPN template objects"
                     }
 
-                    Test-TemplateVPN -VPN $obj -FoggObject $FoggObject
+                    Test-TemplateVPN -VPN $obj -PreTag $pretag -FoggObject $FoggObject
                     $alreadyHasVpn = $true
                 }
 
@@ -393,6 +448,9 @@ function Test-TemplateVPN
     param (
         [Parameter(Mandatory=$true)]
         $VPN,
+
+        [Parameter(Mandatory=$true)]
+        $PreTag,
 
         [Parameter(Mandatory=$true)]
         $FoggObject
@@ -473,7 +531,7 @@ function Test-TemplateVPN
                     throw "VPN has no public certificate (.cer) path specified"
                 }
 
-                if (!(Test-Path $VPN.certPath))
+                if (!(Test-PathExists $VPN.certPath))
                 {
                     throw "VPN public certificate path does not exist: $($VPN.certPath)"
                 }
@@ -501,6 +559,9 @@ function Test-TemplateVM
         $VM,
 
         [Parameter(Mandatory=$true)]
+        $PreTag,
+
+        [Parameter(Mandatory=$true)]
         $FoggObject,
 
         $OS
@@ -508,6 +569,7 @@ function Test-TemplateVM
 
     # is there an OS section?
     $hasOS = ($OS -ne $null)
+    $mainOS = $OS
 
     # get tag
     $tag = $VM.tag.ToLowerInvariant()
@@ -522,6 +584,12 @@ function Test-TemplateVM
     if ($vm.count -eq $null -or $vm.count -le 0)
     {
         throw "VM count cannot be null, 0 or negative for $($tag): $($vm.count)"
+    }
+
+    # ensure that if append is true, off count is not supplied
+    if ($vm.append -and $vm.off -ne $null -and $vm.off -gt 0)
+    {
+        throw "VMs to turn off cannot be supplied if append property is true for $($tag)"
     }
 
     # ensure the off count is not negative or greater than VM count
@@ -544,38 +612,134 @@ function Test-TemplateVM
 
     if ($vm.count -gt 1 -and $useLoadBalancer -and (Test-Empty $vm.port))
     {
-        throw "A valid port value is required for the $($tag) VM template object for load balancing"
+        throw "A valid port value is required for the '$($tag)' VM template for load balancing"
     }
 
     # ensure that each VM has an OS setting if global OS does not exist
     if (!$hasOS -and $vm.os -eq $null)
     {
-        throw "VM $($tag) is missing OS settings section"
+        throw "The '$($tag)' VM template is missing the OS settings section"
     }
 
     if ($vm.os -ne $null)
     {
         Test-TemplateVMOS -Tag $tag -OS $vm.os
+        $mainOS = $vm.os
     }
+
+    # ensure the VM name is valid
+    $vmName = Get-FoggVMName -BaseName "$($PreTag)-$($tag)" -Index $vm.count
+    Test-FoggVMName -OSType $mainOS.type -Name $vmName
 
     # ensure that the provisioner keys exist
     if (!$FoggObject.HasProvisionScripts -and !(Test-ArrayEmpty $vm.provisioners))
     {
-        throw "VM $($tag) specifies provisioners, but there is not Provisioner section"
+        throw "The '$($tag)' VM template specifies provisioners, but there is no Provisioner section"
     }
 
     if ($FoggObject.HasProvisionScripts -and !(Test-ArrayEmpty $vm.provisioners))
     {
         $vm.provisioners | ForEach-Object {
-            if (!(Test-ProvisionerExists -FoggObject $FoggObject -ProvisionerName $_))
+            $key = ($_ -split '\:')[0]
+
+            if (Test-Empty $key)
             {
-                throw "Provisioner key not specified in Provisioners section for $($tag): $($_)"
+                throw "Provisioner key cannot be empty in '$($tag)' VM template"
+            }
+
+            if (!(Test-ProvisionerExists -FoggObject $FoggObject -ProvisionerName $key))
+            {
+                throw "Provisioner key not specified in Provisioners section for the '$($tag)' VM template: $($key)"
             }
         }
     }
 
     # ensure firewall rules are valid
     Test-FirewallRules -FirewallRules $vm.firewall
+
+    # if the VM has extra drives, ensure the section is valid and add the provisioner
+    if (!(Test-ArrayEmpty $vm.drives))
+    {
+        # ensure other values are correct
+        $vm.drives | ForEach-Object {
+            # ensure sizes are greater than 0
+            if ($_.size -eq $null -or $_.size -le 0)
+            {
+                throw "Drive '$($_.name)' in the $($tag) VM template must have a size greater than 0Gb"
+            }
+
+            # ensure LUNs are greater than 0
+            if ($_.lun -eq $null -or $_.lun -le 0)
+            {
+                throw "Drive '$($_.name)' in the $($tag) VM template must have a LUN greater than 0"
+            }
+
+            # ensure drives and letters aren't empty
+            if (Test-Empty $_.name)
+            {
+                throw "Drive '$($_.letter)' in the $($tag) VM template has no drive name supplied"
+            }
+
+            if (Test-Empty $_.letter)
+            {
+                throw "Drive '$($_.name)' in the $($tag) VM template has no drive letter supplied"
+            }
+
+            # ensure the drive letter is not one of the reserved ones
+            $reservedDrives = @('A', 'B', 'C', 'D', 'E', 'Z')
+            if ($reservedDrives -icontains $_.letter)
+            {
+                throw "Drive '$($_.name)' in the $($tag) VM template cannot use one of the following drive letters: $($reservedDrives -join ', ')"
+            }
+
+            if ($_.letter -inotmatch '^[a-z]{1}$')
+            {
+                throw "Drive '$($_.name)' in the $($tag) VM template must have a valid alpha drive letter"
+            }
+
+            # ensure the name is alphanumeric
+            if ($_.name -inotmatch '^[a-z0-9 ]+$')
+            {
+                throw "Drive '$($_.name)' in the $($tag) VM template must have a valid alphanumeric drive name"
+            }
+
+            # ensure caching value is correct
+            $cachings = @('ReadOnly', 'ReadWrite', 'None')
+            if (![string]::IsNullOrWhiteSpace($_.caching) -and $cachings -inotcontains $_.caching)
+            {
+                throw "Drive '$($_.name)' in the $($tag) VM template has an invalid caching option '$($_.caching)', valid values: $($cachings -join ', ')"
+            }
+        }
+
+        # ensure the LUNs are unique
+        $dupe = Test-ArrayIsUnique $vm.drives.lun
+        if ($dupe -ne $null)
+        {
+            throw "Drive LUNs need to be unique, found two drives with LUN '$($dupe)' for the $($tag) VM template"
+        }
+
+        # ensure the name are unique
+        $dupe = Test-ArrayIsUnique $vm.drives.name
+        if ($dupe -ne $null)
+        {
+            throw "Drive names need to be unique, found two drives with name '$($dupe)' for the $($tag) VM template"
+        }
+
+        # ensure the letters are unique
+        $dupe = Test-ArrayIsUnique $vm.drives.letter
+        if ($dupe -ne $null)
+        {
+            throw "Drive letters need to be unique, found two drives with letter '$($dupe)' for the $($tag) VM template"
+        }
+
+        # get the drive names
+        $drives = $vm.drives.name -join ','
+        $letters = $vm.drives.letter -join ','
+
+        # add provisioner
+        $scriptPath = Get-ProvisionerInternalPath -FoggObject $FoggObject -Type 'drives' -ScriptName 'attach-drives' -OS 'win'
+        Add-Provisioner -FoggObject $FoggObject -Key 'attach-drives' -Type 'drives' -ScriptPath $scriptPath -Arguments "$($letters) | $($drives)"
+    }
 }
 
 
@@ -743,6 +907,7 @@ function Test-ProvisionerExists
         $FoggObject,
 
         [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
         $ProvisionerName
     )
 
@@ -750,6 +915,8 @@ function Test-ProvisionerExists
     {
         return $false
     }
+
+    $ProvisionerName = $ProvisionerName.Trim()
 
     $dsc = $FoggObject.ProvisionMap['dsc'].ContainsKey($ProvisionerName)
     $custom =  $FoggObject.ProvisionMap['custom'].ContainsKey($ProvisionerName)
@@ -765,11 +932,6 @@ function Test-Provisioners
         [Parameter(Mandatory=$true)]
         $FoggObject,
 
-        [Parameter(Mandatory=$true)]
-        [ValidateNotNullOrEmpty()]
-        [string]
-        $FoggProvisionersPath,
-
         $Paths
     )
 
@@ -778,14 +940,6 @@ function Test-Provisioners
     {
         $FoggObject.HasProvisionScripts = $false
         return
-    }
-
-    $FoggObject.HasProvisionScripts = $true
-
-    # ensure the root path exists
-    if (!(Test-PathExists $FoggProvisionersPath))
-    {
-        throw "Fogg root path for internal provisioners does not exist: $($FoggProvisionersPath)"
     }
 
     # convert the JSON map into a POSH map
@@ -838,69 +992,142 @@ function Test-Provisioners
                     $os = $Matches['os']
                 }
 
-                if (![string]::IsNullOrWhiteSpace($os))
-                {
-                    $os = $os.ToLowerInvariant()
-                }
-
-                # ensure the script exists internally
-                switch ($os)
-                {
-                    'win'
-                        {
-                            $scriptPath = Join-Path (Join-Path $FoggProvisionersPath $type) "$($name).ps1"
-                        }
-
-                    'unix'
-                        {
-                            $scriptPath = Join-Path (Join-Path $FoggProvisionersPath $type) "$($name).sh"
-                        }
-
-                    default
-                        {
-                            $scriptPath = Join-Path (Join-Path $FoggProvisionersPath $type) "$($name).ps1"
-                        }
-                }
+                # get the internal path
+                $scriptPath = Get-ProvisionerInternalPath -FoggObject $FoggObject -Type $type -ScriptName $name -OS $os
             }
             else
             {
                 # it's a custom script
-                $scriptPath = Resolve-Path (Join-Path $FoggObject.TemplateParent $value)
-            }
-
-            # ensure the provisioner script path exists
-            if (!(Test-PathExists $scriptPath))
-            {
-                throw "Provision script for $($type) does not exist: $($scriptPath)"
+                $scriptPath = Resolve-Path (Join-Path $FoggObject.TemplateParent $value) -ErrorAction Ignore
             }
 
             # add to internal list of provisioners for later
-            if (!$FoggObject.ProvisionMap[$type].ContainsKey($_))
+            if ($isChoco)
             {
-                if ($isChoco)
-                {
-                    $FoggObject.ProvisionMap[$type].Add($_, @($scriptPath, $value))
-                }
-                else
-                {
-                    $FoggObject.ProvisionMap[$type].Add($_, $scriptPath)
-                }
+                Add-Provisioner -FoggObject $FoggObject -Key $_ -Type $type -ScriptPath $scriptPath -Arguments $value
             }
             else
             {
-                if ($isChoco)
-                {
-                    $FoggObject.ProvisionMap[$type][$_] = @($scriptPath, $value)
-                }
-                else
-                {
-                    $FoggObject.ProvisionMap[$type][$_] = $scriptPath
-                }
+                Add-Provisioner -FoggObject $FoggObject -Key $_ -Type $type -ScriptPath $scriptPath
             }
         }
         else
         {
             throw "Provisioner value is not in the correct format of '<type>: <value>': $($value)"
+        }
+    }
+}
+
+
+function Get-ProvisionerInternalPath
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        $FoggObject,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Type,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $ScriptName,
+
+        [string]
+        $OS = 'win'
+    )
+
+    # ensure the root path exists
+    if (!(Test-PathExists $FoggObject.ProvisionersPath))
+    {
+        throw "Fogg root path for internal provisioners does not exist: $($FoggObject.ProvisionersPath)"
+    }
+
+    # ensure OS type is lowercase
+    if (![string]::IsNullOrWhiteSpace($OS))
+    {
+        $OS = $OS.ToLowerInvariant()
+    }
+
+    # generate internal script path
+    switch ($OS)
+    {
+        'win'
+            {
+                $scriptPath = Join-Path (Join-Path $FoggObject.ProvisionersPath $Type) "$($ScriptName).ps1"
+            }
+
+        'unix'
+            {
+                $scriptPath = Join-Path (Join-Path $FoggObject.ProvisionersPath $Type) "$($ScriptName).sh"
+            }
+
+        default
+            {
+                $scriptPath = Join-Path (Join-Path $FoggObject.ProvisionersPath $Type) "$($ScriptName).ps1"
+            }
+    }
+
+    return $scriptPath
+}
+
+
+function Add-Provisioner
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        $FoggObject,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Key,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Type,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $ScriptPath,
+
+        [string]
+        $Arguments = $null
+    )
+
+    # ensure the provisioner script path exists
+    if (!(Test-PathExists $ScriptPath))
+    {
+        throw "Provision script for $($Key) does not exist: $($ScriptPath)"
+    }
+
+    $FoggObject.HasProvisionScripts = $true
+
+    # add provisioner to internal map
+    if (!$FoggObject.ProvisionMap[$Type].ContainsKey($Key))
+    {
+        if ($Arguments -eq $null)
+        {
+            $FoggObject.ProvisionMap[$Type].Add($Key, @($ScriptPath))
+        }
+        else
+        {
+            $FoggObject.ProvisionMap[$Type].Add($Key, @($ScriptPath, $Arguments))
+        }
+    }
+    else
+    {
+        if ($Arguments -eq $null)
+        {
+            $FoggObject.ProvisionMap[$Type][$Key] = @($ScriptPath)
+        }
+        else
+        {
+            $FoggObject.ProvisionMap[$Type][$Key] = @($ScriptPath, $Arguments)
         }
     }
 }
@@ -1100,22 +1327,22 @@ function New-FoggObject
     # are we needing to use a Foggfile? (either path passed, or all params empty)
     if (!(Test-Empty $FoggfilePath))
     {
-        $FoggfilePath = (Resolve-Path $FoggfilePath)
-
-        if (!(Test-Path $FoggfilePath))
+        $path = (Resolve-Path $FoggfilePath -ErrorAction Ignore)
+        if (!(Test-PathExists $FoggfilePath))
         {
             throw "Path to Foggfile does not exist: $($FoggfilePath)"
         }
 
-        if ((Get-Item $FoggfilePath) -is [System.IO.DirectoryInfo])
+        if ((Get-Item $path) -is [System.IO.DirectoryInfo])
         {
-            $FoggfilePath = Join-Path $FoggfilePath 'Foggfile'
-            if (!(Test-Path $FoggfilePath))
+            $path = Join-Path $path 'Foggfile'
+            if (!(Test-PathExists $path))
             {
-                throw "Path to Foggfile does not exist: $($FoggfilePath)"
+                throw "Path to Foggfile does not exist: $($path)"
             }
         }
 
+        $FoggfilePath = $path
         $useFoggfile = $true
     }
 
@@ -1133,12 +1360,12 @@ function New-FoggObject
 
     if (!$useFoggfile -and (Test-ArrayEmpty $foggParams))
     {
-        if (!(Test-Path 'Foggfile'))
+        if (!(Test-PathExists 'Foggfile'))
         {
             throw 'No Foggfile found in current directory'
         }
 
-        $FoggfilePath = (Resolve-Path '.\Foggfile')
+        $FoggfilePath = (Resolve-Path '.\Foggfile' -ErrorAction Ignore)
         $useFoggfile = $true
     }
 
@@ -1148,8 +1375,10 @@ function New-FoggObject
     $props.SubscriptionName = $SubscriptionName
     $props.SubscriptionCredentials = $SubscriptionCredentials
     $props.VMCredentials = $VMCredentials
-    $props.FoggProvisionersPath = Join-Path $FoggRootPath 'Provisioners'
     $foggObj = New-Object -TypeName PSObject -Property $props
+
+    # general paths
+    $provisionPath = Join-Path $FoggRootPath 'Provisioners'
 
     # if we aren't using a Foggfile, set params directly
     if (!$useFoggfile)
@@ -1158,6 +1387,7 @@ function New-FoggObject
             -SubnetAddresses $SubnetAddresses -TemplatePath $TemplatePath -FoggfilePath $FoggfilePath `
             -VNetAddress $VNetAddress -VNetResourceGroupName $VNetResourceGroupName -VNetName $VNetName
 
+        $group.ProvisionersPath = $provisionPath
         $foggObj.Groups += $group
     }
 
@@ -1186,6 +1416,7 @@ function New-FoggObject
                 -VNetAddress $VNetAddress -VNetResourceGroupName $VNetResourceGroupName `
                 -VNetName $VNetName -FoggParameters $_
 
+            $group.ProvisionersPath = $provisionPath
             $foggObj.Groups += $group
         }
     }
@@ -1296,12 +1527,16 @@ function New-FoggGroupObject
     $group.TemplatePath = $TemplatePath
     $group.TemplateParent = (Split-Path -Parent -Path $TemplatePath)
     $group.HasProvisionScripts = $false
-    $group.ProvisionMap = @{'dsc' = @{}; 'custom' = @{}; 'choco' = @{}}
+    $group.ProvisionMap = @{'dsc' = @{}; 'custom' = @{}; 'choco' = @{}; 'drives' = @{}}
     $group.NsgMap = @{}
+    $group.ProvisionersPath = $null
+    $group.StorageAccountName = $null
+    $group.VirtualMachineInfo = @{}
+    $group.VPNInfo = @{}
 
     $groupObj = New-Object -TypeName PSObject -Property $group
 
-    # test the fogg parameters
+    # validate the fogg parameters
     Test-FoggObjectParameters $groupObj
 
     # post param alterations
@@ -1345,10 +1580,14 @@ function Test-FoggObjectParameters
     }
 
     # if the template path doesn't exist, fail
-    if (!(Test-Path $FoggObject.TemplatePath))
+    if (!(Test-PathExists $FoggObject.TemplatePath))
     {
         throw "Template path supplied does not exist: $($FoggObject.TemplatePath)"
     }
+
+    # validate resource group name lengths
+    Test-FoggResourceGroupName $FoggObject.ResourceGroupName
+    Test-FoggResourceGroupName $FoggObject.VNetResourceGroupName -Optional
 }
 
 
@@ -1385,7 +1624,19 @@ function New-DeployTemplateVM
     $tagname = "$($FoggObject.PreTag)-$($tag)"
     $usePublicIP = [bool]$VMTemplate.usePublicIP
     $subnetPrefix = $FoggObject.SubnetAddressMap[$tag]
-    $subnetId = ($VNet.Subnets | Where-Object { $_.Name -ieq "$($tagname)-snet" -or $_.AddressPrefix -ieq $subnetPrefix }).Id
+    $subnet = ($VNet.Subnets | Where-Object { $_.Name -ieq "$($tagname)-snet" -or $_.AddressPrefix -ieq $subnetPrefix })
+    
+    # VM information
+    $FoggObject.VirtualMachineInfo.Add($tag, @{})
+    $vmInfo = $FoggObject.VirtualMachineInfo[$tag]
+    $vmInfo.Add('Subnet', @{})
+    $vmInfo.Add('AvailabilitySet', $null)
+    $vmInfo.Add('LoadBalancer', @{})
+    $vmInfo.Add('VirtualMachines', @())
+
+    # set subnet details against VM info
+    $vmInfo.Subnet.Add('Name', $subnet.Name)
+    $vmInfo.Subnet.Add('AddressPrefix', $subnetPrefix)
 
     # are we using a load balancer and availability set?
     $useLoadBalancer = $true
@@ -1406,18 +1657,48 @@ function New-DeployTemplateVM
         $useLoadBalancer = $false
     }
 
-    Write-Information "Deploying VMs for $($tag)"
+    Write-Information "Deploying $($VMTemplate.count) VM(s) for the '$($tag)' template"
 
     # create an availability set and, if VM count > 1, a load balancer
     if ($useAvailabilitySet)
     {
-        $avset = New-FoggAvailabilitySet -FoggObject $FoggObject -Name "$($tagname)-as"
+        $avsetName = "$($tagname)-as"
+        $avset = New-FoggAvailabilitySet -FoggObject $FoggObject -Name $avsetName
+        $vmInfo.AvailabilitySet = $avsetName
     }
 
     if ($useLoadBalancer -and $VMTemplate.count -gt 1)
     {
-        $lb = New-FoggLoadBalancer -FoggObject $FoggObject -Name "$($tagname)-lb" -SubnetId $subnetId `
+        $lbName = "$($tagname)-lb"
+        $lb = New-FoggLoadBalancer -FoggObject $FoggObject -Name $lbName -SubnetId $subnet.Id `
             -Port $VMTemplate.port -PublicIP:$usePublicIP
+
+        $vmInfo.LoadBalancer.Add('Name', $lbName)
+        $vmInfo.LoadBalancer.Add('PublicIP', $lb.FrontendIpConfigurations[0].PublicIpAddress)
+        $vmInfo.LoadBalancer.Add('PrivateIP', $lb.FrontendIpConfigurations[0].PrivateIpAddress)
+        $vmInfo.LoadBalancer.Add('Port', $VMTemplate.port)
+    }
+
+    # work out the base index of the VM, if we're appending instead of creating
+    $baseIndex = 0
+
+    if ($VMTemplate.append)
+    {
+        # get list of all VMs
+        $rg_vms = Get-FoggVMs -ResourceGroupName $FoggObject.ResourceGroupName
+
+        # if no VMs returned, keep default base index as 0
+        if (!(Test-ArrayEmpty $rg_vms))
+        {
+            # filter on base VM name to get last VM deployed
+            $name = ($rg_vms | Where-Object { $_.Name -ilike "$($tagname)*" } | Select-Object -Last 1 -ExpandProperty Name)
+
+            # if name has a value at the end, take it as the base index
+            if ($name -imatch "^$($tagname)(\d+)")
+            {
+                $baseIndex = ([int]$Matches[1])
+            }
+        }
     }
 
     # create each of the VMs
@@ -1432,9 +1713,10 @@ function New-DeployTemplateVM
         }
 
         # create the VM
-        $_vms += (New-FoggVM -FoggObject $FoggObject -Name $tagname -VMIndex $_ -VMCredentials $VMCredentials `
-            -StorageAccount $StorageAccount -SubnetId $subnetId -VMSize $os.size -VMSkus $os.skus -VMOffer $os.offer `
-            -VMType $os.type -VMPublisher $os.publisher -AvailabilitySet $avset -PublicIP:$usePublicIP)
+        $vmname = Get-FoggVMName -BaseName $tagname -Index ($_ + $baseIndex)
+        $_vms += (New-FoggVM -FoggObject $FoggObject -BaseName $tagname -VMName $vmname -VMCredentials $VMCredentials `
+            -StorageAccount $StorageAccount -SubnetId $subnet.Id -VMSize $os.size -VMSkus $os.skus -VMOffer $os.offer `
+            -VMType $os.type -VMPublisher $os.publisher -AvailabilitySet $avset -Drives $VMTemplate.drives -PublicIP:$usePublicIP)
     }
 
     # loop through each VM and deploy it
@@ -1451,10 +1733,42 @@ function New-DeployTemplateVM
         Save-FoggVM -FoggObject $FoggObject -VM $_vm -LoadBalancer $lb
 
         # see if we need to provision the machine
-        Set-ProvisionVM -FoggObject $FoggObject -Provisioners $VMTemplate.provisioners -VMName $_vm.Name -StorageAccount $StorageAccount
+        if ($FoggObject.HasProvisionScripts)
+        {
+            $provs = $VMTemplate.provisioners
+            if (Test-ArrayEmpty $provs)
+            {
+                $provs = @()
+            }
+            
+            if (!(Test-ArrayEmpty $VMTemplate.drives))
+            {
+                $provs = @('attach-drives') + $provs
+            }
+
+            Set-ProvisionVM -FoggObject $FoggObject -Provisioners $provs -VMName $_vm.Name -StorageAccount $StorageAccount
+        }
 
         # due to a bug with the CustomScriptExtension, if we have any uninstall the extension
         Remove-FoggCustomScriptExtension -FoggObject $FoggObject -VMName $_vm.Name
+
+        # get VM's NIC
+        $nicId = Get-NameFromAzureId $_vm.NetworkProfile.NetworkInterfaces[0].Id
+        $nicIPs = (Get-FoggNetworkInterface -ResourceGroupName $FoggObject.ResourceGroupName -Name $nicId).IpConfigurations[0]
+
+        # get VM's public IP
+        if (!(Test-Empty $nicIPs.PublicIpAddress))
+        {
+            $pipId = Get-NameFromAzureId $nicIPs.PublicIpAddress[0].Id
+            $pipIP = (Get-FoggPublicIpAddress -ResourceGroupName $FoggObject.ResourceGroupName -Name $pipId).IpAddress
+        }
+
+        # save VM info details
+        $vmInfo.VirtualMachines += @{
+            'Name' = $_vm.Name;
+            'PrivateIP' = $nicIPs.PrivateIpAddress;
+            'PublicIP' = $pipIP;
+        }
 
         # output the time taken to create VM
         Write-Duration $startTime -PreText 'VM Duration'
@@ -1468,7 +1782,7 @@ function New-DeployTemplateVM
         $base = ($count - $VMTemplate.off) + 1
 
         $count..$base | ForEach-Object {
-            Stop-FoggVM -FoggObject $FoggObject -Name "$($tagname)$($_)"
+            Stop-FoggVM -FoggObject $FoggObject -Name "$($tagname)$($_)" -StayProvisioned
         }
     }
 }
@@ -1493,8 +1807,11 @@ function New-DeployTemplateVPN
     $startTime = [DateTime]::UtcNow
     $tag = $VPNTemplate.tag.ToLowerInvariant()
     $tagname = "$($FoggObject.PreTag)-$($tag)"
+    
+    # VPN information
+    $FoggObject.VPNInfo.Add($tag, @{})
 
-    Write-Information "Deploying VPN for $($tag)"
+    Write-Information "Deploying VPN for '$($tag)' template"
 
     switch ($VPNTemplate.configType.ToLowerInvariant())
     {
@@ -1522,10 +1839,13 @@ function New-DeployTemplateVPN
                 # get required IP addresses
                 $clientPool = $FoggObject.SubnetAddressMap["$($tag)-cap"]
 
+                # resolve the cert path
+                $certPath = Resolve-Path -Path $VPNTemplate.certPath -ErrorAction Ignore
+
                 # create public vnet gateway
                 New-FoggVirtualNetworkGateway -FoggObject $FoggObject -Name "$($tagname)-gw" -VNet $VNet `
                     -VpnType $VPNTemplate.vpnType -GatewaySku $VPNTemplate.gatewaySku -ClientAddressPool $clientPool `
-                    -PublicCertificatePath $VPNTemplate.certPath | Out-Null
+                    -PublicCertificatePath $certPath | Out-Null
             }
     }
 
