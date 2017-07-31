@@ -32,6 +32,13 @@ $arr | ForEach-Object {
         {
             choco install "$($name)" --version "$($version)" -y
         }
+
+        # check the last exit code returned
+        $lexc = $LASTEXITCODE
+        if ($lexc -ne 0)
+        {
+            throw "Failed to install $($value), last exit code: $($lexc)"
+        }
     }
     else
     {

@@ -1,15 +1,10 @@
 {
-    "pretag": "choco",
+    "pretag": "basic",
     "template": [
         {
             "tag": "vm",
             "type": "vm",
             "count": 1,
-            "provisioners": [
-                "remoting",
-                "choco",
-                "other"
-            ],
             "usePublicIP": true,
             "os": {
                 "size": "Standard_DS1_v2",
@@ -20,11 +15,6 @@
             }
         }
     ],
-    "provisioners": {
-        "remoting": "dsc: @{remoting}",
-        "choco": "choco: 7zip.install, visualstudiocode",
-        "other": "choco: notepadplusplus.install"
-    },
     "firewall": {
         "rdp": true
     }

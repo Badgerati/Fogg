@@ -1,0 +1,16 @@
+{
+    "SubscriptionName": "<SUB_NAME_HERE>",
+    "Groups": [
+        {
+            "ResourceGroupName": "vpn-s2s-rg",
+            "Location": "westeurope",
+            "TemplatePath": ".\\template.json",
+            "VNetAddress": "10.4.0.0/16",
+            "SubnetAddresses": {
+                "vpn": "10.4.0.0/27",
+                "vpn-gip": "23.99.221.164",
+                "vpn-opm": "11.4.0.0/24"
+            }
+        }
+    ]
+}

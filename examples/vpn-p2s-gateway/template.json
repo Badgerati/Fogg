@@ -1,0 +1,12 @@
+{
+    "template": [
+        {
+            "tag": "vpn",
+            "type": "vpn",
+            "configType": "p2s",
+            "vpnType": "RouteBased",
+            "gatewaySku": "Standard",
+            "certPath": "C:\\YouPublicCert.cer"
+        }
+    ]
+}
