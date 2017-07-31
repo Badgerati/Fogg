@@ -738,7 +738,7 @@ function Test-TemplateVM
 
         # add provisioner
         $scriptPath = Get-ProvisionerInternalPath -FoggObject $FoggObject -Type 'drives' -ScriptName 'attach-drives' -OS 'win'
-        Add-Provisioner -FoggObject $FoggObject -Key 'drives' -Type 'drives' -ScriptPath $scriptPath -Arguments "$($letters) | $($drives)"
+        Add-Provisioner -FoggObject $FoggObject -Key 'attach-drives' -Type 'drives' -ScriptPath $scriptPath -Arguments "$($letters) | $($drives)"
     }
 }
 
@@ -1112,7 +1112,7 @@ function Add-Provisioner
     {
         if ($Arguments -eq $null)
         {
-            $FoggObject.ProvisionMap[$Type].Add($Key, $ScriptPath)
+            $FoggObject.ProvisionMap[$Type].Add($Key, @($ScriptPath))
         }
         else
         {
@@ -1123,7 +1123,7 @@ function Add-Provisioner
     {
         if ($Arguments -eq $null)
         {
-            $FoggObject.ProvisionMap[$Type][$Key] = $ScriptPath
+            $FoggObject.ProvisionMap[$Type][$Key] = @($ScriptPath)
         }
         else
         {
@@ -1743,7 +1743,7 @@ function New-DeployTemplateVM
             
             if (!(Test-ArrayEmpty $VMTemplate.drives))
             {
-                $provs = @('drives') + $provs
+                $provs = @('attach-drives') + $provs
             }
 
             Set-ProvisionVM -FoggObject $FoggObject -Provisioners $provs -VMName $_vm.Name -StorageAccount $StorageAccount

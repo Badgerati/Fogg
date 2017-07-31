@@ -267,7 +267,8 @@ function Publish-ProvisionerScripts
     if (!(Test-Empty $FoggObject.ProvisionMap['dsc']))
     {
         $FoggObject.ProvisionMap['dsc'].Values | ForEach-Object {
-            Publish-FoggDscScript -FoggObject $FoggObject -StorageAccount $StorageAccount -ScriptPath $_
+            $script = ($_ | Select-Object -First 1)
+            Publish-FoggDscScript -FoggObject $FoggObject -StorageAccount $StorageAccount -ScriptPath $script
         }
     }
 
@@ -277,7 +278,8 @@ function Publish-ProvisionerScripts
         $container = New-FoggStorageContainer -FoggObject $FoggObject -StorageAccount $StorageAccount -Name 'provs-custom'
 
         $FoggObject.ProvisionMap['custom'].Values | ForEach-Object {
-            Publish-FoggCustomScript -FoggObject $FoggObject -StorageAccount $StorageAccount -Container $container -ScriptPath $_
+            $script = ($_ | Select-Object -First 1)
+            Publish-FoggCustomScript -FoggObject $FoggObject -StorageAccount $StorageAccount -Container $container -ScriptPath $script
         }
     }
 
@@ -417,14 +419,14 @@ function Set-ProvisionVM
         if ($map['dsc'].ContainsKey($key))
         {
             Set-FoggDscConfig -FoggObject $FoggObject -VMName $VMName -StorageAccount $StorageAccount `
-                -ScriptPath $map['dsc'][$key]
+                -ScriptPath $map['dsc'][$key][0]
         }
 
         # Custom
         elseif ($map['custom'].ContainsKey($key))
         {
             Set-FoggCustomConfig -FoggObject $FoggObject -VMName $VMName -StorageAccount $StorageAccount `
-                -ContainerName 'provs-custom' -ScriptPath $map['custom'][$key] -Arguments $_args
+                -ContainerName 'provs-custom' -ScriptPath $map['custom'][$key][0] -Arguments $_args
         }
 
         # Chocolatey
@@ -2380,7 +2382,6 @@ function Add-FoggDataDisk
         [ValidateNotNull()]
         $StorageAccount,
 
-        [Parameter(Mandatory=$true)]
         $Drives
     )
 
