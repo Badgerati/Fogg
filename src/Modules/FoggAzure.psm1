@@ -100,6 +100,8 @@ function Get-FoggResourceGroup
         $Location
     )
 
+    $ResourceGroupName = (Get-FoggResourceGroupName $ResourceGroupName)
+
     try
     {
         $rg = Get-AzureRmResourceGroup -Name $ResourceGroupName -Location $Location
@@ -215,7 +217,7 @@ function New-FoggStorageAccount
         $StorageType = 'Premium_LRS'
     }
 
-    $Name = Get-FoggStorageAccountName -BaseName $FoggObject.PreTag -Premium:$Premium
+    $Name = Get-FoggStorageAccountName -BaseName "$($FoggObject.SAUniqueTag)-$($FoggObject.PreTag)" -Premium:$Premium
 
     Write-Information "Creating storage account $($Name) in resource group $($FoggObject.ResourceGroupName)"
 
@@ -1098,8 +1100,8 @@ function Get-FoggNetworkSecurityGroup
         $Name
     )
 
-    $ResourceGroupName = $ResourceGroupName.ToLowerInvariant()
-    $Name = $Name.ToLowerInvariant()
+    $ResourceGroupName = (Get-FoggResourceGroupName $ResourceGroupName)
+    $Name = (Get-FoggNetworkSecurityGroupName $Name)
 
     try
     {
@@ -1140,12 +1142,12 @@ function New-FoggNetworkSecurityGroup
         $Rules
     )
 
-    $Name = $Name.ToLowerInvariant()
+    $Name = (Get-FoggNetworkSecurityGroupName $Name)
 
     Write-Information "Creating Network Security Group $($Name) in $($FoggObject.ResourceGroupName)"
 
     # check to see if the NSG already exists, if so use that one
-    $nsg = Get-FoggNetworkSecurityGroup -ResourceGroupName $FoggObject.ResourceGroupName -Name $name
+    $nsg = Get-FoggNetworkSecurityGroup -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name
     if ($nsg -ne $null)
     {
         Write-Notice "Using existing network security group for $($Name)`n"
@@ -1191,8 +1193,8 @@ function Get-FoggVirtualNetwork
         $Name
     )
 
-    $ResourceGroupName = $ResourceGroupName.ToLowerInvariant()
-    $Name = $Name.ToLowerInvariant()
+    $ResourceGroupName = (Get-FoggResourceGroupName $ResourceGroupName)
+    $Name = (Get-FoggVirtualNetworkName $Name)
 
     try
     {
@@ -1226,7 +1228,7 @@ function New-FoggVirtualNetwork
         $FoggObject
     )
 
-    $Name = "$($FoggObject.PreTag)-vnet"
+    $Name = (Get-FoggVirtualNetworkName $FoggObject.PreTag)
 
     Write-Information "Creating virtual network $($Name) in $($FoggObject.ResourceGroupName)"
 
@@ -1298,8 +1300,9 @@ function Add-FoggSubnetToVNet
         $NetworkSecurityGroup = $null
     )
 
-    $rg = $VNet.ResourceGroupName
-    $name = $VNet.Name
+    $rg = (Get-FoggResourceGroupName $VNet.ResourceGroupName)
+    $name = (Get-FoggVirtualNetworkName $VNet.Name)
+    $SubnetName = (Get-FoggSubnetName $SubnetName)
 
     Write-Information "Adding subnet $($SubnetName) to Virtual Network $($name)"
 
@@ -1681,8 +1684,8 @@ function Get-FoggAvailabilitySet
         $Name
     )
 
-    $ResourceGroupName = $ResourceGroupName.ToLowerInvariant()
-    $Name = $Name.ToLowerInvariant()
+    $ResourceGroupName = (Get-FoggResourceGroupName $ResourceGroupName)
+    $Name = (Get-FoggAvailabilitySetName $Name)
 
     try
     {
@@ -1721,7 +1724,7 @@ function New-FoggAvailabilitySet
         $Name
     )
 
-    $Name = $Name.ToLowerInvariant()
+    $Name = (Get-FoggAvailabilitySetName $Name)
 
     Write-Information "Creating availability set $($Name) in $($FoggObject.ResourceGroupName)"
 
@@ -1759,8 +1762,8 @@ function Get-FoggLoadBalancer
         $Name
     )
 
-    $ResourceGroupName = $ResourceGroupName.ToLowerInvariant()
-    $Name = $Name.ToLowerInvariant()
+    $ResourceGroupName = (Get-FoggResourceGroupName $ResourceGroupName)
+    $Name = (Get-FoggLoadBalancerName $Name)
 
     try
     {
@@ -1809,7 +1812,7 @@ function New-FoggLoadBalancer
         $PublicIP
     )
 
-    $Name = $Name.ToLowerInvariant()
+    $Name = (Get-FoggLoadBalancerName $Name)
 
     Write-Information "Creating load balancer $($Name) in $($FoggObject.ResourceGroupName)"
 
@@ -1886,7 +1889,7 @@ function New-FoggLoadBalancer
 }
 
 
-function Get-FoggVMName
+function Get-FoggVMIndexName
 {
     param (
         [Parameter(Mandatory=$true)]
@@ -2489,7 +2492,7 @@ function Get-FoggNetworkInterface
         $Name
     )
 
-    $ResourceGroupName = $ResourceGroupName.ToLowerInvariant()
+    $ResourceGroupName = (Get-FoggResourceGroupName $ResourceGroupName)
     $Name = $Name.ToLowerInvariant()
 
     try
@@ -2637,7 +2640,7 @@ function Get-FoggPublicIpAddresses
         $ResourceGroupName
     )
 
-    $ResourceGroupName = $ResourceGroupName.ToLowerInvariant()
+    $ResourceGroupName = (Get-FoggResourceGroupName $ResourceGroupName)
 
     try
     {
@@ -2674,11 +2677,14 @@ function Get-FoggPublicIpAddress
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
         [string]
-        $Name
+        $Name,
+
+        [switch]
+        $Legacy
     )
 
-    $ResourceGroupName = $ResourceGroupName.ToLowerInvariant()
-    $Name = $Name.ToLowerInvariant()
+    $ResourceGroupName = (Get-FoggResourceGroupName $ResourceGroupName)
+    $Name = (Get-FoggPublicIpName $Name -Legacy:$Legacy)
 
     try
     {
@@ -2700,12 +2706,10 @@ function Get-FoggPublicIpAddress
         }
     }
 
-    # TODO: Remove backwards compatibility
     if ($pip -eq $null -and $Name -ilike '*-pip')
     {
-        $backwards = $Name -ireplace '-pip', '-ip'
-        Write-Notice "Could not find public IP $($Name), attempting back compatibility for: $($backwards)"
-        return (Get-FoggPublicIpAddress -ResourceGroupName $ResourceGroupName -Name $backwards)
+        Write-Notice "Could not find public IP $($Name), attempting backwards compatibility"
+        return (Get-FoggPublicIpAddress -ResourceGroupName $ResourceGroupName -Name ($Name -ireplace '-pip', '') -Legacy)
     }
 
     return $pip
@@ -2730,7 +2734,7 @@ function New-FoggPublicIpAddress
         $AllocationMethod
     )
 
-    $Name = "$($Name.ToLowerInvariant())-pip"
+    $Name = (Get-FoggPublicIpName $Name)
 
     Write-Information "Creating Public IP Address $($Name)"
 

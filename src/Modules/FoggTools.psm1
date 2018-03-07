@@ -369,11 +369,18 @@ function Test-Template
         $pretag = $Template.pretag.ToLowerInvariant()
     }
 
+    # get unique storage tag
+    $saUniqueTag = $FoggObject.SAUniqueTag
+    if (![string]::IsNullOrWhiteSpace($Template.saUniqueTag))
+    {
+        $saUniqueTag = $Template.saUniqueTag.ToLowerInvariant()
+    }
+
     # ensure the storage account name is valid - but only if we have VMs
     if (Test-TemplateHasVMs $templateObjs)
     {
         $usePremiumStorage = [bool]$Template.usePremiumStorage
-        $saName = Get-FoggStorageAccountName -BaseName $pretag -Premium:$usePremiumStorage
+        $saName = Get-FoggStorageAccountName -BaseName "$($saUniqueTag)-$($pretag)" -Premium:$usePremiumStorage
         Test-FoggStorageAccountName $saName
     }
 
@@ -628,7 +635,7 @@ function Test-TemplateVM
     }
 
     # ensure the VM name is valid
-    $vmName = Get-FoggVMName -BaseName "$($PreTag)-$($tag)" -Index $vm.count
+    $vmName = Get-FoggVMIndexName -BaseName "$($PreTag)-$($tag)" -Index $vm.count
     Test-FoggVMName -OSType $mainOS.type -Name $vmName
 
     # ensure that the provisioner keys exist
@@ -1514,10 +1521,16 @@ function New-FoggGroupObject
         }
     }
 
+    # standardise
+    $ResourceGroupName = (Get-FoggResourceGroupName $ResourceGroupName)
+    $VNetResourceGroupName = (Get-FoggResourceGroupName $VNetResourceGroupName)
+    $VNetName = (Get-FoggVirtualNetworkName $VNetName)
+
     # create fogg object with params
     $group = @{}
     $group.ResourceGroupName = $ResourceGroupName
     $group.PreTag = (Remove-RGTag $ResourceGroupName)
+    $group.SAUniqueTag = [string]::Empty
     $group.Location = $Location
     $group.VNetAddress = $VNetAddress
     $group.VNetResourceGroupName = $VNetResourceGroupName
@@ -1540,7 +1553,7 @@ function New-FoggGroupObject
     Test-FoggObjectParameters $groupObj
 
     # post param alterations
-    $groupObj.ResourceGroupName = $groupObj.ResourceGroupName.ToLowerInvariant()
+    $groupObj.ResourceGroupName = $groupObj.ResourceGroupName
     $groupObj.PreTag = $groupObj.PreTag.ToLowerInvariant()
 
     # return object
@@ -1624,8 +1637,9 @@ function New-DeployTemplateVM
     $tagname = "$($FoggObject.PreTag)-$($tag)"
     $usePublicIP = [bool]$VMTemplate.usePublicIP
     $subnetPrefix = $FoggObject.SubnetAddressMap[$tag]
-    $subnet = ($VNet.Subnets | Where-Object { $_.Name -ieq "$($tagname)-snet" -or $_.AddressPrefix -ieq $subnetPrefix })
-    
+    $subnetName = (Get-FoggSubnetName $tagname)
+    $subnet = ($VNet.Subnets | Where-Object { $_.Name -ieq $subnetName -or $_.AddressPrefix -ieq $subnetPrefix })
+
     # VM information
     $FoggObject.VirtualMachineInfo.Add($tag, @{})
     $vmInfo = $FoggObject.VirtualMachineInfo[$tag]
@@ -1662,14 +1676,14 @@ function New-DeployTemplateVM
     # create an availability set and, if VM count > 1, a load balancer
     if ($useAvailabilitySet)
     {
-        $avsetName = "$($tagname)-as"
+        $avsetName = (Get-FoggAvailabilitySetName $tagname)
         $avset = New-FoggAvailabilitySet -FoggObject $FoggObject -Name $avsetName
         $vmInfo.AvailabilitySet = $avsetName
     }
 
     if ($useLoadBalancer -and $VMTemplate.count -gt 1)
     {
-        $lbName = "$($tagname)-lb"
+        $lbName = (Get-FoggLoadBalancerName $tagname)
         $lb = New-FoggLoadBalancer -FoggObject $FoggObject -Name $lbName -SubnetId $subnet.Id `
             -Port $VMTemplate.port -PublicIP:$usePublicIP
 
@@ -1713,7 +1727,7 @@ function New-DeployTemplateVM
         }
 
         # create the VM
-        $vmname = Get-FoggVMName -BaseName $tagname -Index ($_ + $baseIndex)
+        $vmname = Get-FoggVMIndexName -BaseName $tagname -Index ($_ + $baseIndex)
         $_vms += (New-FoggVM -FoggObject $FoggObject -BaseName $tagname -VMName $vmname -VMCredentials $VMCredentials `
             -StorageAccount $StorageAccount -SubnetId $subnet.Id -VMSize $os.size -VMSkus $os.skus -VMOffer $os.offer `
             -VMType $os.type -VMPublisher $os.publisher -AvailabilitySet $avset -Drives $VMTemplate.drives -PublicIP:$usePublicIP)

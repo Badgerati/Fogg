@@ -72,38 +72,50 @@
 #>
 param (
     [string]
+    [Alias('rgn')]
     $ResourceGroupName,
 
     [string]
+    [Alias('loc')]
     $Location,
 
     [string]
+    [Alias('sub')]
     $SubscriptionName,
 
+    [Alias('subaddr')]
     $SubnetAddresses,
 
     [string]
+    [Alias('tp')]
     $TemplatePath,
 
     [string]
+    [Alias('fp')]
     $FoggfilePath,
 
     [pscredential]
+    [Alias('screds')]
     $SubscriptionCredentials,
 
     [pscredential]
+    [Alias('vmcreds')]
     $VMCredentials,
 
     [string]
+    [Alias('vaddr')]
     $VNetAddress,
 
     [string]
+    [Alias('vrgn')]
     $VNetResourceGroupName,
 
     [string]
+    [Alias('vn')]
     $VNetName,
 
     [switch]
+    [Alias('v')]
     $Version,
 
     [switch]
@@ -113,6 +125,7 @@ param (
     $IgnoreCores,
 
     [switch]
+    [Alias('no')]
     $NoOutput
 )
 
@@ -124,6 +137,7 @@ $WarningPreference = 'Ignore'
 # Import the FoggTools
 $root = Split-Path -Parent -Path $MyInvocation.MyCommand.Path
 Import-Module "$($root)\Modules\FoggTools.psm1" -ErrorAction Stop
+Import-Module "$($root)\Modules\FoggNames.psm1" -ErrorAction Stop
 Import-Module "$($root)\Modules\FoggAzure.psm1" -ErrorAction Stop
 
 
@@ -236,6 +250,12 @@ try
             $FoggObject.PreTag = $template.pretag.ToLowerInvariant()
         }
 
+        # If we have a unique storage account name on the template, set against this FoggObject
+        if (![string]::IsNullOrWhiteSpace($template.saUniqueTag))
+        {
+            $FoggObject.SAUniqueTag = $template.saUniqueTag.ToLowerInvariant()
+        }
+
 
         # If we're using an existng virtual network, ensure it actually exists
         if ($FoggObject.UseExistingVNet)
@@ -288,7 +308,6 @@ try
             {
                 $tag = $vm.tag.ToLowerInvariant()
                 $tagname = "$($FoggObject.PreTag)-$($tag)"
-                $snetname = "$($tagname)-snet"
                 $subnet = $FoggObject.SubnetAddressMap[$tag]
 
                 # Create network security group inbound/outbound rules
@@ -296,12 +315,11 @@ try
                 $rules = New-FirewallRules -Firewall $template.firewall -Subnets $FoggObject.SubnetAddressMap -CurrentTag $tag -Rules $rules
 
                 # Create network security group rules, and bind to VM
-                $nsg = New-FoggNetworkSecurityGroup -FoggObject $FoggObject -Name "$($tagname)-nsg" -Rules $rules
+                $nsg = New-FoggNetworkSecurityGroup -FoggObject $FoggObject -Name $tagname -Rules $rules
                 $FoggObject.NsgMap.Add($tagname, $nsg.Id)
 
                 # assign subnet to vnet
-                $vnet = Add-FoggSubnetToVNet -FoggObject $FoggObject -VNet $vnet -SubnetName $snetname `
-                    -Address $subnet -NetworkSecurityGroup $nsg
+                $vnet = Add-FoggSubnetToVNet -FoggObject $FoggObject -VNet $vnet -SubnetName $tagname -Address $subnet -NetworkSecurityGroup $nsg
             }
 
 
