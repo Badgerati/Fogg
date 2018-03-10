@@ -258,7 +258,7 @@ try
 
 
         # If we're using an existng virtual network, ensure it actually exists
-        if ($FoggObject.UseExistingVNet)
+        if ($FoggObject.UseGlobalVNet -and $FoggObject.UseExistingVNet)
         {
             if ((Get-FoggVirtualNetwork -ResourceGroupName $FoggObject.VNetResourceGroupName -Name $FoggObject.VNetName) -eq $null)
             {
@@ -274,7 +274,7 @@ try
 
 
             # only create storage account if we have VMs
-            if (Test-TemplateHasVMs $template.template)
+            if (Test-TemplateHasType $template.template 'vm')
             {
                 # Create the storage account
                 $usePremiumStorage = [bool]$template.usePremiumStorage
@@ -286,20 +286,25 @@ try
             }
 
 
-            # create the virtual network, or use existing one (by name and resource group)
-            if ($FoggObject.UseExistingVNet)
+            # create vnet/snet if we're using a global one
+            if ($FoggObject.UseGlobalVNet)
             {
-                $vnet = Get-FoggVirtualNetwork -ResourceGroupName $FoggObject.VNetResourceGroupName -Name $FoggObject.VNetName
+                # create the virtual network, or use existing one (by name and resource group)
+                if ($FoggObject.UseExistingVNet)
+                {
+                    $vnet = Get-FoggVirtualNetwork -ResourceGroupName $FoggObject.VNetResourceGroupName -Name $FoggObject.VNetName
+                }
+                else
+                {
+                    $vnet = New-FoggVirtualNetwork -ResourceGroupName $FoggObject.ResourceGroupName -Name $FoggObject.PreTag `
+                        -Location $FoggObject.Location -Address $FoggObject.VNetAddress
+                }
+
+                # set vnet group information
+                $FoggObject.VNetAddress = $vnet.AddressSpace.AddressPrefixes[0]
+                $FoggObject.VNetResourceGroupName = $vnet.ResourceGroupName
+                $FoggObject.VNetName = $vnet.Name
             }
-            else
-            {
-                $vnet = New-FoggVirtualNetwork -FoggObject $FoggObject
-            }
-            
-            # set vnet group information
-            $FoggObject.VNetAddress = $vnet.AddressSpace.AddressPrefixes[0]
-            $FoggObject.VNetResourceGroupName = $vnet.ResourceGroupName
-            $FoggObject.VNetName = $vnet.Name
 
 
             # Create virtual subnets and security groups for VM objects in template
@@ -319,7 +324,7 @@ try
                 $FoggObject.NsgMap.Add($tagname, $nsg.Id)
 
                 # assign subnet to vnet
-                $vnet = Add-FoggSubnetToVNet -FoggObject $FoggObject -VNet $vnet -SubnetName $tagname -Address $subnet -NetworkSecurityGroup $nsg
+                $vnet = Add-FoggSubnetToVNet -ResourceGroupName $vnet.ResourceGroupName -VNetName $vnet.Name -SubnetName $tagname -Address $subnet -NetworkSecurityGroup $nsg
             }
 
 
@@ -329,7 +334,7 @@ try
             {
                 $tag = $vpn.tag.ToLowerInvariant()
                 $subnet = $FoggObject.SubnetAddressMap[$tag]
-                $vnet = Add-FoggGatewaySubnetToVNet -FoggObject $FoggObject -VNet $vnet -Address $subnet
+                $vnet = Add-FoggGatewaySubnetToVNet -ResourceGroupName $vnet.ResourceGroupName -VNetName $vnet.Name -Address $subnet
             }
 
 
@@ -347,6 +352,11 @@ try
                     'vpn'
                         {
                             New-DeployTemplateVPN -VPNTemplate $obj -FoggObject $FoggObject -VNet $vnet
+                        }
+
+                    'vnet'
+                        {
+                            New-DeployTemplateVNet -VNetTemplate $obj -FoggObject $FoggObject
                         }
                 }
             }
@@ -404,7 +414,7 @@ foreach ($FoggObject in $FoggObjects.Groups)
     # set location info
     $rg.Location = $FoggObject.Location
 
-    # set vnet info
+    # set global vnet info
     $rg.VirtualNetwork = @{
         'Name' = $FoggObject.VNetName;
         'ResourceGroupName' = $FoggObject.VNetResourceGroupName;
@@ -441,6 +451,19 @@ foreach ($FoggObject in $FoggObjects.Groups)
         ForEach-Object { $info.Add($_.Name, $_.Value) }
 
     $rg.VPNInfo += $info
+
+    # set vnet info
+    if ($rg.VirtualNetworkInfo -eq $null)
+    {
+        $rg.VirtualNetworkInfo = @{}
+    }
+
+    $info = @{}
+    $FoggObject.VirtualNetworkInfo.GetEnumerator() | 
+        Where-Object { !$rg.VirtualNetworkInfo.ContainsKey($_.Name) } |
+        ForEach-Object { $info.Add($_.Name, $_.Value) }
+
+    $rg.VirtualNetworkInfo += $info
 }
 
 return $result

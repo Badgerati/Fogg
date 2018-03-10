@@ -1,0 +1,54 @@
+v1.0.0::
+
+[x] -----
+unique tag for storage accounts
+
+[x] -----
+standardise all names into a separate module
+
+[ ] -----
+change "tag" to be "role"
+change "pretag" to be "platform" (and be optional, and next forced to rg-less resource group name)
+might need an "owner"? (default empty)
+
+> "platform"[-"owner"?]-"role"
+
+> esuite-web[-vm1]
+> esuite-mpp-web[-vm1]
+
+[x] -----
+remove "Legacy" stuff for vms and public ips
+
+[x] -----
+have a vnet type/step, and only make vnetname/rg/address/subnet-addresses mandatory in foggfile if vms/vpn are in the template
+    - vnet name (maybe time for variable name? "@{ResourceGroupName}-vnet")
+    - vnet mask
+    - subnet masks
+    - with validation
+
+[ ] -----
+storage account encryption (off by default)
+    - "encrypt": [ "Blob", "File" ]
+
+[ ] -----
+sa role for creating extra storage accounts
+    - with validation
+
+[ ] -----
+allow creation of vms from vhds
+    - either from a local vhd (path), and upload it
+    - or from a vhd on another rg/sa, in which case clone it across (but ensure vm for vhd is shutdown)
+
+[ ] -----
+have option to create vms, (sysprep?), download vhds, then remove resource group
+
+[-] -----
+tags on resources?
+partially done - logic in place, just neds adding to Foggfile and main Parameters
+
+[ ] -----
+update all examples/readme
+
+[ ] -----
+vnet example
+storage account example

@@ -94,8 +94,7 @@ function Get-FoggResourceGroup
         [string]
         $ResourceGroupName,
 
-        [Parameter(Mandatory=$true)]
-        [ValidateNotNullOrEmpty()]
+        [Parameter()]
         [string]
         $Location
     )
@@ -104,7 +103,15 @@ function Get-FoggResourceGroup
 
     try
     {
-        $rg = Get-AzureRmResourceGroup -Name $ResourceGroupName -Location $Location
+        if (Test-Empty $Location)
+        {
+            $rg = Get-AzureRmResourceGroup -Name $ResourceGroupName
+        }
+        else
+        {
+            $rg = Get-AzureRmResourceGroup -Name $ResourceGroupName -Location $Location
+        }
+
         if (!$?)
         {
             throw "Failed to make Azure call to retrieve resource group: $($ResourceGroupName)"
@@ -154,6 +161,92 @@ function New-FoggResourceGroup
 }
 
 
+function Update-FoggResourcesTags
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $ResourceGroupName,
+
+        [Parameter()]
+        [hashtable]
+        $Tags = $null
+    )
+
+    $ResourceGroupName = (Get-FoggResourceGroupName $ResourceGroupName)
+
+    # if there are no tags, just return
+    if (Test-Empty $Tags)
+    {
+        return
+    }
+
+    # retieve all of the resources in the group
+    $resources = Get-AzureRmResource -ResourceGroupName $ResourceGroupName
+    $count = ($resources | Measure-Object).Count
+
+    Write-Information "Updating tags on all $($count) Resource(s) in Resource Group $($ResourceGroupName)"
+    $Tags.Keys | ForEach-Object {
+        Write-Information "> $($_): $($Tags[$_])"
+    }
+
+    Write-Host ([string]::Empty)
+
+    # update the tags against those resources
+    foreach ($resource in $resources)
+    {
+        Write-Information "> Updating tags against: $($resource.Name)"
+
+        $t = $resource.Tags
+        $t = Set-FoggTags -Tags $t -UpdatedTags $Tags
+
+        Set-AzureRmResource -ResourceGroupName $ResourceGroupName -Name $resource.Name -ResourceType $resource.ResourceType `
+            -Tag $t -Force | Out-Null
+
+        if (!$?)
+        {
+            throw "Failed to update tags on the $($resource.Name) resource"
+        }
+    }
+
+    # now update the tags against the resource group
+    Write-Information "> Updating tags against: $($ResourceGroupName)"
+
+    $t = (Get-FoggResourceGroup -ResourceGroupName $ResourceGroupName).Tags
+    $t = Set-FoggTags -Tags $t -UpdatedTags $Tags
+
+    Set-AzureRmResourceGroup -Name $ResourceGroupName -Tag $t
+    if (!$?)
+    {
+        throw "Failed to update tags on the resource group $($ResourceGroupName)"
+    }
+}
+
+
+function Set-FoggTags
+{
+    param (
+        [hashtable]
+        $Tags,
+
+        [hashtable]
+        $UpdatedTags
+    )
+
+    if ($Tags -eq $null)
+    {
+        $Tags = @{}
+    }
+
+    $UpdatedTags.Keys | ForEach-Object {
+        $Tags[$_] = $UpdatedTags[$_]
+    }
+
+    return $Tags
+}
+
+
 function Test-FoggStorageAccount
 {
     param (
@@ -184,7 +277,7 @@ function Get-FoggStorageAccountName
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
         [string]
-        $BaseName,
+        $Name,
 
         [switch]
         $Premium
@@ -196,7 +289,7 @@ function Get-FoggStorageAccountName
         $tag = 'prm'
     }
 
-    return (("$($BaseName)-$($tag)-sa") -ireplace '-', '').ToLowerInvariant()
+    return (("$($Name)-$($tag)-sa") -ireplace '-', '').ToLowerInvariant()
 }
 
 
@@ -207,20 +300,26 @@ function New-FoggStorageAccount
         [ValidateNotNull()]
         $FoggObject,
 
+        [string[]]
+        $Encryption,
+
         [switch]
         $Premium
     )
 
+    # what's the storage type?
     $StorageType = 'Standard_LRS'
     if ($Premium)
     {
         $StorageType = 'Premium_LRS'
     }
 
-    $Name = Get-FoggStorageAccountName -BaseName "$($FoggObject.SAUniqueTag)-$($FoggObject.PreTag)" -Premium:$Premium
+    # generate the storage account's name
+    $Name = Get-FoggStorageAccountName -Name "$($FoggObject.SAUniqueTag)-$($FoggObject.PreTag)" -Premium:$Premium
 
     Write-Information "Creating storage account $($Name) in resource group $($FoggObject.ResourceGroupName)"
 
+    # get an existing storage account, and check if it's ours or someone elses
     if (Test-FoggStorageAccount $Name)
     {
         Write-Notice "Using existing storage account for $($Name)`n"
@@ -234,6 +333,7 @@ function New-FoggStorageAccount
         return $storage
     }
 
+    # create a new storage account
     $sa = New-AzureRmStorageAccount -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -SkuName $StorageType `
         -Kind Storage -Location $FoggObject.Location
 
@@ -606,7 +706,7 @@ function Get-FoggCustomScriptExtension
         $Name
     )
 
-    $ResourceGroupName = $ResourceGroupName.ToLowerInvariant()
+    $ResourceGroupName = (Get-FoggResourceGroupName $ResourceGroupName)
     $VMName = $VMName.ToLowerInvariant()
 
     try
@@ -1225,15 +1325,32 @@ function New-FoggVirtualNetwork
     param (
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
-        $FoggObject
+        [string]
+        $ResourceGroupName,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Name,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Location,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Address
     )
 
-    $Name = (Get-FoggVirtualNetworkName $FoggObject.PreTag)
+    $ResourceGroupName = (Get-FoggResourceGroupName $ResourceGroupName)
+    $Name = (Get-FoggVirtualNetworkName $Name)
 
-    Write-Information "Creating virtual network $($Name) in $($FoggObject.ResourceGroupName)"
+    Write-Information "Creating virtual network $($Name) in $($ResourceGroupName)"
 
     # see if vnet already exists
-    $vnet = Get-FoggVirtualNetwork -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name
+    $vnet = Get-FoggVirtualNetwork -ResourceGroupName $ResourceGroupName -Name $Name
     if ($vnet -ne $null)
     {
         Write-Notice "Using existing virtual network for $($name)`n"
@@ -1241,15 +1358,15 @@ function New-FoggVirtualNetwork
     }
 
     # else create a new one
-    $vnet = New-AzureRmVirtualNetwork -Name $Name -ResourceGroupName $FoggObject.ResourceGroupName `
-        -Location $FoggObject.Location -AddressPrefix $FoggObject.VNetAddress -Force
+    $vnet = New-AzureRmVirtualNetwork -Name $Name -ResourceGroupName $ResourceGroupName `
+        -Location $Location -AddressPrefix $Address -Force
 
     if (!$?)
     {
         throw "Failed to create virtual network $($Name)"
     }
 
-    Write-Success "Virtual network $($Name) created for $($FoggObject.VNetAddress)`n"
+    Write-Success "Virtual network $($Name) created for $($Address)`n"
     return $vnet
 }
 
@@ -1259,11 +1376,13 @@ function Add-FoggGatewaySubnetToVNet
     param (
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
-        $FoggObject,
+        [string]
+        $ResourceGroupName,
 
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
-        $VNet,
+        [string]
+        $VNetName,
 
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
@@ -1271,7 +1390,7 @@ function Add-FoggGatewaySubnetToVNet
         $Address
     )
 
-    $vnet = Add-FoggSubnetToVNet -FoggObject $FoggObject -VNet $VNet -SubnetName 'GatewaySubnet' -Address $Address
+    $vnet = Add-FoggSubnetToVNet -ResourceGroupName $ResourceGroupName -VNetName $VNetName -SubnetName 'GatewaySubnet' -Address $Address
     return $vnet
 }
 
@@ -1281,11 +1400,13 @@ function Add-FoggSubnetToVNet
     param (
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
-        $FoggObject,
+        [string]
+        $ResourceGroupName,
 
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
-        $VNet,
+        [string]
+        $VNetName,
 
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
@@ -1300,22 +1421,29 @@ function Add-FoggSubnetToVNet
         $NetworkSecurityGroup = $null
     )
 
-    $rg = (Get-FoggResourceGroupName $VNet.ResourceGroupName)
-    $name = (Get-FoggVirtualNetworkName $VNet.Name)
+    $ResourceGroupName = (Get-FoggResourceGroupName $ResourceGroupName)
+    $VNetName = (Get-FoggVirtualNetworkName $VNetName)
     $SubnetName = (Get-FoggSubnetName $SubnetName)
 
-    Write-Information "Adding subnet $($SubnetName) to Virtual Network $($name)"
+    Write-Information "Adding subnet $($SubnetName) to Virtual Network $($VNetName)"
+
+    # get the vnet first
+    $VNet = Get-FoggVirtualNetwork -ResourceGroupName $ResourceGroupName -Name $VNetName
+    if (!$?)
+    {
+        throw "Failed to get Virtual Network $($VNetName) in $($ResourceGroupName)"
+    }
 
     # ensure the vnet doesn't already have the subnet config
     if (($VNet.Subnets | Where-Object { $_.Name -ieq $SubnetName } | Measure-Object).Count -gt 0)
     {
-        Write-Notice "Subnet $($SubnetName) already exists against $($name)`n"
+        Write-Notice "Subnet $($SubnetName) already exists against $($VNetName)`n"
         return $VNet
     }
 
     if (($VNet.Subnets | Where-Object { $_.AddressPrefix -ieq $Address } | Measure-Object).Count -gt 0)
     {
-        Write-Notice "Subnet with address $($Address) already exists against $($name)`n"
+        Write-Notice "Subnet with address $($Address) already exists against $($VNetName)`n"
         return $VNet
     }
 
@@ -1344,10 +1472,10 @@ function Add-FoggSubnetToVNet
     }
 
     # re-retrieve the vnet for updated object
-    $VNet = Get-FoggVirtualNetwork -ResourceGroupName $rg -Name $name
+    $VNet = Get-FoggVirtualNetwork -ResourceGroupName $ResourceGroupName -Name $VNetName
     if (!$?)
     {
-        throw "Failed to re-get Virtual Network $($name) in $($rg)"
+        throw "Failed to re-get Virtual Network $($VNetName) in $($ResourceGroupName)"
     }
 
     # return vnet
@@ -1370,8 +1498,8 @@ function Get-FoggLocalNetworkGateway
         $Name
     )
 
-    $ResourceGroupName = $ResourceGroupName.ToLowerInvariant()
-    $Name = $Name.ToLowerInvariant()
+    $ResourceGroupName = (Get-FoggResourceGroupName $ResourceGroupName)
+    $Name = (Get-FoggLocalNetworkGatewayName $Name)
 
     try
     {
@@ -1419,7 +1547,7 @@ function New-FoggLocalNetworkGateway
         $Address
     )
 
-    $Name = $Name.ToLowerInvariant()
+    $Name = (Get-FoggLocalNetworkGatewayName $Name)
 
     Write-Information "Creating local network gateway $($Name) in $($FoggObject.ResourceGroupName)"
 
@@ -1456,8 +1584,8 @@ function Get-FoggVirtualNetworkGateway
         $Name
     )
 
-    $ResourceGroupName = $ResourceGroupName.ToLowerInvariant()
-    $Name = $Name.ToLowerInvariant()
+    $ResourceGroupName = (Get-FoggResourceGroupName $ResourceGroupName)
+    $Name = (Get-FoggVirtualNetworkGatewayName $Name)
 
     try
     {
@@ -1516,7 +1644,7 @@ function New-FoggVirtualNetworkGateway
         $PublicCertificatePath = $null
     )
 
-    $Name = $Name.ToLowerInvariant()
+    $Name = (Get-FoggVirtualNetworkGatewayName $Name)
 
     Write-Information "Creating virtual network gateway $($Name) in $($FoggObject.ResourceGroupName)"
 
@@ -1539,7 +1667,7 @@ function New-FoggVirtualNetworkGateway
     $pipId = (New-FoggPublicIpAddress -FoggObject $FoggObject -Name $Name -AllocationMethod 'Dynamic').Id
 
     # create the gateway config
-    $config = New-AzureRmVirtualNetworkGatewayIpConfig -Name "$($Name)-cfg" -SubnetId $gatewaySubnetId -PublicIpAddressId $pipId
+    $config = New-AzureRmVirtualNetworkGatewayIpConfig -Name (Get-FoggVirtualNetworkGatewayIpConfigName $Name) -SubnetId $gatewaySubnetId -PublicIpAddressId $pipId
     if (!$?)
     {
         throw "Failed to create virtual network gateway config for $($Name)"
@@ -1590,8 +1718,8 @@ function Get-FoggVirtualNetworkGatewayConnection
         $Name
     )
 
-    $ResourceGroupName = $ResourceGroupName.ToLowerInvariant()
-    $Name = $Name.ToLowerInvariant()
+    $ResourceGroupName = (Get-FoggResourceGroupName $ResourceGroupName)
+    $Name = (Get-FoggVirtualNetworkGatewayConnectionName $Name)
 
     try
     {
@@ -1643,7 +1771,7 @@ function New-FoggVirtualNetworkGatewayConnection
         $SharedKey
     )
 
-    $Name = $Name.ToLowerInvariant()
+    $Name = (Get-FoggVirtualNetworkGatewayConnectionName $Name)
 
     Write-Information "Creating virtual network gateway connection $($Name) in $($FoggObject.ResourceGroupName)"
 
@@ -1839,13 +1967,14 @@ function New-FoggLoadBalancer
     }
 
     # create frontend config
+    $frontendName = Get-FoggLoadBalancerFrontendName $Name
     if ($PublicIP)
     {
-        $front = New-AzureRmLoadBalancerFrontendIpConfig -Name "$($Name)-front" -PublicIpAddressId $pipId
+        $front = New-AzureRmLoadBalancerFrontendIpConfig -Name $frontendName -PublicIpAddressId $pipId
     }
     else
     {
-        $front = New-AzureRmLoadBalancerFrontendIpConfig -Name "$($Name)-front" -SubnetId $SubnetId
+        $front = New-AzureRmLoadBalancerFrontendIpConfig -Name $frontendName -SubnetId $SubnetId
     }
 
     if (!$?)
@@ -1854,21 +1983,21 @@ function New-FoggLoadBalancer
     }
 
     # create backend config
-    $back = New-AzureRmLoadBalancerBackendAddressPoolConfig -Name "$($Name)-back"
+    $back = New-AzureRmLoadBalancerBackendAddressPoolConfig -Name (Get-FoggLoadBalancerBackendName $Name)
     if (!$?)
     {
         throw "Failed to create backend IP config for $($Name)"
     }
 
     # create health probe
-    $health = New-AzureRmLoadBalancerProbeConfig -Name "$($Name)-probe" -Protocol Tcp -Port $Port -IntervalInSeconds 5 -ProbeCount 2
+    $health = New-AzureRmLoadBalancerProbeConfig -Name (Get-FoggLoadBalancerProbeName $Name) -Protocol Tcp -Port $Port -IntervalInSeconds 5 -ProbeCount 2
     if (!$?)
     {
         throw "Failed to create frontend Health Probe for $($Name)"
     }
 
     # create balancer rules
-    $rule = New-AzureRmLoadBalancerRuleConfig -Name "$($Name)-rule" -FrontendIpConfiguration $front `
+    $rule = New-AzureRmLoadBalancerRuleConfig -Name (Get-FoggLoadBalancerRuleName $Name) -FrontendIpConfiguration $front `
         -BackendAddressPool $back -Probe $health -Protocol Tcp -FrontendPort $Port -BackendPort $Port
     if (!$?)
     {
@@ -1889,24 +2018,6 @@ function New-FoggLoadBalancer
 }
 
 
-function Get-FoggVMIndexName
-{
-    param (
-        [Parameter(Mandatory=$true)]
-        [ValidateNotNullOrEmpty()]
-        [string]
-        $BaseName,
-        
-        [Parameter(Mandatory=$true)]
-        [ValidateNotNullOrEmpty()]
-        [int]
-        $Index
-    )
-
-    return ("$($BaseName)$($Index)").ToLowerInvariant()
-}
-
-
 function Get-FoggVM
 {
     param (
@@ -1920,19 +2031,35 @@ function Get-FoggVM
         [string]
         $Name,
 
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        [int]
+        $Index,
+
         [switch]
-        $Status
+        $Status,
+
+        [switch]
+        $RealName
     )
 
-    $ResourceGroupName = $ResourceGroupName.ToLowerInvariant()
-    $Name = $Name.ToLowerInvariant()
+    $ResourceGroupName = (Get-FoggResourceGroupName $ResourceGroupName)
+
+    if ($RealName)
+    {
+        $VMName = $Name
+    }
+    else
+    {
+        $VMName = (Get-FoggVMName $Name $Index)
+    }
 
     try
     {
-        $vm = Get-AzureRmVM -ResourceGroupName $ResourceGroupName -Name $Name -Status:$Status
+        $vm = Get-AzureRmVM -ResourceGroupName $ResourceGroupName -Name $VMName -Status:$Status
         if (!$?)
         {
-            throw "Failed to make Azure call to retrieve VM $($Name) in $($ResourceGroupName)"
+            throw "Failed to make Azure call to retrieve VM $($VMName) in $($ResourceGroupName)"
         }
     }
     catch [exception]
@@ -1960,7 +2087,7 @@ function Get-FoggVMs
         $ResourceGroupName
     )
 
-    $ResourceGroupName = $ResourceGroupName.ToLowerInvariant()
+    $ResourceGroupName = (Get-FoggResourceGroup $ResourceGroupName)
 
     try
     {
@@ -1996,12 +2123,12 @@ function New-FoggVM
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
         [string]
-        $BaseName,
+        $Name,
 
         [Parameter(Mandatory=$true)]
-        [ValidateNotNullOrEmpty()]
-        [string]
-        $VMName,
+        [ValidateNotNull()]
+        [int]
+        $Index,
 
         [Parameter(Mandatory=$true)]
         [ValidateNotNull()]
@@ -2049,25 +2176,26 @@ function New-FoggVM
         $PublicIP
     )
 
-    $BaseName = $BaseName.ToLowerInvariant()
-    $VMName = $VMName.ToLowerInvariant()
-
-    $DiskName = "$($VMName)-disk1"
-    $BlobName = "vhds/$($DiskName).vhd"
-    $SAEndpoint = $StorageAccount.PrimaryEndpoints.Blob.ToString()
-    $OSDiskUri = "$($SAEndpoint)$($BlobName)"
+    $Name = $Name.ToLowerInvariant()
+    $VMName = (Get-FoggVMName $Name $Index)
 
     Write-Information "Creating VM $($VMName) in $($FoggObject.ResourceGroupName)"
 
     # check to see if the VM already exists
-    $vm = Get-FoggVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $VMName
+    $vm = Get-FoggVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Index $Index
     if ($vm -ne $null)
     {
         Write-Notice "Updating existing VM for $($VMName)`n"
-        $vm = Update-FoggVM -FoggObject $FoggObject -BaseName $BaseName -VMName $VMName -SubnetId $SubnetId `
+        $vm = Update-FoggVM -FoggObject $FoggObject -Name $Name -Index $Index -SubnetId $SubnetId `
             -VMSize $VMSize -Drives $Drives -StorageAccount $StorageAccount -PublicIP:$PublicIP
         return $vm
     }
+
+    # disk/os names
+    $DiskName = "$($VMName)-disk1"
+    $BlobName = "vhds/$($DiskName).vhd"
+    $SAEndpoint = $StorageAccount.PrimaryEndpoints.Blob.ToString()
+    $OSDiskUri = "$($SAEndpoint)$($BlobName)"
 
     # create public IP address
     if ($PublicIP)
@@ -2076,8 +2204,8 @@ function New-FoggVM
     }
 
     # create the NIC
-    $nic = New-FoggNetworkInterface -FoggObject $FoggObject -Name "$($VMName)-nic" -SubnetId $SubnetId `
-        -PublicIpId $pipId -NetworkSecurityGroupId $FoggObject.NsgMap[$BaseName]
+    $nic = New-FoggNetworkInterface -FoggObject $FoggObject -Name $VMName -SubnetId $SubnetId `
+        -PublicIpId $pipId -NetworkSecurityGroupId $FoggObject.NsgMap[$Name]
 
     # setup initial VM config
     if ($AvailabilitySet -eq $null)
@@ -2135,12 +2263,12 @@ function Update-FoggVM
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
         [string]
-        $BaseName,
+        $Name,
 
         [Parameter(Mandatory=$true)]
-        [ValidateNotNullOrEmpty()]
-        [string]
-        $VMName,
+        [ValidateNotNull()]
+        [int]
+        $Index,
 
         [Parameter(Mandatory=$true)]
         $StorageAccount,
@@ -2161,11 +2289,11 @@ function Update-FoggVM
         $PublicIP
     )
 
-    $BaseName = $BaseName.ToLowerInvariant()
-    $VMName = $VMName.ToLowerInvariant()
+    $Name = $Name.ToLowerInvariant()
+    $VMName = (Get-FoggVMName $Name $Index)
 
     # variables
-    $nicName = "$($VMName)-nic"
+    $nicName = (Get-FoggNetworkInterfaceName $VMName)
 
     # create public IP address if one doesn't already exist
     if ($PublicIP)
@@ -2175,10 +2303,10 @@ function Update-FoggVM
 
     # update the NIC, assigning the Public IP and NSG if we have one
     New-FoggNetworkInterface -FoggObject $FoggObject -Name $nicName -SubnetId $SubnetId `
-        -PublicIpId $pipId -NetworkSecurityGroupId $FoggObject.NsgMap[$BaseName] | Out-Null
+        -PublicIpId $pipId -NetworkSecurityGroupId $FoggObject.NsgMap[$Name] | Out-Null
 
     # update the VM size if it's different
-    $vm = Get-FoggVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $VMName
+    $vm = Get-FoggVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $VMName -Index $Index -RealName
     if ($vm.HardwareProfile.VmSize -ine $VMSize)
     {
         Write-Information "Updating VM size to $($VMSize)"
@@ -2191,7 +2319,7 @@ function Update-FoggVM
     }
 
     # re-retrieve the updated VM
-    $vm = Get-FoggVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $VMName
+    $vm = Get-FoggVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $VMName -Index $Index -RealName
 
     # update the VM with any additional drives not yet assigned
     $vm = Add-FoggDataDisk -FoggObject $FoggObject -VMName $VMName -VM $vm -StorageAccount $StorageAccount -Drives $Drives
@@ -2215,7 +2343,7 @@ function Save-FoggVM
     )
 
     # first, ensure this VM doesn't alredy exist in Azure (avoiding re-redeploying)
-    if ((Get-FoggVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $VM.Name) -eq $null)
+    if ((Get-FoggVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $VM.Name -Index 0 -RealName) -eq $null)
     {
         Write-Information "`nDeploying new VM '$($VM.Name)'"
 
@@ -2246,13 +2374,13 @@ function Save-FoggVM
     {
         Write-Information "Assigning VM $($VM.Name) to Load Balancer $($LoadBalancer.Name)"
 
-        $nic = Get-AzureRmNetworkInterface -ResourceGroupName $FoggObject.ResourceGroupName -Name "$($VM.Name)-nic"
+        $nic = Get-FoggNetworkInterface -ResourceGroupName $FoggObject.ResourceGroupName -Name $VM.Name
         if (!$? -or $nic -eq $null)
         {
             throw "Failed to retrieve Network Interface for the VM $($VM.Name)"
         }
 
-        $back = Get-AzureRmLoadBalancerBackendAddressPoolConfig -Name "$($LoadBalancer.Name)-back" -LoadBalancer $LoadBalancer
+        $back = Get-AzureRmLoadBalancerBackendAddressPoolConfig -Name (Get-FoggLoadBalancerBackendName $LoadBalancer.Name) -LoadBalancer $LoadBalancer
         if (!$? -or $back -eq $null)
         {
             throw "Failed to retrieve back end pool for Load Balancer: $($LoadBalancer.Name)"
@@ -2290,7 +2418,7 @@ function Stop-FoggVM
     $Name = $Name.ToLowerInvariant()
 
     # ensure the VM exists
-    $vm = Get-FoggVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Status
+    $vm = Get-FoggVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Index 0 -Status -RealName
     if ($vm -eq $null)
     {
         throw "The VM '$($Name)' does not exist to stop"
@@ -2338,7 +2466,7 @@ function Start-FoggVM
     $Name = $Name.ToLowerInvariant()
 
     # ensure the VM exists
-    $vm = Get-FoggVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Status
+    $vm = Get-FoggVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Index 0 -Status -RealName
     if ($vm -eq $null)
     {
         throw "The VM $($Name) does not exist to start"
@@ -2493,7 +2621,7 @@ function Get-FoggNetworkInterface
     )
 
     $ResourceGroupName = (Get-FoggResourceGroupName $ResourceGroupName)
-    $Name = $Name.ToLowerInvariant()
+    $Name = (Get-FoggNetworkInterfaceName $Name)
 
     try
     {
@@ -2543,7 +2671,7 @@ function New-FoggNetworkInterface
         $NetworkSecurityGroupId
     )
 
-    $Name = $Name.ToLowerInvariant()
+    $Name = (Get-FoggNetworkInterfaceName $Name)
 
     Write-Information "Creating Network Interface $($Name) in $($FoggObject.ResourceGroupName)"
 
@@ -2588,7 +2716,7 @@ function Update-FoggNetworkInterface
         $NetworkSecurityGroupId
     )
 
-    $Name = $Name.ToLowerInvariant()
+    $Name = (Get-FoggNetworkInterfaceName $Name)
     $changes = $false
 
     # get the existing NIC
@@ -2677,21 +2805,18 @@ function Get-FoggPublicIpAddress
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
         [string]
-        $Name,
-
-        [switch]
-        $Legacy
+        $Name
     )
 
     $ResourceGroupName = (Get-FoggResourceGroupName $ResourceGroupName)
-    $Name = (Get-FoggPublicIpName $Name -Legacy:$Legacy)
+    $PipName = (Get-FoggPublicIpName $Name)
 
     try
     {
-        $pip = Get-AzureRmPublicIpAddress -ResourceGroupName $ResourceGroupName -Name $Name
+        $pip = Get-AzureRmPublicIpAddress -ResourceGroupName $ResourceGroupName -Name $PipName
         if (!$?)
         {
-            throw "Failed to make Azure call to retrieve Public IP Address: $($Name) in $($ResourceGroupName)"
+            throw "Failed to make Azure call to retrieve Public IP Address: $($PipName) in $($ResourceGroupName)"
         }
     }
     catch [exception]
@@ -2704,12 +2829,6 @@ function Get-FoggPublicIpAddress
         {
             throw
         }
-    }
-
-    if ($pip -eq $null -and $Name -ilike '*-pip')
-    {
-        Write-Notice "Could not find public IP $($Name), attempting backwards compatibility"
-        return (Get-FoggPublicIpAddress -ResourceGroupName $ResourceGroupName -Name ($Name -ireplace '-pip', '') -Legacy)
     }
 
     return $pip
