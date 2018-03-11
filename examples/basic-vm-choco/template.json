@@ -1,5 +1,5 @@
 {
-    "pretag": "choco",
+    "platform": "choco",
     "template": [
         {
             "tag": "vm",

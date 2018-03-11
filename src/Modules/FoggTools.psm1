@@ -104,6 +104,38 @@ function Write-Duration
 }
 
 
+function Join-ValuesDashed
+{
+    param (
+        [string]
+        $Value1,
+
+        [string]
+        $Value2
+    )
+
+    $vEmpty1 = (Test-Empty $Value1)
+    $vEmpty2 = (Test-Empty $Value2)
+
+    if ($vEmpty1 -and $vEmpty2)
+    {
+        return [string]::Empty
+    }
+
+    if ($vEmpty1)
+    {
+        return $Value2
+    }
+
+    if ($vEmpty2)
+    {
+        return $Value1
+    }
+
+    return "$($Value1)-$($Value2)"
+}
+
+
 function Test-PathExists
 {
     param (
@@ -367,11 +399,11 @@ function Test-Template
         Test-TemplateVMOS -Tag 'global' -OS $OS
     }
 
-    # get pretag
-    $pretag = $FoggObject.PreTag
-    if (!(Test-Empty $Template.pretag))
+    # get platform
+    $platform = $FoggObject.Platform
+    if (!(Test-Empty $Template.platform))
     {
-        $pretag = $Template.pretag.ToLowerInvariant()
+        $platform = $Template.platform.ToLowerInvariant()
     }
 
     # get unique storage tag
@@ -385,7 +417,7 @@ function Test-Template
     if (Test-TemplateHasType $templateObjs 'vm')
     {
         $usePremiumStorage = [bool]$Template.usePremiumStorage
-        $saName = Get-FoggStorageAccountName -Name "$($saUniqueTag)-$($pretag)" -Premium:$usePremiumStorage
+        $saName = Get-FoggStorageAccountName -Name (Join-ValuesDashed $saUniqueTag $platform) -Premium:$usePremiumStorage
         Test-FoggStorageAccountName $saName
     }
 
@@ -430,7 +462,7 @@ function Test-Template
         {
             'vm'
                 {
-                    Test-TemplateVM -VM $obj -PreTag $pretag -FoggObject $FoggObject -OS $OS
+                    Test-TemplateVM -VM $obj -Platform $platform -FoggObject $FoggObject -OS $OS
                 }
 
             'vpn'
@@ -440,13 +472,13 @@ function Test-Template
                         throw "Cannot have 2 VPN template objects"
                     }
 
-                    Test-TemplateVPN -VPN $obj -PreTag $pretag -FoggObject $FoggObject
+                    Test-TemplateVPN -VPN $obj -Platform $platform -FoggObject $FoggObject
                     $alreadyHasVpn = $true
                 }
 
             'vnet'
                 {
-                    Test-TemplateVNet -VNet $obj -PreTag $pretag -FoggObject $FoggObject
+                    Test-TemplateVNet -VNet $obj -Platform $platform -FoggObject $FoggObject
                 }
 
             default
@@ -466,8 +498,8 @@ function Test-TemplateVNet
         [Parameter(Mandatory=$true)]
         $VNet,
 
-        [Parameter(Mandatory=$true)]
-        $PreTag,
+        [Parameter()]
+        $Platform,
 
         [Parameter(Mandatory=$true)]
         $FoggObject
@@ -504,8 +536,8 @@ function Test-TemplateVPN
         [Parameter(Mandatory=$true)]
         $VPN,
 
-        [Parameter(Mandatory=$true)]
-        $PreTag,
+        [Parameter()]
+        $Platform,
 
         [Parameter(Mandatory=$true)]
         $FoggObject
@@ -613,8 +645,8 @@ function Test-TemplateVM
         [Parameter(Mandatory=$true)]
         $VM,
 
-        [Parameter(Mandatory=$true)]
-        $PreTag,
+        [Parameter()]
+        $Platform,
 
         [Parameter(Mandatory=$true)]
         $FoggObject,
@@ -683,7 +715,7 @@ function Test-TemplateVM
     }
 
     # ensure the VM name is valid
-    $vmName = Get-FoggVMName "$($PreTag)-$($tag)" $vm.count
+    $vmName = Get-FoggVMName (Join-ValuesDashed $Platform $tag) $vm.count
     Test-FoggVMName -OSType $mainOS.type -Name $vmName
 
     # ensure that the provisioner keys exist
@@ -1587,7 +1619,7 @@ function New-FoggGroupObject
     # create fogg object with params
     $group = @{}
     $group.ResourceGroupName = $ResourceGroupName
-    $group.PreTag = (Remove-RGTag $ResourceGroupName)
+    $group.Platform = [string]::Empty
     $group.SAUniqueTag = [string]::Empty
     $group.Location = $Location
     $group.VNetAddress = $VNetAddress
@@ -1611,10 +1643,6 @@ function New-FoggGroupObject
 
     # validate the fogg parameters
     Test-FoggObjectParameters $groupObj
-
-    # post param alterations
-    $groupObj.ResourceGroupName = $groupObj.ResourceGroupName
-    $groupObj.PreTag = $groupObj.PreTag.ToLowerInvariant()
 
     # return object
     return $groupObj
@@ -1685,8 +1713,8 @@ function New-DeployTemplateVNet
 
     $startTime = [DateTime]::UtcNow
     $tag = $VNetTemplate.tag.ToLowerInvariant()
-    $tagname = "$($FoggObject.PreTag)-$($tag)"
-    
+    $tagname = (Join-ValuesDashed $FoggObject.Platform $tag)
+
     # VNet information
     $FoggObject.VirtualNetworkInfo.Add($tag, @{})
     $vnetInfo = $FoggObject.VirtualNetworkInfo[$tag]
@@ -1752,7 +1780,7 @@ function New-DeployTemplateVM
     )
 
     $tag = $VMTemplate.tag.ToLowerInvariant()
-    $tagname = "$($FoggObject.PreTag)-$($tag)"
+    $tagname = (Join-ValuesDashed $FoggObject.Platform $tag)
     $usePublicIP = [bool]$VMTemplate.usePublicIP
     $subnetPrefix = $FoggObject.SubnetAddressMap[$tag]
     $subnetName = (Get-FoggSubnetName $tagname)
@@ -1938,8 +1966,8 @@ function New-DeployTemplateVPN
 
     $startTime = [DateTime]::UtcNow
     $tag = $VPNTemplate.tag.ToLowerInvariant()
-    $tagname = "$($FoggObject.PreTag)-$($tag)"
-    
+    $tagname = (Join-ValuesDashed $FoggObject.Platform $tag)
+
     # VPN information
     $FoggObject.VPNInfo.Add($tag, @{})
 

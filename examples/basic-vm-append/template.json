@@ -1,5 +1,5 @@
 {
-    "pretag": "append",
+    "platform": "append",
     "template": [
         {
             "tag": "vm",

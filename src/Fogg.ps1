@@ -251,10 +251,10 @@ try
         # Retrieve the template for the current Group
         $template = Test-Files -FoggObject $FoggObject
 
-        # If we have a pretag on the template, set against this FoggObject
-        if (![string]::IsNullOrWhiteSpace($template.pretag))
+        # If we have a platform on the template, set against this FoggObject
+        if (![string]::IsNullOrWhiteSpace($template.platform))
         {
-            $FoggObject.PreTag = $template.pretag.ToLowerInvariant()
+            $FoggObject.Platform = $template.platform.ToLowerInvariant()
         }
 
         # If we have a unique storage account name on the template, set against this FoggObject
@@ -303,7 +303,7 @@ try
                 }
                 else
                 {
-                    $vnet = New-FoggVirtualNetwork -ResourceGroupName $FoggObject.ResourceGroupName -Name $FoggObject.PreTag `
+                    $vnet = New-FoggVirtualNetwork -ResourceGroupName $FoggObject.ResourceGroupName -Name (Remove-RGTag $FoggObject.ResourceGroupName) `
                         -Location $FoggObject.Location -Address $FoggObject.VNetAddress
                 }
 
@@ -319,7 +319,7 @@ try
             foreach ($vm in $vms)
             {
                 $tag = $vm.tag.ToLowerInvariant()
-                $tagname = "$($FoggObject.PreTag)-$($tag)"
+                $tagname = (Join-ValuesDashed $FoggObject.Platform $tag)
                 $subnet = $FoggObject.SubnetAddressMap[$tag]
 
                 # Create network security group inbound/outbound rules

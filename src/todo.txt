@@ -8,7 +8,7 @@ standardise all names into a separate module
 
 [ ] -----
 [ ] change "tag" to be "role"
-[ ] change "pretag" to be "platform" (and be optional, and next forced to rg-less resource group name)
+[x] change "pretag" to be "platform" (and be optional, and main vnet forced to rg-less resource group name)
 [ ] might need an "owner"? (default empty)
 
 > "platform"-["owner"?]-"role"[-vm1]

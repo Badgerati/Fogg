@@ -1,5 +1,5 @@
 {
-    "pretag": "ex-drives",
+    "platform": "ex-drives",
     "template": [
         {
             "tag": "vm",
