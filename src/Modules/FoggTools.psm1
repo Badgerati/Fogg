@@ -1374,7 +1374,9 @@ function New-FoggObject
         $VNetResourceGroupName,
 
         [string]
-        $VNetName
+        $VNetName,
+
+        $Tags
     )
 
     $useFoggfile = $false
@@ -1410,7 +1412,8 @@ function New-FoggObject
         $VNetResourceGroupName,
         $VNetName,
         $SubnetAddresses,
-        $TemplatePath
+        $TemplatePath,
+        $Tags
     )
 
     if (!$useFoggfile -and (Test-ArrayEmpty $foggParams))
@@ -1430,6 +1433,7 @@ function New-FoggObject
     $props.SubscriptionName = $SubscriptionName
     $props.SubscriptionCredentials = $SubscriptionCredentials
     $props.VMCredentials = $VMCredentials
+    $props.Tags = $Tags
     $foggObj = New-Object -TypeName PSObject -Property $props
 
     # general paths
@@ -1462,6 +1466,12 @@ function New-FoggObject
         if (Test-Empty $SubscriptionName)
         {
             $foggObj.SubscriptionName = $file.SubscriptionName
+        }
+
+        # check if we need to set the tags from the file
+        if (Test-Empty $Tags)
+        {
+            $foggObj.Tags = $file.Tags
         }
 
         # load the groups

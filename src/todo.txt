@@ -7,14 +7,11 @@ unique tag for storage accounts
 standardise all names into a separate module
 
 [ ] -----
-change "tag" to be "role"
-change "pretag" to be "platform" (and be optional, and next forced to rg-less resource group name)
-might need an "owner"? (default empty)
+[ ] change "tag" to be "role"
+[ ] change "pretag" to be "platform" (and be optional, and next forced to rg-less resource group name)
+[ ] might need an "owner"? (default empty)
 
-> "platform"[-"owner"?]-"role"
-
-> esuite-web[-vm1]
-> esuite-mpp-web[-vm1]
+> "platform"-["owner"?]-"role"[-vm1]
 
 [x] -----
 remove "Legacy" stuff for vms and public ips
@@ -42,9 +39,9 @@ allow creation of vms from vhds
 [ ] -----
 have option to create vms, (sysprep?), download vhds, then remove resource group
 
-[-] -----
+[x] -----
 tags on resources?
-partially done - logic in place, just neds adding to Foggfile and main Parameters
+partially done - logic in place, just needs adding to Foggfile and main Parameters
 
 [ ] -----
 update all examples/readme
@@ -52,3 +49,10 @@ update all examples/readme
 [ ] -----
 vnet example
 storage account example
+
+
+
+v1.1.0::
+
+[ ] -----
+managed disks

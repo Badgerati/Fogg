@@ -46,6 +46,10 @@
     .PARAMETER VNetName
         Paired with VNetResourceGroupName, if passed will use an existing Virtual Network in Azure
 
+    .PARAMETER Tags
+        This is a map of tags to set/update against each resource within the created resource group. The tags
+        against the resource group are also set/updated.
+
     .PARAMETER Version
         Switch parameter, if passed will display the current version of Fogg and end execution
 
@@ -83,7 +87,7 @@ param (
     [Alias('sub')]
     $SubscriptionName,
 
-    [Alias('subaddr')]
+    [Alias('saddr')]
     $SubnetAddresses,
 
     [string]
@@ -113,6 +117,9 @@ param (
     [string]
     [Alias('vn')]
     $VNetName,
+
+    [Alias('t')]
+    $Tags,
 
     [switch]
     [Alias('v')]
@@ -188,7 +195,7 @@ if (!(Test-PowerShellVersion 4))
 # create new fogg object from parameters and foggfile
 $FoggObjects = New-FoggObject -FoggRootPath $root -ResourceGroupName $ResourceGroupName -Location $Location -SubscriptionName $SubscriptionName `
     -SubnetAddresses $SubnetAddresses -TemplatePath $TemplatePath -FoggfilePath $FoggfilePath -SubscriptionCredentials $SubscriptionCredentials `
-    -VMCredentials $VMCredentials -VNetAddress $VNetAddress -VNetResourceGroupName $VNetResourceGroupName -VNetName $VNetName
+    -VMCredentials $VMCredentials -VNetAddress $VNetAddress -VNetResourceGroupName $VNetResourceGroupName -VNetName $VNetName -Tags $Tags
 
 # Start timer
 $timer = [DateTime]::UtcNow
@@ -360,6 +367,9 @@ try
                         }
                 }
             }
+
+            # set/update all tags within the group
+            Update-FoggResourceTags -ResourceGroupName $FoggObject.ResourceGroupName -Tags $FoggObjects.Tags
         }
         catch [exception]
         {

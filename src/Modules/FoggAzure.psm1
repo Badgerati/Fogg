@@ -161,7 +161,7 @@ function New-FoggResourceGroup
 }
 
 
-function Update-FoggResourcesTags
+function Update-FoggResourceTags
 {
     param (
         [Parameter(Mandatory=$true)]
