@@ -99,7 +99,7 @@ This will tell Fogg to use the above template against your Subscription in Azure
 * Create an Availability Set called `basic-vm-as`
 * A Virtual Machine called `basic-test1` will then be deployed under the `basic-vm-snet` Subnet
 
-To create a Foggfile of the above, stored at the root of the repo (can be else where as a `-FoggfilePath` can be supplied), would look like the folllowing:
+To create a Foggfile of the above, stored at the root of the repo (can be else where as a `-FoggfilePath` can be supplied), would look like the following:
 
 ```json
 {
@@ -160,6 +160,8 @@ This will contain the names of resources like the VNETs, Subnets and VMs; to the
             );
         };
     };
+    'VPNInfo' = @{};
+    'VirtualNetworkInfo' = @{};
 }
 ```
 

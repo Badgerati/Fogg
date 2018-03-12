@@ -1,5 +1,6 @@
 {
     "SubscriptionName": "<SUB_NAME_HERE>",
+    "Platform": "ex-drives",
     "Groups": [
         {
             "ResourceGroupName": "basic-drives-rg",

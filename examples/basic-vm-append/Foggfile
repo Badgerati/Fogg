@@ -1,5 +1,6 @@
 {
     "SubscriptionName": "<SUB_NAME_HERE>",
+    "Platform": "append",
     "Groups": [
         {
             "ResourceGroupName": "basic-append-rg",

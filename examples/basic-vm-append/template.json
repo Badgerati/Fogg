@@ -1,5 +1,4 @@
 {
-    "platform": "append",
     "template": [
         {
             "type": "vm",

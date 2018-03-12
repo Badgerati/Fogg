@@ -1,5 +1,4 @@
 {
-    "platform": "ex-drives",
     "template": [
         {
             "role": "vm",

@@ -312,7 +312,7 @@ function New-FoggStorageAccount
     }
 
     # generate the storage account's name
-    $Name = Get-FoggStorageAccountName -Name (Join-ValuesDashed $FoggObject.SAUniqueTag $FoggObject.Platform) -Premium:$Premium
+    $Name = Get-FoggStorageAccountName -Name (Join-ValuesDashed @($FoggObject.SAUniqueTag, $FoggObject.Platform)) -Premium:$Premium
 
     Write-Information "Creating storage account $($Name) in resource group $($FoggObject.ResourceGroupName)"
 

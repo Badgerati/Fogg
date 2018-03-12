@@ -1,5 +1,4 @@
 {
-    "platform": "choco",
     "template": [
         {
             "role": "vm",

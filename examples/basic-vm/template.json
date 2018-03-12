@@ -1,5 +1,4 @@
 {
-    "platform": "basic",
     "template": [
         {
             "role": "vm",

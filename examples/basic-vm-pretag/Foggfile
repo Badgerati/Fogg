@@ -1,5 +1,6 @@
 {
     "SubscriptionName": "<SUB_NAME_HERE>",
+    "Platform": "platform",
     "Groups": [
         {
             "ResourceGroupName": "basic-platform-rg",

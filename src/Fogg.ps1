@@ -46,8 +46,11 @@
     .PARAMETER VNetName
         Paired with VNetResourceGroupName, if passed will use an existing Virtual Network in Azure
 
+    .PARAMETER Platform
+        (Optional) The name of the platform that is being deployed
+
     .PARAMETER Tags
-        This is a map of tags to set/update against each resource within the created resource group. The tags
+        (Optional) This is a map of tags to set/update against each resource within the created resource group. The tags
         against the resource group are also set/updated.
 
     .PARAMETER Version
@@ -117,6 +120,10 @@ param (
     [string]
     [Alias('vn')]
     $VNetName,
+
+    [string]
+    [Alias('p')]
+    $Platform,
 
     [Alias('t')]
     $Tags,
@@ -205,7 +212,8 @@ if (!(Test-PowerShellVersion 4))
 # create new fogg object from parameters and foggfile
 $FoggObjects = New-FoggObject -FoggRootPath $root -ResourceGroupName $ResourceGroupName -Location $Location -SubscriptionName $SubscriptionName `
     -SubnetAddresses $SubnetAddresses -TemplatePath $TemplatePath -FoggfilePath $FoggfilePath -SubscriptionCredentials $SubscriptionCredentials `
-    -VMCredentials $VMCredentials -VNetAddress $VNetAddress -VNetResourceGroupName $VNetResourceGroupName -VNetName $VNetName -Tags $Tags
+    -VMCredentials $VMCredentials -VNetAddress $VNetAddress -VNetResourceGroupName $VNetResourceGroupName -VNetName $VNetName -Tags $Tags 1
+    -Platform $Platform
 
 # Start timer
 $timer = [DateTime]::UtcNow
@@ -287,12 +295,6 @@ try
             $VMCredentialsSet = $true
         }
 
-        # If we have a platform on the template, set against this FoggObject
-        if (![string]::IsNullOrWhiteSpace($template.platform))
-        {
-            $FoggObject.Platform = $template.platform.ToLowerInvariant()
-        }
-
         # If we have a unique storage account name on the template, set against this FoggObject
         if (![string]::IsNullOrWhiteSpace($template.saUniqueTag))
         {
@@ -355,7 +357,7 @@ try
             foreach ($vm in $vms)
             {
                 $role = $vm.role.ToLowerInvariant()
-                $basename = (Join-ValuesDashed $FoggObject.Platform $role)
+                $basename = (Join-ValuesDashed @($FoggObject.Platform, $role))
                 $subnet = $FoggObject.SubnetAddressMap[$role]
 
                 # Create network security group inbound/outbound rules

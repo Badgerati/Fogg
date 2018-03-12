@@ -6,12 +6,12 @@ unique tag for storage accounts
 [x] -----
 standardise all names into a separate module
 
-[ ] -----
+[x] -----
 [x] change "tag" to be "role"
 [x] change "pretag" to be "platform" (and be optional, and main vnet forced to rg-less resource group name)
-[ ] might need an "owner"? (default empty)
+[x] platform should be arguments/foggfile (not in template/objs)
 
-> "platform"-["owner"?]-"role"[-vm1]
+> ["platform"-]"role"[-vm1]
 
 [x] -----
 remove "Legacy" stuff for vms and public ips
