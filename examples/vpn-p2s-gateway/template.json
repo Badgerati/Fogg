@@ -1,7 +1,7 @@
 {
     "template": [
         {
-            "tag": "vpn",
+            "role": "vpn",
             "type": "vpn",
             "configType": "p2s",
             "vpnType": "RouteBased",

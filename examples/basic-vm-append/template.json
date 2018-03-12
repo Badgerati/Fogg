@@ -2,8 +2,8 @@
     "platform": "append",
     "template": [
         {
-            "tag": "vm",
             "type": "vm",
+            "role": "vm",
             "count": 1,
             "append": true,
             "provisioners": [

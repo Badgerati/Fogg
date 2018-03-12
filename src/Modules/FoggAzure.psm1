@@ -283,13 +283,13 @@ function Get-FoggStorageAccountName
         $Premium
     )
 
-    $tag = 'std'
+    $type = 'std'
     if ($Premium)
     {
-        $tag = 'prm'
+        $type = 'prm'
     }
 
-    return (("$($Name)-$($tag)-sa") -ireplace '-', '').ToLowerInvariant()
+    return (("$($Name)-$($type)-sa") -ireplace '-', '').ToLowerInvariant()
 }
 
 
@@ -908,7 +908,7 @@ function New-FirewallRules
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
         [string]
-        $CurrentTag,
+        $CurrentRole,
 
         $Firewall = $null,
 
@@ -975,22 +975,22 @@ function New-FirewallRules
             'in'
                 {
                     $Rules += (New-FoggNetworkSecurityGroupRule -Name "$($portname)_IN" -Priority $priority -Direction 'Inbound' `
-                        -Source '*:*' -Destination "@{subnet}:$($port)" -Subnets $Subnets -CurrentTag $CurrentTag -Access $access)
+                        -Source '*:*' -Destination "@{subnet}:$($port)" -Subnets $Subnets -CurrentRole $CurrentRole -Access $access)
                 }
 
             'out'
                 {
                     $Rules += (New-FoggNetworkSecurityGroupRule -Name "$($portname)_OUT" -Priority $priority -Direction 'Outbound' `
-                        -Source '@{subnet}:*' -Destination "*:$($port)" -Subnets $Subnets -CurrentTag $CurrentTag -Access $access)
+                        -Source '@{subnet}:*' -Destination "*:$($port)" -Subnets $Subnets -CurrentRole $CurrentRole -Access $access)
                 }
 
             'both'
                 {
                     $Rules += (New-FoggNetworkSecurityGroupRule -Name "$($portname)_IN" -Priority $priority -Direction 'Inbound' `
-                        -Source '*:*' -Destination "@{subnet}:$($port)" -Subnets $Subnets -CurrentTag $CurrentTag -Access $access)
+                        -Source '*:*' -Destination "@{subnet}:$($port)" -Subnets $Subnets -CurrentRole $CurrentRole -Access $access)
 
                     $Rules += (New-FoggNetworkSecurityGroupRule -Name "$($portname)_OUT" -Priority $priority -Direction 'Outbound' `
-                        -Source '@{subnet}:*' -Destination "*:$($port)" -Subnets $Subnets -CurrentTag $CurrentTag -Access $access)
+                        -Source '@{subnet}:*' -Destination "*:$($port)" -Subnets $Subnets -CurrentRole $CurrentRole -Access $access)
                 }
         }
 
@@ -1003,7 +1003,7 @@ function New-FirewallRules
     {
         $Firewall.inbound | ForEach-Object {
             $Rules += (New-FoggNetworkSecurityGroupRule -Name $_.name -Priority $_.priority -Direction 'Inbound' `
-                -Source $_.source -Destination $_.destination -Subnets $Subnets -CurrentTag $CurrentTag -Access $_.access)
+                -Source $_.source -Destination $_.destination -Subnets $Subnets -CurrentRole $CurrentRole -Access $_.access)
         }
     }
 
@@ -1012,7 +1012,7 @@ function New-FirewallRules
     {
         $Firewall.outbound | ForEach-Object {
             $Rules += (New-FoggNetworkSecurityGroupRule -Name $_.name -Priority $_.priority -Direction 'Outbound' `
-                -Source $_.source -Destination $_.destination -Subnets $Subnets -CurrentTag $CurrentTag -Access $_.access)
+                -Source $_.source -Destination $_.destination -Subnets $Subnets -CurrentRole $CurrentRole -Access $_.access)
         }
     }
 
@@ -1091,7 +1091,7 @@ function New-FoggNetworkSecurityGroupRule
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
         [string]
-        $CurrentTag,
+        $CurrentRole,
 
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
@@ -1105,12 +1105,12 @@ function New-FoggNetworkSecurityGroupRule
 
     # split down the source for IP and Port
     $source_split = ($Source -split ':')
-    $sourcePrefix = Get-ReplaceSubnet -Value $source_split[0] -Subnets $Subnets -CurrentTag $CurrentTag
+    $sourcePrefix = Get-ReplaceSubnet -Value $source_split[0] -Subnets $Subnets -CurrentRole $CurrentRole
     $sourcePort = Get-SubnetPort $source_split
 
     # split down the destination for IP and Port
     $dest_split = ($Destination -split ':')
-    $destPrefix = Get-ReplaceSubnet -Value $dest_split[0] -Subnets $Subnets -CurrentTag $CurrentTag
+    $destPrefix = Get-ReplaceSubnet -Value $dest_split[0] -Subnets $Subnets -CurrentRole $CurrentRole
     $destPort = Get-SubnetPort $dest_split
 
     Write-Information "Creating NSG Rule $($Name), from '$($sourcePrefix):$($sourcePort)' to '$($destPrefix):$($destPort)'"

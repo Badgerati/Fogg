@@ -32,7 +32,7 @@
 
     .PARAMETER SubnetAddresses
         This is a map of subnet addresses for VMs (ie, @{'web'='10.1.0.0/24'})
-        The name is the tag name of the VM, and there must be a subnet for each VM section in you template
+        The subnet name is the role of the VM, and there must be a subnet for each VM section in you template
 
         You can pass more subnets than you have VMs (for linking/firewalling to existing ones), as these can
         be referenced in firewalls as "@{subnet|jump}" for example if you pass "@{'jump'='10.1.99.0/24'}"
@@ -354,20 +354,20 @@ try
             $vms = ($template.template | Where-Object { $_.type -ieq 'vm' })
             foreach ($vm in $vms)
             {
-                $tag = $vm.tag.ToLowerInvariant()
-                $tagname = (Join-ValuesDashed $FoggObject.Platform $tag)
-                $subnet = $FoggObject.SubnetAddressMap[$tag]
+                $role = $vm.role.ToLowerInvariant()
+                $basename = (Join-ValuesDashed $FoggObject.Platform $role)
+                $subnet = $FoggObject.SubnetAddressMap[$role]
 
                 # Create network security group inbound/outbound rules
-                $rules = New-FirewallRules -Firewall $vm.firewall -Subnets $FoggObject.SubnetAddressMap -CurrentTag $tag
-                $rules = New-FirewallRules -Firewall $template.firewall -Subnets $FoggObject.SubnetAddressMap -CurrentTag $tag -Rules $rules
+                $rules = New-FirewallRules -Firewall $vm.firewall -Subnets $FoggObject.SubnetAddressMap -CurrentRole $role
+                $rules = New-FirewallRules -Firewall $template.firewall -Subnets $FoggObject.SubnetAddressMap -CurrentRole $role -Rules $rules
 
                 # Create network security group rules, and bind to VM
-                $nsg = New-FoggNetworkSecurityGroup -FoggObject $FoggObject -Name $tagname -Rules $rules
-                $FoggObject.NsgMap.Add($tagname, $nsg.Id)
+                $nsg = New-FoggNetworkSecurityGroup -FoggObject $FoggObject -Name $basename -Rules $rules
+                $FoggObject.NsgMap.Add($basename, $nsg.Id)
 
                 # assign subnet to vnet
-                $vnet = Add-FoggSubnetToVNet -ResourceGroupName $vnet.ResourceGroupName -VNetName $vnet.Name -SubnetName $tagname -Address $subnet -NetworkSecurityGroup $nsg
+                $vnet = Add-FoggSubnetToVNet -ResourceGroupName $vnet.ResourceGroupName -VNetName $vnet.Name -SubnetName $basename -Address $subnet -NetworkSecurityGroup $nsg
             }
 
 
@@ -375,8 +375,8 @@ try
             $vpn = ($template.template | Where-Object { $_.type -ieq 'vpn' } | Select-Object -First 1)
             if ($vpn -ne $null)
             {
-                $tag = $vpn.tag.ToLowerInvariant()
-                $subnet = $FoggObject.SubnetAddressMap[$tag]
+                $role = $vpn.role.ToLowerInvariant()
+                $subnet = $FoggObject.SubnetAddressMap[$role]
                 $vnet = Add-FoggGatewaySubnetToVNet -ResourceGroupName $vnet.ResourceGroupName -VNetName $vnet.Name -Address $subnet
             }
 

@@ -2,7 +2,7 @@
     "platform": "basic",
     "template": [
         {
-            "tag": "vm",
+            "role": "vm",
             "type": "vm",
             "count": 1,
             "usePublicIP": true,

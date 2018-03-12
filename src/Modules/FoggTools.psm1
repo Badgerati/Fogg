@@ -396,7 +396,7 @@ function Test-Template
     # ensure the global OS setting is correct
     if ($OS -ne $null)
     {
-        Test-TemplateVMOS -Tag 'global' -OS $OS
+        Test-TemplateVMOS -Role 'global' -OS $OS
     }
 
     # get platform
@@ -423,18 +423,18 @@ function Test-Template
 
     # flag variable helpers
     $alreadyHasVpn = $false
-    $tagMap = @()
+    $roleMap = @()
 
     # loop through each template object, verifying it
     foreach ($obj in $templateObjs)
     {
-        # ensure each template has a tag, and a type
-        $tag = $obj.tag
+        # ensure each template has a role, and a type
+        $role = $obj.role
         $type = $obj.type
 
-        if (Test-Empty $tag)
+        if (Test-Empty $role)
         {
-            throw 'All template objects in a Fogg Azure template file require a tag name'
+            throw 'All template objects in a Fogg Azure template file require a role'
         }
 
         if (Test-Empty $type)
@@ -442,20 +442,20 @@ function Test-Template
             throw 'All template objects in a Fogg Azure template file require a type'
         }
 
-        # check tag uniqueness and value validity
-        $tag = $tag.ToLowerInvariant()
+        # check role uniqueness and value validity
+        $role = $role.ToLowerInvariant()
 
-        if ($tag -inotmatch '^[a-z0-9]+$')
+        if ($role -inotmatch '^[a-z0-9]+$')
         {
-            throw "Tag name for template object $($tag) must be a valid alphanumerical value"
+            throw "Role for template object $($role) must be a valid alphanumerical value"
         }
 
-        if ($tagMap.Contains($tag))
+        if ($roleMap.Contains($role))
         {
-            throw "There is already a template object with tag value '$($tag)'"
+            throw "There is already a template object with role: '$($role)'"
         }
 
-        $tagMap += $tag
+        $roleMap += $role
 
         # verify based on template object type
         switch ($type.ToLowerInvariant())
@@ -483,7 +483,7 @@ function Test-Template
 
             default
                 {
-                    throw "Invalid template object type found in $($tag): $($type)"
+                    throw "Invalid template object type found in $($role): $($type)"
                 }
         }
     }
@@ -505,13 +505,13 @@ function Test-TemplateVNet
         $FoggObject
     )
 
-    # get tag
-    $tag = $VNet.tag.ToLowerInvariant()
+    # get role
+    $role = $VNet.role.ToLowerInvariant()
 
     # ensure we have an address
     if (Test-Empty $VNet.address)
     {
-        throw "VNet for $($tag) has no address prefix"
+        throw "VNet for $($role) has no address prefix"
     }
 
     # ensure subnets have names and addresses
@@ -519,12 +519,12 @@ function Test-TemplateVNet
     $subnets.Keys | ForEach-Object {
         if (Test-Empty $_)
         {
-            throw "Subnet on Vnet for $($tag) has an undefined name"
+            throw "Subnet on Vnet for $($role) has an undefined name"
         }
 
         if (Test-Empty $subnets[$_])
         {
-            throw "Subnet $($_) on Vnet for $($tag) has a no address prefix"
+            throw "Subnet $($_) on Vnet for $($role) has a no address prefix"
         }
     }
 }
@@ -543,11 +543,11 @@ function Test-TemplateVPN
         $FoggObject
     )
 
-    # get tag
-    $tag = $VPN.tag.ToLowerInvariant()
+    # get role
+    $role = $VPN.role.ToLowerInvariant()
 
     # ensure that the VPN object has a subnet map
-    if (!$FoggObject.SubnetAddressMap.Contains($tag))
+    if (!$FoggObject.SubnetAddressMap.Contains($role))
     {
         throw "No subnet address mapped for the VPN template object"
     }
@@ -555,7 +555,7 @@ function Test-TemplateVPN
     # ensure we have a valid VPN type
     if ($VPN.vpnType -ine 'RouteBased' -and $VPN.vpnType -ine 'PolicyBased')
     {
-        throw "VPN type for $($tag) must be one of either 'RouteBased' or 'PolicyBased'"
+        throw "VPN type for $($role) must be one of either 'RouteBased' or 'PolicyBased'"
     }
 
     # ensure we have a Gateway SKU
@@ -583,17 +583,17 @@ function Test-TemplateVPN
         's2s'
             {
                 # ensure we have a VPN Gateway IP in subnet map
-                $tagGIP = "$($tag)-gip"
-                if (!$FoggObject.SubnetAddressMap.Contains($tagGIP))
+                $roleGIP = "$($role)-gip"
+                if (!$FoggObject.SubnetAddressMap.Contains($roleGIP))
                 {
-                    throw "No Gateway IP mapped for the VPN: $($tagGIP)"
+                    throw "No Gateway IP mapped for the VPN: $($roleGIP)"
                 }
 
                 # ensure we have a on-premises address prefixes in subnet map
-                $tagOpm = "$($tag)-opm"
-                if (!$FoggObject.SubnetAddressMap.Contains($tagOpm))
+                $roleOpm = "$($role)-opm"
+                if (!$FoggObject.SubnetAddressMap.Contains($roleOpm))
                 {
-                    throw "No On-Premises address prefix(es) mapped for the VPN: $($tagOpm)"
+                    throw "No On-Premises address prefix(es) mapped for the VPN: $($roleOpm)"
                 }
 
                 # ensure we have a shared key
@@ -606,10 +606,10 @@ function Test-TemplateVPN
         'p2s'
             {
                 # ensure we have a VPN client address pool in subnet map
-                $tagCAP = "$($tag)-cap"
-                if (!$FoggObject.SubnetAddressMap.Contains($tagCAP))
+                $roleCAP = "$($role)-cap"
+                if (!$FoggObject.SubnetAddressMap.Contains($roleCAP))
                 {
-                    throw "No VPN Client Address Pool mapped for the VPN: $($tagCAP)"
+                    throw "No VPN Client Address Pool mapped for the VPN: $($roleCAP)"
                 }
 
                 # ensure we have a cert path, and it exists
@@ -658,31 +658,31 @@ function Test-TemplateVM
     $hasOS = ($OS -ne $null)
     $mainOS = $OS
 
-    # get tag
-    $tag = $VM.tag.ToLowerInvariant()
+    # get role
+    $role = $VM.role.ToLowerInvariant()
 
     # ensure that each VM object has a subnet map
-    if (!$FoggObject.SubnetAddressMap.Contains($tag))
+    if (!$FoggObject.SubnetAddressMap.Contains($role))
     {
-        throw "No subnet address mapped for the $($tag) VM template object"
+        throw "No subnet address mapped for the $($role) VM template object"
     }
 
     # ensure VM count is not null or negative/0
     if ($vm.count -eq $null -or $vm.count -le 0)
     {
-        throw "VM count cannot be null, 0 or negative for $($tag): $($vm.count)"
+        throw "VM count cannot be null, 0 or negative for $($role): $($vm.count)"
     }
 
     # ensure that if append is true, off count is not supplied
     if ($vm.append -and $vm.off -ne $null -and $vm.off -gt 0)
     {
-        throw "VMs to turn off cannot be supplied if append property is true for $($tag)"
+        throw "VMs to turn off cannot be supplied if append property is true for $($role)"
     }
 
     # ensure the off count is not negative or greater than VM count
     if ($vm.off -ne $null -and ($vm.off -le 0 -or $vm.off -gt $vm.count))
     {
-        throw "VMs to turn off cannot be negative or greater than VM count for $($tag): $($vm.off)"
+        throw "VMs to turn off cannot be negative or greater than VM count for $($role): $($vm.off)"
     }
 
     # if there's more than one VM (load balanced) a port is required
@@ -699,29 +699,29 @@ function Test-TemplateVM
 
     if ($vm.count -gt 1 -and $useLoadBalancer -and (Test-Empty $vm.port))
     {
-        throw "A valid port value is required for the '$($tag)' VM template for load balancing"
+        throw "A valid port value is required for the '$($role)' VM template for load balancing"
     }
 
     # ensure that each VM has an OS setting if global OS does not exist
     if (!$hasOS -and $vm.os -eq $null)
     {
-        throw "The '$($tag)' VM template is missing the OS settings section"
+        throw "The '$($role)' VM template is missing the OS settings section"
     }
 
     if ($vm.os -ne $null)
     {
-        Test-TemplateVMOS -Tag $tag -OS $vm.os
+        Test-TemplateVMOS -Role $role -OS $vm.os
         $mainOS = $vm.os
     }
 
     # ensure the VM name is valid
-    $vmName = Get-FoggVMName (Join-ValuesDashed $Platform $tag) $vm.count
+    $vmName = Get-FoggVMName (Join-ValuesDashed $Platform $role) $vm.count
     Test-FoggVMName -OSType $mainOS.type -Name $vmName
 
     # ensure that the provisioner keys exist
     if (!$FoggObject.HasProvisionScripts -and !(Test-ArrayEmpty $vm.provisioners))
     {
-        throw "The '$($tag)' VM template specifies provisioners, but there is no Provisioner section"
+        throw "The '$($role)' VM template specifies provisioners, but there is no Provisioner section"
     }
 
     if ($FoggObject.HasProvisionScripts -and !(Test-ArrayEmpty $vm.provisioners))
@@ -731,12 +731,12 @@ function Test-TemplateVM
 
             if (Test-Empty $key)
             {
-                throw "Provisioner key cannot be empty in '$($tag)' VM template"
+                throw "Provisioner key cannot be empty in '$($role)' VM template"
             }
 
             if (!(Test-ProvisionerExists -FoggObject $FoggObject -ProvisionerName $key))
             {
-                throw "Provisioner key not specified in Provisioners section for the '$($tag)' VM template: $($key)"
+                throw "Provisioner key not specified in Provisioners section for the '$($role)' VM template: $($key)"
             }
         }
     }
@@ -752,49 +752,49 @@ function Test-TemplateVM
             # ensure sizes are greater than 0
             if ($_.size -eq $null -or $_.size -le 0)
             {
-                throw "Drive '$($_.name)' in the $($tag) VM template must have a size greater than 0Gb"
+                throw "Drive '$($_.name)' in the $($role) VM template must have a size greater than 0Gb"
             }
 
             # ensure LUNs are greater than 0
             if ($_.lun -eq $null -or $_.lun -le 0)
             {
-                throw "Drive '$($_.name)' in the $($tag) VM template must have a LUN greater than 0"
+                throw "Drive '$($_.name)' in the $($role) VM template must have a LUN greater than 0"
             }
 
             # ensure drives and letters aren't empty
             if (Test-Empty $_.name)
             {
-                throw "Drive '$($_.letter)' in the $($tag) VM template has no drive name supplied"
+                throw "Drive '$($_.letter)' in the $($role) VM template has no drive name supplied"
             }
 
             if (Test-Empty $_.letter)
             {
-                throw "Drive '$($_.name)' in the $($tag) VM template has no drive letter supplied"
+                throw "Drive '$($_.name)' in the $($role) VM template has no drive letter supplied"
             }
 
             # ensure the drive letter is not one of the reserved ones
             $reservedDrives = @('A', 'B', 'C', 'D', 'E', 'Z')
             if ($reservedDrives -icontains $_.letter)
             {
-                throw "Drive '$($_.name)' in the $($tag) VM template cannot use one of the following drive letters: $($reservedDrives -join ', ')"
+                throw "Drive '$($_.name)' in the $($role) VM template cannot use one of the following drive letters: $($reservedDrives -join ', ')"
             }
 
             if ($_.letter -inotmatch '^[a-z]{1}$')
             {
-                throw "Drive '$($_.name)' in the $($tag) VM template must have a valid alpha drive letter"
+                throw "Drive '$($_.name)' in the $($role) VM template must have a valid alpha drive letter"
             }
 
             # ensure the name is alphanumeric
             if ($_.name -inotmatch '^[a-z0-9 ]+$')
             {
-                throw "Drive '$($_.name)' in the $($tag) VM template must have a valid alphanumeric drive name"
+                throw "Drive '$($_.name)' in the $($role) VM template must have a valid alphanumeric drive name"
             }
 
             # ensure caching value is correct
             $cachings = @('ReadOnly', 'ReadWrite', 'None')
             if (![string]::IsNullOrWhiteSpace($_.caching) -and $cachings -inotcontains $_.caching)
             {
-                throw "Drive '$($_.name)' in the $($tag) VM template has an invalid caching option '$($_.caching)', valid values: $($cachings -join ', ')"
+                throw "Drive '$($_.name)' in the $($role) VM template has an invalid caching option '$($_.caching)', valid values: $($cachings -join ', ')"
             }
         }
 
@@ -802,21 +802,21 @@ function Test-TemplateVM
         $dupe = Test-ArrayIsUnique $vm.drives.lun
         if ($dupe -ne $null)
         {
-            throw "Drive LUNs need to be unique, found two drives with LUN '$($dupe)' for the $($tag) VM template"
+            throw "Drive LUNs need to be unique, found two drives with LUN '$($dupe)' for the $($role) VM template"
         }
 
         # ensure the name are unique
         $dupe = Test-ArrayIsUnique $vm.drives.name
         if ($dupe -ne $null)
         {
-            throw "Drive names need to be unique, found two drives with name '$($dupe)' for the $($tag) VM template"
+            throw "Drive names need to be unique, found two drives with name '$($dupe)' for the $($role) VM template"
         }
 
         # ensure the letters are unique
         $dupe = Test-ArrayIsUnique $vm.drives.letter
         if ($dupe -ne $null)
         {
-            throw "Drive letters need to be unique, found two drives with letter '$($dupe)' for the $($tag) VM template"
+            throw "Drive letters need to be unique, found two drives with letter '$($dupe)' for the $($role) VM template"
         }
 
         # get the drive names
@@ -943,7 +943,7 @@ function Test-TemplateVMOS
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
         [string]
-        $Tag,
+        $Role,
 
         $OS
     )
@@ -953,36 +953,36 @@ function Test-TemplateVMOS
         return
     }
 
-    $Tag = $Tag.ToLowerInvariant()
+    $Role = $Role.ToLowerInvariant()
 
     if (Test-Empty $OS.size)
     {
-        throw "$($Tag) OS settings must declare a size type"
+        throw "$($Role) OS settings must declare a size type"
     }
 
     if (Test-Empty $OS.publisher)
     {
-        throw "$($Tag) OS settings must declare a publisher type"
+        throw "$($Role) OS settings must declare a publisher type"
     }
 
     if (Test-Empty $OS.offer)
     {
-        throw "$($Tag) OS settings must declare a offer type"
+        throw "$($Role) OS settings must declare a offer type"
     }
 
     if (Test-Empty $OS.skus)
     {
-        throw "$($Tag) OS settings must declare a sku type"
+        throw "$($Role) OS settings must declare a sku type"
     }
 
     if (Test-Empty $OS.type)
     {
-        throw "$($Tag) OS settings must declare an OS type (Windows/Linux)"
+        throw "$($Role) OS settings must declare an OS type (Windows/Linux)"
     }
 
     if ($OS.type -ine 'windows' -and $OS.type -ine 'linux')
     {
-        throw "$($Tag) OS settings must declare a valid OS type (Windows/Linux)"
+        throw "$($Role) OS settings must declare a valid OS type (Windows/Linux)"
     }
 }
 
@@ -1314,7 +1314,7 @@ function Get-ReplaceSubnet
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
         [string]
-        $CurrentTag
+        $CurrentRole
     )
 
     $regex = '^@\{(?<key>.+?)(\|(?<value>.*?)){0,1}\}$'
@@ -1323,7 +1323,7 @@ function Get-ReplaceSubnet
         $v = $Matches['value']
         if ([string]::IsNullOrWhiteSpace($v))
         {
-            $v = $CurrentTag
+            $v = $CurrentRole
         }
 
         if ($Matches['key'] -ine 'subnet' -or !$Subnets.Contains($v))
@@ -1725,19 +1725,19 @@ function New-DeployTemplateVNet
     )
 
     $startTime = [DateTime]::UtcNow
-    $tag = $VNetTemplate.tag.ToLowerInvariant()
-    $tagname = (Join-ValuesDashed $FoggObject.Platform $tag)
+    $role = $VNetTemplate.role.ToLowerInvariant()
+    $basename = (Join-ValuesDashed $FoggObject.Platform $role)
 
     # VNet information
-    $FoggObject.VirtualNetworkInfo.Add($tag, @{})
-    $vnetInfo = $FoggObject.VirtualNetworkInfo[$tag]
+    $FoggObject.VirtualNetworkInfo.Add($role, @{})
+    $vnetInfo = $FoggObject.VirtualNetworkInfo[$role]
     $vnetInfo.Add('Address', $VNetTemplate.address)
     $vnetInfo.Add('Subnets', @())
 
-    Write-Information "Deploying VNet for the '$($tag)' template"
+    Write-Information "Deploying VNet for the '$($role)' template"
 
     # create the virtual network
-    $vnet = New-FoggVirtualNetwork -ResourceGroupName $FoggObject.ResourceGroupName -Name $tagname `
+    $vnet = New-FoggVirtualNetwork -ResourceGroupName $FoggObject.ResourceGroupName -Name $basename `
         -Location $FoggObject.Location -Address $VNetTemplate.address
 
     $vnetInfo.Add('Name', $vnet.Name)
@@ -1792,16 +1792,16 @@ function New-DeployTemplateVM
         $VMCredentials
     )
 
-    $tag = $VMTemplate.tag.ToLowerInvariant()
-    $tagname = (Join-ValuesDashed $FoggObject.Platform $tag)
+    $role = $VMTemplate.role.ToLowerInvariant()
+    $basename = (Join-ValuesDashed $FoggObject.Platform $role)
     $usePublicIP = [bool]$VMTemplate.usePublicIP
-    $subnetPrefix = $FoggObject.SubnetAddressMap[$tag]
-    $subnetName = (Get-FoggSubnetName $tagname)
+    $subnetPrefix = $FoggObject.SubnetAddressMap[$role]
+    $subnetName = (Get-FoggSubnetName $basename)
     $subnet = ($VNet.Subnets | Where-Object { $_.Name -ieq $subnetName -or $_.AddressPrefix -ieq $subnetPrefix })
 
     # VM information
-    $FoggObject.VirtualMachineInfo.Add($tag, @{})
-    $vmInfo = $FoggObject.VirtualMachineInfo[$tag]
+    $FoggObject.VirtualMachineInfo.Add($role, @{})
+    $vmInfo = $FoggObject.VirtualMachineInfo[$role]
     $vmInfo.Add('Subnet', @{})
     $vmInfo.Add('AvailabilitySet', $null)
     $vmInfo.Add('LoadBalancer', @{})
@@ -1830,19 +1830,19 @@ function New-DeployTemplateVM
         $useLoadBalancer = $false
     }
 
-    Write-Information "Deploying $($VMTemplate.count) VM(s) for the '$($tag)' template"
+    Write-Information "Deploying $($VMTemplate.count) VM(s) for the '$($role)' template"
 
     # create an availability set and, if VM count > 1, a load balancer
     if ($useAvailabilitySet)
     {
-        $avsetName = (Get-FoggAvailabilitySetName $tagname)
+        $avsetName = (Get-FoggAvailabilitySetName $basename)
         $avset = New-FoggAvailabilitySet -FoggObject $FoggObject -Name $avsetName
         $vmInfo.AvailabilitySet = $avsetName
     }
 
     if ($useLoadBalancer -and $VMTemplate.count -gt 1)
     {
-        $lbName = (Get-FoggLoadBalancerName $tagname)
+        $lbName = (Get-FoggLoadBalancerName $basename)
         $lb = New-FoggLoadBalancer -FoggObject $FoggObject -Name $lbName -SubnetId $subnet.Id `
             -Port $VMTemplate.port -PublicIP:$usePublicIP
 
@@ -1864,10 +1864,10 @@ function New-DeployTemplateVM
         if (!(Test-ArrayEmpty $rg_vms))
         {
             # filter on base VM name to get last VM deployed
-            $name = ($rg_vms | Where-Object { $_.Name -ilike "$($tagname)*" } | Select-Object -Last 1 -ExpandProperty Name)
+            $name = ($rg_vms | Where-Object { $_.Name -ilike "$($basename)*" } | Select-Object -Last 1 -ExpandProperty Name)
 
             # if name has a value at the end, take it as the base index
-            if ($name -imatch "^$($tagname)(\d+)")
+            if ($name -imatch "^$($basename)(\d+)")
             {
                 $baseIndex = ([int]$Matches[1])
             }
@@ -1886,7 +1886,7 @@ function New-DeployTemplateVM
         }
 
         # create the VM
-        $_vms += (New-FoggVM -FoggObject $FoggObject -Name $tagname -Index ($_ + $baseIndex) -VMCredentials $VMCredentials `
+        $_vms += (New-FoggVM -FoggObject $FoggObject -Name $basename -Index ($_ + $baseIndex) -VMCredentials $VMCredentials `
             -StorageAccount $StorageAccount -SubnetId $subnet.Id -VMSize $os.size -VMSkus $os.skus -VMOffer $os.offer `
             -VMType $os.type -VMPublisher $os.publisher -AvailabilitySet $avset -Drives $VMTemplate.drives -PublicIP:$usePublicIP)
     }
@@ -1954,7 +1954,7 @@ function New-DeployTemplateVM
         $base = ($count - $VMTemplate.off) + 1
 
         $count..$base | ForEach-Object {
-            $_vm = Get-FoggVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $tagname -Index $_ 
+            $_vm = Get-FoggVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $basename -Index $_ 
             Stop-FoggVM -FoggObject $FoggObject -Name $_vm.Name -StayProvisioned
         }
     }
@@ -1978,45 +1978,45 @@ function New-DeployTemplateVPN
     )
 
     $startTime = [DateTime]::UtcNow
-    $tag = $VPNTemplate.tag.ToLowerInvariant()
-    $tagname = (Join-ValuesDashed $FoggObject.Platform $tag)
+    $role = $VPNTemplate.role.ToLowerInvariant()
+    $basename = (Join-ValuesDashed $FoggObject.Platform $role)
 
     # VPN information
-    $FoggObject.VPNInfo.Add($tag, @{})
+    $FoggObject.VPNInfo.Add($role, @{})
 
-    Write-Information "Deploying VPN for '$($tag)' template"
+    Write-Information "Deploying VPN for '$($role)' template"
 
     switch ($VPNTemplate.configType.ToLowerInvariant())
     {
         's2s'
             {
                 # get required IP addresses
-                $gatewayIP = $FoggObject.SubnetAddressMap["$($tag)-gip"]
-                $addressOnPrem = $FoggObject.SubnetAddressMap["$($tag)-opm"]
+                $gatewayIP = $FoggObject.SubnetAddressMap["$($role)-gip"]
+                $addressOnPrem = $FoggObject.SubnetAddressMap["$($role)-opm"]
 
                 # create the local network gateway for the VPN
-                $lng = New-FoggLocalNetworkGateway -FoggObject $FoggObject -Name $tagname `
+                $lng = New-FoggLocalNetworkGateway -FoggObject $FoggObject -Name $basename `
                     -GatewayIPAddress $gatewayIP -Address $addressOnPrem
 
                 # create public vnet gateway
-                $gw = New-FoggVirtualNetworkGateway -FoggObject $FoggObject -Name $tagname -VNet $VNet `
+                $gw = New-FoggVirtualNetworkGateway -FoggObject $FoggObject -Name $basename -VNet $VNet `
                     -VpnType $VPNTemplate.vpnType -GatewaySku $VPNTemplate.gatewaySku
 
                 # create VPN connection
-                New-FoggVirtualNetworkGatewayConnection -FoggObject $FoggObject -Name $tagname `
+                New-FoggVirtualNetworkGatewayConnection -FoggObject $FoggObject -Name $basename `
                     -LocalNetworkGateway $lng -VirtualNetworkGateway $gw -SharedKey $VPNTemplate.sharedKey | Out-Null
             }
 
         'p2s'
             {
                 # get required IP addresses
-                $clientPool = $FoggObject.SubnetAddressMap["$($tag)-cap"]
+                $clientPool = $FoggObject.SubnetAddressMap["$($role)-cap"]
 
                 # resolve the cert path
                 $certPath = Resolve-Path -Path $VPNTemplate.certPath -ErrorAction Ignore
 
                 # create public vnet gateway
-                New-FoggVirtualNetworkGateway -FoggObject $FoggObject -Name $tagname -VNet $VNet `
+                New-FoggVirtualNetworkGateway -FoggObject $FoggObject -Name $basename -VNet $VNet `
                     -VpnType $VPNTemplate.vpnType -GatewaySku $VPNTemplate.gatewaySku -ClientAddressPool $clientPool `
                     -PublicCertificatePath $certPath | Out-Null
             }

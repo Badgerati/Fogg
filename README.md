@@ -61,8 +61,8 @@ The first thing you will need is a template file, which will look as follows:
 {
     "template": [
         {
-            "tag": "test",
             "type": "vm",
+            "role": "test",
             "count": 1,
             "os": {
                 "type": "Windows",
@@ -79,7 +79,7 @@ The first thing you will need is a template file, which will look as follows:
 
 The above template will be used by Fogg to deploy one public Windows 2016 VM. You will notice the `count` value, changing this to 2, 3 or more will deploy 2, 3 or more of this VM type. (Note, if you deploy a VM type with a count > 1, Fogg will automatically load balance your VMs for you, this can be disabled via: `"useLoadBalancer": false`, though you will still get an availability set).
 
-The `tag` and `type` values for template objects are mandatory. the `tag` can be any unique alphanumeric string (though try and keep it short). The `type` value can only be one of either `"vm"` or `"vpn"`.
+The `role` and `type` values for template objects are mandatory. the `role` can be any unique alphanumeric string (though try and keep it short). The `type` value can only be one of either `"vm"` or `"vpn"`.
 
 To use Fogg and the template file above, you will need an Azure Subscription. In general, the call to Fogg would look as follows:
 

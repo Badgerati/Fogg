@@ -1,7 +1,7 @@
 {
     "template": [
         {
-            "tag": "web",
+            "role": "web",
             "type": "vm",
             "count": 2,
             "provisioners": [
@@ -23,7 +23,7 @@
             }
         },
         {
-            "tag": "file",
+            "role": "file",
             "type": "vm",
             "count": 1,
             "provisioners": [

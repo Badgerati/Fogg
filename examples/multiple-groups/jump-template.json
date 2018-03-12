@@ -1,7 +1,7 @@
 {
     "template": [
         {
-            "tag": "jump",
+            "role": "jump",
             "type": "vm",
             "count": 1,
             "provisioners": [

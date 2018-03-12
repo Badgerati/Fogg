@@ -1,8 +1,8 @@
 {
     "template": [
         {
-            "tag": "vm",
             "type": "vm",
+            "role": "vm",
             "count": 1,
             "provisioners": [
                 "remoting",
