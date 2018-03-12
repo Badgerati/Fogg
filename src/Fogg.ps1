@@ -184,7 +184,7 @@ function Test-Files
     Test-FirewallRules -FirewallRules $template.firewall
 
     # Check the template section
-    Test-Template -Template $template -FoggObject $FoggObject -OS $template.os | Out-Null
+    Test-Template -Template $template -FoggObject $FoggObject | Out-Null
 
     # return the template for further usage
     return $template
@@ -212,7 +212,7 @@ if (!(Test-PowerShellVersion 4))
 # create new fogg object from parameters and foggfile
 $FoggObjects = New-FoggObject -FoggRootPath $root -ResourceGroupName $ResourceGroupName -Location $Location -SubscriptionName $SubscriptionName `
     -SubnetAddresses $SubnetAddresses -TemplatePath $TemplatePath -FoggfilePath $FoggfilePath -SubscriptionCredentials $SubscriptionCredentials `
-    -VMCredentials $VMCredentials -VNetAddress $VNetAddress -VNetResourceGroupName $VNetResourceGroupName -VNetName $VNetName -Tags $Tags 1
+    -VMCredentials $VMCredentials -VNetAddress $VNetAddress -VNetResourceGroupName $VNetResourceGroupName -VNetName $VNetName -Tags $Tags `
     -Platform $Platform
 
 # Start timer
@@ -295,10 +295,15 @@ try
             $VMCredentialsSet = $true
         }
 
-        # If we have a unique storage account name on the template, set against this FoggObject
-        if (![string]::IsNullOrWhiteSpace($template.saUniqueTag))
+
+        # do we have storage account settings?
+        if (!(Test-Empty $template.sa))
         {
-            $FoggObject.SAUniqueTag = $template.saUniqueTag.ToLowerInvariant()
+            # if we have a unique storage account name on the template, set against this FoggObject
+            if (!(Test-Empty $template.sa.uniqueTag))
+            {
+                $FoggObject.SAUniqueTag = $template.sa.uniqueTag.ToLowerInvariant()
+            }
         }
 
 
@@ -434,6 +439,9 @@ try
 }
 finally
 {
+    # logout of azure
+    Remove-FoggAccount -FoggObject $FoggObjects
+
     # Output the total time taken
     Write-Duration $timer -PreText 'Total Duration' -NewLine
 }

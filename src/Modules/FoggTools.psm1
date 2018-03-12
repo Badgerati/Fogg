@@ -365,9 +365,7 @@ function Test-Template
         $Template,
 
         [Parameter(Mandatory=$true)]
-        $FoggObject,
-
-        $OS
+        $FoggObject
     )
 
     # split out the template objects
@@ -381,6 +379,7 @@ function Test-Template
     }
 
     # ensure the global OS setting is correct
+    $OS = $Template.os
     if ($OS -ne $null)
     {
         Test-TemplateVMOS -Role 'global' -OS $OS
@@ -388,9 +387,9 @@ function Test-Template
 
     # get unique storage tag
     $saUniqueTag = $FoggObject.SAUniqueTag
-    if (!(Test-Empty $Template.saUniqueTag))
+    if (!(Test-Empty $template.sa) -and !(Test-Empty $Template.sa.uniqueTag))
     {
-        $saUniqueTag = $Template.saUniqueTag.ToLowerInvariant()
+        $saUniqueTag = $Template.sa.uniqueTag.ToLowerInvariant()
     }
 
     # ensure the storage account name is valid - but only if we have VMs

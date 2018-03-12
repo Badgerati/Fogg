@@ -24,10 +24,6 @@ have a vnet type/step, and only make vnetname/rg/address/subnet-addresses mandat
     - with validation
     - GatewaySubnet should not be standardised
 
-[ ] -----
-storage account encryption (off by default)
-    - "encrypt": [ "Blob", "File" ]
-
 [x] -----
 validate that the azure location passed is a valid location
 
@@ -40,8 +36,7 @@ sa role for creating extra storage accounts
 
 [ ] -----
 allow creation of vms from vhds
-    - either from a local vhd (path), and upload it
-    - or from a vhd on another rg/sa, in which case clone it across (but ensure vm for vhd is shutdown)
+    - from a vhd in an existing rg/sa in the same region
 
 [ ] -----
 have option to create vms, (sysprep?), download vhds, then remove resource group
@@ -50,8 +45,8 @@ have option to create vms, (sysprep?), download vhds, then remove resource group
 tags on resources?
 partially done - logic in place, just needs adding to Foggfile and main Parameters
 
-[ ] -----
-Run "Logout-AzureRmAccount" on completion
+[x] -----
+Run "Remove-AzureRmAccount" on completion
 
 [ ] -----
 update all examples/readme

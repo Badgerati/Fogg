@@ -30,6 +30,26 @@ function Add-FoggAccount
 }
 
 
+function Remove-FoggAccount
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        $FoggObject
+    )
+
+    Write-Information "Attempting to logout of Azure Subscription: $($FoggObject.SubscriptionName)"
+
+    Remove-AzureRmAccount | Out-Null
+    if (!$?)
+    {
+        throw 'Failed to logout of Azure'
+    }
+
+    Write-Success 'Logged out of Azure successfully'
+}
+
+
 function Add-FoggAdminAccount
 {
     param (
@@ -321,6 +341,7 @@ function New-FoggStorageAccount
     {
         Write-Notice "Using existing storage account for $($Name)`n"
         
+        # attempt to get existing storage account
         $storage = Get-AzureRmStorageAccount -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -ErrorAction Ignore
         if ($storage -eq $null)
         {
