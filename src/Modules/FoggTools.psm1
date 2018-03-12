@@ -1699,6 +1699,19 @@ function Test-FoggObjectParameters
 }
 
 
+function Test-FoggLocation
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Location
+    )
+
+    return ((Get-AzureRmLocation).Location -icontains $Location)
+}
+
+
 function New-DeployTemplateVNet
 {
     param (

@@ -251,6 +251,25 @@ try
     }
 
 
+    # ensure that each of the locations specified are valid
+    $locs = @()
+
+    foreach ($FoggObject in $FoggObjects.Groups)
+    {
+        if ($locs -icontains $FoggObject.Location)
+        {
+            continue
+        }
+
+        if (!(Test-FoggLocation -Location $FoggObject.Location))
+        {
+            throw "Location supplied is invalid: $($FoggObject.Location)"
+        }
+
+        $locs += $FoggObject.Location
+    }
+
+
     # have we set VM creds? but only if we have VMs to create
     $VMCredentialsSet = $false
 

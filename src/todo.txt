@@ -28,7 +28,7 @@ have a vnet type/step, and only make vnetname/rg/address/subnet-addresses mandat
 storage account encryption (off by default)
     - "encrypt": [ "Blob", "File" ]
 
-[ ] -----
+[x] -----
 validate that the azure location passed is a valid location
 
 [x] -----
