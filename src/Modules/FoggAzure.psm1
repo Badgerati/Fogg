@@ -291,34 +291,23 @@ function Test-FoggStorageAccount
 }
 
 
-function Get-FoggStorageAccountName
+function New-FoggStorageAccount
 {
     param (
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
         [string]
+        $ResourceGroupName,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
         $Name,
 
-        [switch]
-        $Premium
-    )
-
-    $type = 'std'
-    if ($Premium)
-    {
-        $type = 'prm'
-    }
-
-    return (("$($Name)-$($type)-sa") -ireplace '-', '').ToLowerInvariant()
-}
-
-
-function New-FoggStorageAccount
-{
-    param (
         [Parameter(Mandatory=$true)]
-        [ValidateNotNull()]
-        $FoggObject,
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Location,
 
         [switch]
         $Premium
@@ -332,9 +321,9 @@ function New-FoggStorageAccount
     }
 
     # generate the storage account's name
-    $Name = Get-FoggStorageAccountName -Name (Join-ValuesDashed @($FoggObject.SAUniqueTag, $FoggObject.Platform)) -Premium:$Premium
+    $Name = Get-FoggStorageAccountName -Name $Name -Premium:$Premium
 
-    Write-Information "Creating storage account $($Name) in resource group $($FoggObject.ResourceGroupName)"
+    Write-Information "Creating storage account $($Name) in resource group $($ResourceGroupName)"
 
     # get an existing storage account, and check if it's ours or someone elses
     if (Test-FoggStorageAccount $Name)
@@ -342,25 +331,25 @@ function New-FoggStorageAccount
         Write-Notice "Using existing storage account for $($Name)`n"
         
         # attempt to get existing storage account
-        $storage = Get-AzureRmStorageAccount -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -ErrorAction Ignore
+        $storage = Get-AzureRmStorageAccount -ResourceGroupName $ResourceGroupName -Name $Name -ErrorAction Ignore
         if ($storage -eq $null)
         {
-            throw "The StorageAccount '$($Name)' does not exist under ResourceGroup '$($FoggObject.ResourceGroupName)'. This is likely because the name is in use by someone else, and StorageAccount names are unique globally for everybody"
+            throw "The StorageAccount '$($Name)' does not exist under ResourceGroup '$($ResourceGroupName)'. This is likely because the name is in use by someone else, and StorageAccount names are unique globally for everybody"
         }
 
         return $storage
     }
 
     # create a new storage account
-    $sa = New-AzureRmStorageAccount -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -SkuName $StorageType `
-        -Kind Storage -Location $FoggObject.Location
+    $sa = New-AzureRmStorageAccount -ResourceGroupName $ResourceGroupName -Name $Name -SkuName $StorageType `
+        -Kind Storage -Location $Location
 
     if (!$?)
     {
         throw "Failed to create storage account $($Name)"
     }
 
-    Write-Success "Storage account $($Name) created at $($FoggObject.Location)`n"
+    Write-Success "Storage account $($Name) created at $($Location)`n"
     return $sa
 }
 

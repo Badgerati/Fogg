@@ -245,3 +245,25 @@ function Get-FoggVirtualNetworkGatewayIpConfigName
 
     return (Get-FoggStandardisedName -Name $Name -Tag 'cfg')
 }
+
+function Get-FoggStorageAccountName
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Name,
+
+        [switch]
+        $Premium
+    )
+
+    $type = 'std'
+    if ($Premium)
+    {
+        $type = 'prm'
+    }
+
+    $Name = (Get-FoggStandardisedName -Name "$($Name)-$($type)" -Tag 'sa')
+    return ($Name -ireplace '-', '')
+}

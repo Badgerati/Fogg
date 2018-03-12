@@ -328,7 +328,11 @@ try
             {
                 # Create the storage account
                 $usePremiumStorage = [bool]$template.usePremiumStorage
-                $sa = New-FoggStorageAccount -FoggObject $FoggObject -Premium:$usePremiumStorage
+
+                $saBaseName = (Join-ValuesDashed @($FoggObject.SAUniqueTag, $FoggObject.Platform))
+                $sa = New-FoggStorageAccount -ResourceGroupName $FoggObject.ResourceGroupName -Location $FoggObject.Location `
+                    -Name $saBaseName -Premium:$usePremiumStorage
+
                 $FoggObject.StorageAccountName = $sa.StorageAccountName
 
                 # publish Provisioner scripts to storage account
