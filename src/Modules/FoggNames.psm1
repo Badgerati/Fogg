@@ -72,6 +72,11 @@ function Get-FoggSubnetName
         $Name
     )
 
+    if ($Name -ieq 'gatewaysubnet')
+    {
+        return 'GatewaySubnet'
+    }
+
     return (Get-FoggStandardisedName -Name $Name -Tag 'snet')
 }
 

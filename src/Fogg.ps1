@@ -140,12 +140,22 @@ $ErrorActionPreference = 'Stop'
 $WarningPreference = 'Ignore'
 
 
+function Restore-FoggModule([string]$Path, [string]$Name)
+{
+    if ((Get-Module -Name $Name) -ne $null)
+    {
+        Remove-Module -Name $Name -Force | Out-Null
+    }
+
+    Import-Module "$($Root)\Modules\$($Name).psm1" -Force -ErrorAction Stop
+}
+
 
 # Import the FoggTools
 $root = Split-Path -Parent -Path $MyInvocation.MyCommand.Path
-Import-Module "$($root)\Modules\FoggTools.psm1" -ErrorAction Stop
-Import-Module "$($root)\Modules\FoggNames.psm1" -ErrorAction Stop
-Import-Module "$($root)\Modules\FoggAzure.psm1" -ErrorAction Stop
+Restore-FoggModule -Path $root -Name 'FoggTools'
+Restore-FoggModule -Path $root -Name 'FoggNames'
+Restore-FoggModule -Path $root -Name 'FoggAzure'
 
 
 # Simple function for validating the Foggfile and templates

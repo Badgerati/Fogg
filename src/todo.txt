@@ -22,10 +22,17 @@ have a vnet type/step, and only make vnetname/rg/address/subnet-addresses mandat
     - vnet mask
     - subnet masks
     - with validation
+    - GatewaySubnet should not be standardised
 
 [ ] -----
 storage account encryption (off by default)
     - "encrypt": [ "Blob", "File" ]
+
+[ ] -----
+validate that the azure location passed is a valid location
+
+[ ] -----
+don't request VM creds when template has no VMs in it
 
 [ ] -----
 sa role for creating extra storage accounts
@@ -42,6 +49,9 @@ have option to create vms, (sysprep?), download vhds, then remove resource group
 [x] -----
 tags on resources?
 partially done - logic in place, just needs adding to Foggfile and main Parameters
+
+[ ] -----
+Run "Logout-AzureRmAccount" on completion
 
 [ ] -----
 update all examples/readme
