@@ -31,7 +31,7 @@ storage account encryption (off by default)
 [ ] -----
 validate that the azure location passed is a valid location
 
-[ ] -----
+[x] -----
 don't request VM creds when template has no VMs in it
 
 [ ] -----

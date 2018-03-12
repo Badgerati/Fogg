@@ -251,8 +251,8 @@ try
     }
 
 
-    # Set the VM admin credentials
-    Add-FoggAdminAccount -FoggObject $FoggObjects
+    # have we set VM creds? but only if we have VMs to create
+    $VMCredentialsSet = $false
 
 
     # loop through each group within the FoggObject
@@ -260,6 +260,13 @@ try
     {
         # Retrieve the template for the current Group
         $template = Test-Files -FoggObject $FoggObject
+
+        # Set the VM admin credentials, but only if we have VMs to create
+        if (!$VMCredentialsSet -and (Test-TemplateHasType $template.template 'vm'))
+        {
+            Add-FoggAdminAccount -FoggObject $FoggObjects
+            $VMCredentialsSet = $true
+        }
 
         # If we have a platform on the template, set against this FoggObject
         if (![string]::IsNullOrWhiteSpace($template.platform))
