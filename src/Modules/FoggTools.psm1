@@ -1655,6 +1655,7 @@ function New-FoggGroupObject
     $group.StorageAccountName = $null
     $group.VirtualMachineInfo = @{}
     $group.VirtualNetworkInfo = @{}
+    $group.StorageAccountInfo = @{}
     $group.VPNInfo = @{}
 
     $groupObj = New-Object -TypeName PSObject -Property $group
