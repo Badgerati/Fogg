@@ -455,7 +455,7 @@ function Test-Template
 
             'sa'
                 {
-                    # Test-TemplateSA -SA $obj -FoggObject $FoggObject
+                    Test-TemplateSA -SA $obj -FoggObject $FoggObject
                 }
 
             default
@@ -466,6 +466,23 @@ function Test-Template
     }
 
     return $templateCount
+}
+
+
+function Test-TemplateSA
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        $SA,
+
+        [Parameter(Mandatory=$true)]
+        $FoggObject
+    )
+
+    # ensure name is valid
+    $premium = [bool]$SA.premium
+    $name = Get-FoggStorageAccountName -Name (Join-ValuesDashed @($FoggObject.LocationCode, $FoggObject.Stamp, $FoggObject.Platform, $SA.role)) -Premium:$premium
+    Test-FoggStorageAccountName $name
 }
 
 
@@ -1723,6 +1740,40 @@ function Get-FoggLocation
     )
 
     return (Get-AzureRmLocation | Where-Object { $_.Location -ieq $Location } | Select-Object -First 1)
+}
+
+
+function New-DeployTemplateSA
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        $SATemplate,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        $FoggObject
+    )
+
+    $startTime = [DateTime]::UtcNow
+    $role = $SATemplate.role.ToLowerInvariant()
+
+    # Storage Account information
+    $FoggObject.StorageAccountInfo.Add($role, @{})
+    $saInfo = $FoggObject.StorageAccountInfo[$role]
+
+    Write-Information "Deploying Storage Account for the '$($role)' template"
+
+    # create the storage account
+    $premium = [bool]$SATemplate.premium
+    $sa = New-FoggStorageAccount -FoggObject $FoggObject -Role $role -Premium:$premium
+
+    $saInfo.Add('Name', $sa.StorageAccountName)
+    $saInfo.Add('Premium', $premium)
+
+    # output the time taken to create Storage Account
+    Write-Duration $startTime -PreText 'Storage Account Duration'
+    Write-Host ([string]::Empty)
 }
 
 

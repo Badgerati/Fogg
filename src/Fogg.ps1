@@ -407,7 +407,7 @@ try
 
                     'sa'
                         {
-                            # New-DeployTemplateSA -SATemplate $obj -FoggObject $FoggObject
+                            New-DeployTemplateSA -SATemplate $obj -FoggObject $FoggObject
                         }
                 }
             }
@@ -521,6 +521,19 @@ foreach ($FoggObject in $FoggObjects.Groups)
         ForEach-Object { $info.Add($_.Name, $_.Value) }
 
     $rg.VirtualNetworkInfo += $info
+
+    # set storage account info
+    if ($rg.StorageAccountInfo -eq $null)
+    {
+        $rg.StorageAccountInfo = @{}
+    }
+
+    $info = @{}
+    $FoggObject.StorageAccountInfo.GetEnumerator() | 
+        Where-Object { !$rg.StorageAccountInfo.ContainsKey($_.Name) } |
+        ForEach-Object { $info.Add($_.Name, $_.Value) }
+
+    $rg.StorageAccountInfo += $info
 }
 
 return $result
