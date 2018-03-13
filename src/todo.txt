@@ -1,7 +1,7 @@
 v1.0.0::
 
 [x] -----
-unique tag for storage accounts
+unique stamp for storage accounts as an arg/foggfile
 
 [x] -----
 standardise all names into a separate module
@@ -30,8 +30,8 @@ validate that the azure location passed is a valid location
 [x] -----
 don't request VM creds when template has no VMs in it
 
-[ ] -----
-sa role for creating extra storage accounts
+[-] -----
+sa step for creating extra storage accounts
     - with validation
 
 [ ] -----

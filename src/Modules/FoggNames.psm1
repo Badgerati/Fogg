@@ -267,3 +267,79 @@ function Get-FoggStorageAccountName
     $Name = (Get-FoggStandardisedName -Name "$($Name)-$($type)" -Tag 'sa')
     return ($Name -ireplace '-', '')
 }
+
+function Get-FoggDirectionName
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Name
+    )
+
+    $Name = $Name.ToLowerInvariant()
+
+    $dirs = @{
+        'south' = 's';
+        'east' = 'e';
+        'west' = 'w';
+        'north' = 'n';
+        'central' = 'c';
+        'southeast' = 'se';
+        'southwest' = 'sw';
+        'northeast' = 'ne';
+        'northwest' = 'nw';
+    }
+
+    if ($dirs.ContainsKey($Name))
+    {
+        return $dirs[$Name]
+    }
+
+    return [string]::Empty
+}
+
+function Get-FoggLocationName
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Location
+    )
+
+    $value = [string]::Empty
+
+    switch ($Location.ToLowerInvariant())
+    {
+        'eastasia' { $value = 'asia-e' }
+        'southeastasia' { $value = 'asia-se' }
+        'centralus' { $value = 'us-c' }
+        'eastus' { $value = 'us-e' }
+        'eastus2' { $value = 'us-e2' }
+        'westus' { $value = 'us-w' }
+        'northcentralus' { $value = 'us-nc' }
+        'southcentralus' { $value = 'us-sc' }
+        'northeurope' { $value = 'eu-n' }
+        'westeurope' { $value = 'eu-w' }
+        'japanwest' { $value = 'jp-w' }
+        'japaneast' { $value = 'jp-e' }
+        'brazilsouth' { $value = 'bra-s' }
+        'australiaeast' { $value = 'aus-e' }
+        'australiasoutheast' { $value = 'aus-se' }
+        'southindia' { $value = 'ind-s' }
+        'centralindia' { $value = 'ind-c' }
+        'westindia' { $value = 'ind-w' }
+        'canadacentral' { $value = 'can-c' }
+        'canadaeast' { $value = 'can-e' }
+        'uksouth' { $value = 'uk-s' }
+        'ukwest' { $value = 'uk-w' }
+        'westcentralus' { $value = 'us-wc' }
+        'westus2' { $value = 'us-w2' }
+        'koreacentral' { $value = 'kor-c' }
+        'koreasouth' { $value = 'kor-s' }
+        'francecentral' { $value = 'fra-c' }
+    }
+
+    return $value
+}

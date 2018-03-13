@@ -385,18 +385,11 @@ function Test-Template
         Test-TemplateVMOS -Role 'global' -OS $OS
     }
 
-    # get unique storage tag
-    $saUniqueTag = $FoggObject.SAUniqueTag
-    if (!(Test-Empty $template.sa) -and !(Test-Empty $Template.sa.uniqueTag))
-    {
-        $saUniqueTag = $Template.sa.uniqueTag.ToLowerInvariant()
-    }
-
     # ensure the storage account name is valid - but only if we have VMs
     if (Test-TemplateHasType $templateObjs 'vm')
     {
         $usePremiumStorage = [bool]$Template.usePremiumStorage
-        $saName = Get-FoggStorageAccountName -Name (Join-ValuesDashed @($saUniqueTag, $FoggObject.Platform)) -Premium:$usePremiumStorage
+        $saName = Get-FoggStorageAccountName -Name (Join-ValuesDashed @($FoggObject.LocationCode, $FoggObject.Stamp, $FoggObject.Platform)) -Premium:$usePremiumStorage
         Test-FoggStorageAccountName $saName
     }
 
@@ -458,6 +451,11 @@ function Test-Template
             'vnet'
                 {
                     Test-TemplateVNet -VNet $obj -FoggObject $FoggObject
+                }
+
+            'sa'
+                {
+                    # Test-TemplateSA -SA $obj -FoggObject $FoggObject
                 }
 
             default
@@ -1381,7 +1379,10 @@ function New-FoggObject
         $Tags,
 
         [string]
-        $Platform
+        $Platform,
+
+        [string]
+        $Stamp
     )
 
     $useFoggfile = $false
@@ -1419,7 +1420,8 @@ function New-FoggObject
         $SubnetAddresses,
         $TemplatePath,
         $Tags,
-        $Platform
+        $Platform,
+        $Stamp
     )
 
     if (!$useFoggfile -and (Test-ArrayEmpty $foggParams))
@@ -1457,7 +1459,7 @@ function New-FoggObject
         $group = New-FoggGroupObject -ResourceGroupName $ResourceGroupName -Location $Location `
             -SubnetAddresses $SubnetAddresses -TemplatePath $TemplatePath -FoggfilePath $FoggfilePath `
             -VNetAddress $VNetAddress -VNetResourceGroupName $VNetResourceGroupName -VNetName $VNetName `
-            -Platform $Platform
+            -Platform $Platform -Stamp $Stamp
 
         $group.ProvisionersPath = $provisionPath
         $foggObj.Groups += $group
@@ -1498,7 +1500,7 @@ function New-FoggObject
             $group = New-FoggGroupObject -ResourceGroupName $ResourceGroupName -Location $Location `
                 -SubnetAddresses $SubnetAddresses -TemplatePath $TemplatePath -FoggfilePath $FoggfilePath `
                 -VNetAddress $VNetAddress -VNetResourceGroupName $VNetResourceGroupName `
-                -VNetName $VNetName -Platform $Platform -FoggParameters $_
+                -VNetName $VNetName -Platform $Platform -Stamp $Stamp -FoggParameters $_
 
             $group.ProvisionersPath = $provisionPath
             $foggObj.Groups += $group
@@ -1548,6 +1550,9 @@ function New-FoggGroupObject
         [string]
         $Platform,
 
+        [string]
+        $Stamp,
+
         $FoggParameters = $null
     )
 
@@ -1562,6 +1567,11 @@ function New-FoggGroupObject
         if (Test-Empty $Location)
         {
             $Location = $FoggParameters.Location
+        }
+
+        if (Test-Empty $Stamp)
+        {
+            $Stamp = $FoggParameters.Stamp
         }
 
         if (Test-Empty $VNetAddress)
@@ -1610,8 +1620,9 @@ function New-FoggGroupObject
     $group = @{}
     $group.ResourceGroupName = $ResourceGroupName
     $group.Platform = $Platform
-    $group.SAUniqueTag = [string]::Empty
+    $group.Stamp = $Stamp
     $group.Location = $Location
+    $group.LocationCode = (Get-FoggLocationName -Location $Location)
     $group.VNetAddress = $VNetAddress
     $group.VNetResourceGroupName = $VNetResourceGroupName
     $group.VNetName = $VNetName
@@ -1698,7 +1709,20 @@ function Test-FoggLocation
         $Location
     )
 
-    return ((Get-AzureRmLocation).Location -icontains $Location)
+    return ((Get-FoggLocation -Location $Location) -ne $null)
+}
+
+
+function Get-FoggLocation
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Location
+    )
+
+    return (Get-AzureRmLocation | Where-Object { $_.Location -ieq $Location } | Select-Object -First 1)
 }
 
 

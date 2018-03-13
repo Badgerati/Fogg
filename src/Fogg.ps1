@@ -49,6 +49,9 @@
     .PARAMETER Platform
         (Optional) The name of the platform that is being deployed
 
+    .PARAMETER Stamp
+        (Optional) This is a unique value that is used for storage accounts
+
     .PARAMETER Tags
         (Optional) This is a map of tags to set/update against each resource within the created resource group. The tags
         against the resource group are also set/updated.
@@ -79,7 +82,7 @@
 #>
 param (
     [string]
-    [Alias('rgn')]
+    [Alias('rg')]
     $ResourceGroupName,
 
     [string]
@@ -90,7 +93,7 @@ param (
     [Alias('sub')]
     $SubscriptionName,
 
-    [Alias('saddr')]
+    [Alias('snets')]
     $SubnetAddresses,
 
     [string]
@@ -110,20 +113,24 @@ param (
     $VMCredentials,
 
     [string]
-    [Alias('vaddr')]
+    [Alias('vnetaddr')]
     $VNetAddress,
 
     [string]
-    [Alias('vrgn')]
+    [Alias('vnetrg')]
     $VNetResourceGroupName,
 
     [string]
-    [Alias('vn')]
+    [Alias('vnet')]
     $VNetName,
 
     [string]
     [Alias('p')]
     $Platform,
+
+    [string]
+    [Alias('s')]
+    $Stamp,
 
     [Alias('t')]
     $Tags,
@@ -213,7 +220,7 @@ if (!(Test-PowerShellVersion 4))
 $FoggObjects = New-FoggObject -FoggRootPath $root -ResourceGroupName $ResourceGroupName -Location $Location -SubscriptionName $SubscriptionName `
     -SubnetAddresses $SubnetAddresses -TemplatePath $TemplatePath -FoggfilePath $FoggfilePath -SubscriptionCredentials $SubscriptionCredentials `
     -VMCredentials $VMCredentials -VNetAddress $VNetAddress -VNetResourceGroupName $VNetResourceGroupName -VNetName $VNetName -Tags $Tags `
-    -Platform $Platform
+    -Platform $Platform -Stamp $Stamp
 
 # Start timer
 $timer = [DateTime]::UtcNow
@@ -221,7 +228,7 @@ $timer = [DateTime]::UtcNow
 
 try
 {
-    # validate the template files and section
+    # validate the template files and sections
     Write-Information "Verifying template files"
 
     foreach ($FoggObject in $FoggObjects.Groups)
@@ -259,7 +266,7 @@ try
     }
 
 
-    # ensure that each of the locations specified are valid
+    # ensure that each of the locations specified are valid, and set location short codes
     $locs = @()
 
     foreach ($FoggObject in $FoggObjects.Groups)
@@ -296,17 +303,6 @@ try
         }
 
 
-        # do we have storage account settings?
-        if (!(Test-Empty $template.sa))
-        {
-            # if we have a unique storage account name on the template, set against this FoggObject
-            if (!(Test-Empty $template.sa.uniqueTag))
-            {
-                $FoggObject.SAUniqueTag = $template.sa.uniqueTag.ToLowerInvariant()
-            }
-        }
-
-
         # If we're using an existng virtual network, ensure it actually exists
         if ($FoggObject.UseGlobalVNet -and $FoggObject.UseExistingVNet)
         {
@@ -328,11 +324,7 @@ try
             {
                 # Create the storage account
                 $usePremiumStorage = [bool]$template.usePremiumStorage
-
-                $saBaseName = (Join-ValuesDashed @($FoggObject.SAUniqueTag, $FoggObject.Platform))
-                $sa = New-FoggStorageAccount -ResourceGroupName $FoggObject.ResourceGroupName -Location $FoggObject.Location `
-                    -Name $saBaseName -Premium:$usePremiumStorage
-
+                $sa = New-FoggStorageAccount -FoggObject $FoggObject -Premium:$usePremiumStorage
                 $FoggObject.StorageAccountName = $sa.StorageAccountName
 
                 # publish Provisioner scripts to storage account
@@ -411,6 +403,11 @@ try
                     'vnet'
                         {
                             New-DeployTemplateVNet -VNetTemplate $obj -FoggObject $FoggObject
+                        }
+
+                    'sa'
+                        {
+                            # New-DeployTemplateSA -SATemplate $obj -FoggObject $FoggObject
                         }
                 }
             }
