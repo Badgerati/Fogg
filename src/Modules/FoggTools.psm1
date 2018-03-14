@@ -389,7 +389,7 @@ function Test-Template
     if (Test-TemplateHasType $templateObjs 'vm')
     {
         $usePremiumStorage = [bool]$Template.usePremiumStorage
-        $saName = Get-FoggStorageAccountName -Name (Join-ValuesDashed @($FoggObject.LocationCode, $FoggObject.Stamp, $FoggObject.Platform)) -Premium:$usePremiumStorage
+        $saName = Get-FoggStorageAccountName -Name (Join-ValuesDashed @($FoggObject.LocationCode, $FoggObject.Stamp, $FoggObject.Platform))
         Test-FoggStorageAccountName $saName
     }
 
@@ -481,7 +481,7 @@ function Test-TemplateSA
 
     # ensure name is valid
     $premium = [bool]$SA.premium
-    $name = Get-FoggStorageAccountName -Name (Join-ValuesDashed @($FoggObject.LocationCode, $FoggObject.Stamp, $FoggObject.Platform, $SA.role)) -Premium:$premium
+    $name = Get-FoggStorageAccountName -Name (Join-ValuesDashed @($FoggObject.LocationCode, $FoggObject.Stamp, $FoggObject.Platform, $SA.role))
     Test-FoggStorageAccountName $name
 }
 
@@ -1458,6 +1458,7 @@ function New-FoggObject
     $props.SubscriptionName = $SubscriptionName
     $props.SubscriptionCredentials = $SubscriptionCredentials
     $props.VMCredentials = $VMCredentials
+    $props.LoggedIn = $false
     $props.Tags = $Tags
     $foggObj = New-Object -TypeName PSObject -Property $props
 

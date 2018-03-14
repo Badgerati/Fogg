@@ -252,19 +252,10 @@ function Get-FoggStorageAccountName
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
         [string]
-        $Name,
-
-        [switch]
-        $Premium
+        $Name
     )
 
-    $type = 'std'
-    if ($Premium)
-    {
-        $type = 'prm'
-    }
-
-    $Name = (Get-FoggStandardisedName -Name "$($Name)-$($type)" -Tag 'sa')
+    $Name = (Get-FoggStandardisedName -Name "$($Name)" -Tag 'sa')
     return ($Name -ireplace '-', '')
 }
 

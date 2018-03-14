@@ -10,7 +10,7 @@ function Add-FoggAccount
         $FoggObject
     )
 
-    Write-Information "Attempting to sign-in to Azure Subscription: $($FoggObject.SubscriptionName)"
+    Write-Information "Attempting to login to Azure Subscription: $($FoggObject.SubscriptionName)"
 
     if ($FoggObject.SubscriptionCredentials -ne $null)
     {
@@ -26,6 +26,7 @@ function Add-FoggAccount
         throw "Failed to login into Azure Subscription: $($FoggObject.SubscriptionName)"
     }
 
+    $FoggObject.LoggedIn = $true
     Write-Success "Logged into Azure Subscription: $($FoggObject.SubscriptionName)`n"
 }
 
@@ -38,15 +39,18 @@ function Remove-FoggAccount
         $FoggObject
     )
 
-    Write-Information "Attempting to logout of Azure Subscription: $($FoggObject.SubscriptionName)"
-
-    Remove-AzureRmAccount | Out-Null
-    if (!$?)
+    if ($FoggObject.LoggedIn)
     {
-        throw 'Failed to logout of Azure'
-    }
+        Write-Information "Attempting to logout of Azure Subscription: $($FoggObject.SubscriptionName)"
 
-    Write-Success 'Logged out of Azure successfully'
+        Remove-AzureRmAccount | Out-Null
+        if (!$?)
+        {
+            throw 'Failed to logout of Azure'
+        }
+
+        Write-Success 'Logged out of Azure successfully'
+    }
 }
 
 
@@ -314,7 +318,7 @@ function New-FoggStorageAccount
 
     # generate the storage account's name
     $basename = (Join-ValuesDashed @($FoggObject.LocationCode, $FoggObject.Stamp, $FoggObject.Platform, $Role))
-    $Name = Get-FoggStorageAccountName -Name $basename -Premium:$Premium
+    $Name = Get-FoggStorageAccountName -Name $basename
 
     Write-Information "Creating storage account $($Name) in resource group $($FoggObject.ResourceGroupName)"
 
