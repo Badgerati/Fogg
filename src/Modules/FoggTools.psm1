@@ -388,8 +388,7 @@ function Test-Template
     # ensure the storage account name is valid - but only if we have VMs
     if (Test-TemplateHasType $templateObjs 'vm')
     {
-        $usePremiumStorage = [bool]$Template.usePremiumStorage
-        $saName = Get-FoggStorageAccountName -Name (Join-ValuesDashed @($FoggObject.LocationCode, $FoggObject.Stamp, $FoggObject.Platform))
+        $saName = Get-FoggStorageAccountName -Name (Join-ValuesDashed @($FoggObject.LocationCode, $FoggObject.Stamp, $FoggObject.Platform, 'gbl'))
         Test-FoggStorageAccountName $saName
     }
 
@@ -480,7 +479,6 @@ function Test-TemplateSA
     )
 
     # ensure name is valid
-    $premium = [bool]$SA.premium
     $name = Get-FoggStorageAccountName -Name (Join-ValuesDashed @($FoggObject.LocationCode, $FoggObject.Stamp, $FoggObject.Platform, $SA.role))
     Test-FoggStorageAccountName $name
 }

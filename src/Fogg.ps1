@@ -319,12 +319,12 @@ try
             New-FoggResourceGroup -FoggObject $FoggObject | Out-Null
 
 
-            # only create storage account if we have VMs
+            # only create global storage account if we have VMs
             if (Test-TemplateHasType $template.template 'vm')
             {
                 # Create the storage account
                 $usePremiumStorage = [bool]$template.usePremiumStorage
-                $sa = New-FoggStorageAccount -FoggObject $FoggObject -Premium:$usePremiumStorage
+                $sa = New-FoggStorageAccount -FoggObject $FoggObject -Role 'gbl' -Premium:$usePremiumStorage
                 $FoggObject.StorageAccountName = $sa.StorageAccountName
 
                 # publish Provisioner scripts to storage account
