@@ -34,12 +34,21 @@ don't request VM creds when template has no VMs in it
 sa step for creating extra storage accounts
     - with validation
 
-[ ] -----
+[x] -----
 allow creation of vms from vhds
-    - from a vhd in an existing rg/sa in the same region
+    - from a vhd in an existing sa in the same rg
+
+[ ] -----
+allow create of vms from a template image file
+
+[x] -----
+if vm count is null or not supplied, just assume "1", rather than fail
 
 [ ] -----
 have option to create vms, (sysprep?), download vhds, then remove resource group
+
+[x] -----
+unload imported modules after running - no sense keeping them imported afterwards
 
 [x] -----
 tags on resources?
@@ -49,15 +58,19 @@ partially done - logic in place, just needs adding to Foggfile and main Paramete
 Run "Remove-AzureRmAccount" on completion
 
 [ ] -----
+managed disks
+
+[ ] -----
+role uniqueness is not global in template - it should be unique to each type
+    - you can have "data/vm" and "data/sa", but you can't have "data/sa" again
+
+[ ] -----
+move creation of global vnet (unless re-using one) to be a defined step
+    - vm type now has a "vnet" section, to define "name" and "rg" (optional)
+
+[ ] -----
 update all examples/readme
 
 [ ] -----
 vnet example
 storage account example
-
-
-
-v1.1.0::
-
-[ ] -----
-managed disks

@@ -16,9 +16,9 @@ function Get-FoggStandardisedName
         return [string]::Empty
     }
 
-    if ($Name -inotlike "*-$($Tag)")
+    if ($Name -inotlike "*$($Tag)")
     {
-        $Name = "$($Name)-$($Tag)"
+        $Name = "$($Name)$($Tag)"
     }
 
     return $Name.ToLowerInvariant()
@@ -48,7 +48,7 @@ function Get-FoggVMName
         return "$($Name)$($Index)".ToLowerInvariant()
     }
 
-    return (Get-FoggStandardisedName -Name $Name -Tag "vm$($Index)")
+    return (Get-FoggStandardisedName -Name $Name -Tag "-vm$($Index)")
 }
 
 function Get-FoggNetworkSecurityGroupName
@@ -60,7 +60,19 @@ function Get-FoggNetworkSecurityGroupName
         $Name
     )
 
-    return (Get-FoggStandardisedName -Name $Name -Tag 'nsg')
+    return (Get-FoggStandardisedName -Name $Name -Tag '-nsg')
+}
+
+function Get-FoggVhdName
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Name
+    )
+
+    return (Get-FoggStandardisedName -Name $Name -Tag '.vhd')
 }
 
 function Get-FoggSubnetName
@@ -77,7 +89,7 @@ function Get-FoggSubnetName
         return 'GatewaySubnet'
     }
 
-    return (Get-FoggStandardisedName -Name $Name -Tag 'snet')
+    return (Get-FoggStandardisedName -Name $Name -Tag '-snet')
 }
 
 function Get-FoggResourceGroupName
@@ -88,7 +100,7 @@ function Get-FoggResourceGroupName
         $Name
     )
 
-    return (Get-FoggStandardisedName -Name $Name -Tag 'rg')
+    return (Get-FoggStandardisedName -Name $Name -Tag '-rg')
 }
 
 function Get-FoggVirtualNetworkName
@@ -99,7 +111,7 @@ function Get-FoggVirtualNetworkName
         $Name
     )
 
-    return (Get-FoggStandardisedName -Name $Name -Tag 'vnet')
+    return (Get-FoggStandardisedName -Name $Name -Tag '-vnet')
 }
 
 function Get-FoggPublicIpName
@@ -111,7 +123,7 @@ function Get-FoggPublicIpName
         $Name
     )
 
-    return (Get-FoggStandardisedName -Name $Name -Tag 'pip')
+    return (Get-FoggStandardisedName -Name $Name -Tag '-pip')
 }
 
 function Get-FoggLoadBalancerName
@@ -123,7 +135,7 @@ function Get-FoggLoadBalancerName
         $Name
     )
 
-    return (Get-FoggStandardisedName -Name $Name -Tag 'lb')
+    return (Get-FoggStandardisedName -Name $Name -Tag '-lb')
 }
 
 function Get-FoggLoadBalancerBackendName
@@ -135,7 +147,7 @@ function Get-FoggLoadBalancerBackendName
         $Name
     )
 
-    return (Get-FoggStandardisedName -Name $Name -Tag 'back')
+    return (Get-FoggStandardisedName -Name $Name -Tag '-back')
 }
 
 function Get-FoggLoadBalancerFrontendName
@@ -147,7 +159,7 @@ function Get-FoggLoadBalancerFrontendName
         $Name
     )
 
-    return (Get-FoggStandardisedName -Name $Name -Tag 'front')
+    return (Get-FoggStandardisedName -Name $Name -Tag '-front')
 }
 
 function Get-FoggLoadBalancerProbeName
@@ -159,7 +171,7 @@ function Get-FoggLoadBalancerProbeName
         $Name
     )
 
-    return (Get-FoggStandardisedName -Name $Name -Tag 'probe')
+    return (Get-FoggStandardisedName -Name $Name -Tag '-probe')
 }
 
 function Get-FoggLoadBalancerRuleName
@@ -171,7 +183,7 @@ function Get-FoggLoadBalancerRuleName
         $Name
     )
 
-    return (Get-FoggStandardisedName -Name $Name -Tag 'rule')
+    return (Get-FoggStandardisedName -Name $Name -Tag '-rule')
 }
 
 function Get-FoggAvailabilitySetName
@@ -183,7 +195,7 @@ function Get-FoggAvailabilitySetName
         $Name
     )
 
-    return (Get-FoggStandardisedName -Name $Name -Tag 'as')
+    return (Get-FoggStandardisedName -Name $Name -Tag '-as')
 }
 
 function Get-FoggNetworkInterfaceName
@@ -195,7 +207,7 @@ function Get-FoggNetworkInterfaceName
         $Name
     )
 
-    return (Get-FoggStandardisedName -Name $Name -Tag 'nic')
+    return (Get-FoggStandardisedName -Name $Name -Tag '-nic')
 }
 
 function Get-FoggLocalNetworkGatewayName
@@ -207,7 +219,7 @@ function Get-FoggLocalNetworkGatewayName
         $Name
     )
 
-    return (Get-FoggStandardisedName -Name $Name -Tag 'lngw')
+    return (Get-FoggStandardisedName -Name $Name -Tag '-lngw')
 }
 
 function Get-FoggVirtualNetworkGatewayName
@@ -219,7 +231,7 @@ function Get-FoggVirtualNetworkGatewayName
         $Name
     )
 
-    return (Get-FoggStandardisedName -Name $Name -Tag 'vngw')
+    return (Get-FoggStandardisedName -Name $Name -Tag '-vngw')
 }
 
 function Get-FoggVirtualNetworkGatewayConnectionName
@@ -231,7 +243,7 @@ function Get-FoggVirtualNetworkGatewayConnectionName
         $Name
     )
 
-    return (Get-FoggStandardisedName -Name $Name -Tag 'vngw-con')
+    return (Get-FoggStandardisedName -Name $Name -Tag '-vngw-con')
 }
 
 function Get-FoggVirtualNetworkGatewayIpConfigName
@@ -243,7 +255,7 @@ function Get-FoggVirtualNetworkGatewayIpConfigName
         $Name
     )
 
-    return (Get-FoggStandardisedName -Name $Name -Tag 'cfg')
+    return (Get-FoggStandardisedName -Name $Name -Tag '-cfg')
 }
 
 function Get-FoggStorageAccountName
@@ -255,7 +267,7 @@ function Get-FoggStorageAccountName
         $Name
     )
 
-    $Name = (Get-FoggStandardisedName -Name "$($Name)" -Tag 'sa')
+    $Name = (Get-FoggStandardisedName -Name "$($Name)" -Tag '-sa')
     return ($Name -ireplace '-', '')
 }
 

@@ -103,6 +103,25 @@ function Write-Duration
     Write-Details "$($n)$($PreText): $($end.ToString())"
 }
 
+function Get-FoggDefaultInt
+{
+    param (
+        [Parameter()]
+        $Value,
+
+        [Parameter()]
+        [ValidateNotNull()]
+        [int]
+        $Default = 1
+    )
+
+    if ($Value -ne $null)
+    {
+        return $Value
+    }
+
+    return $Default
+}
 
 function Join-ValuesDashed
 {
@@ -298,7 +317,7 @@ function Test-VMCoresExceedMax
         }
 
         # store the VM size details to stop multiple calls
-        $details = Get-FoggVMSizeDetails $group.Location
+        $details = Get-FoggVMSizes -Location $group.Location
 
         # loop through each template object - only including VM types
         foreach ($obj in $template.template)
@@ -318,8 +337,11 @@ function Test-VMCoresExceedMax
                 $size = $obj.os.size
             }
 
+            # vm count
+            $_count = (Get-FoggDefaultInt -Value $obj.count -Default 1)
+
             # add VM size cores to total cores and regional cores
-            $cores = ($details | Where-Object { $_.Name -ieq $size }).NumberOfCores * $obj.count
+            $cores = ($details | Where-Object { $_.Name -ieq $size }).NumberOfCores * $_count
             $totalCores += $cores
             $regions[$group.Location] += $cores
         }
@@ -365,7 +387,10 @@ function Test-Template
         $Template,
 
         [Parameter(Mandatory=$true)]
-        $FoggObject
+        $FoggObject,
+
+        [switch]
+        $Online
     )
 
     # split out the template objects
@@ -382,14 +407,22 @@ function Test-Template
     $OS = $Template.os
     if ($OS -ne $null)
     {
-        Test-TemplateVMOS -Role 'global' -OS $OS
+        Test-TemplateVMOS -Role 'global' -Location $FoggObject.Location -OS $OS -Online:$Online
     }
 
-    # ensure the storage account name is valid - but only if we have VMs
+    # ensure the global storage account name is valid - but only if we have VMs
     if (Test-TemplateHasType $templateObjs 'vm')
     {
         $saName = Get-FoggStorageAccountName -Name (Join-ValuesDashed @($FoggObject.LocationCode, $FoggObject.Stamp, $FoggObject.Platform, 'gbl'))
         Test-FoggStorageAccountName $saName
+
+        if ($Online)
+        {
+            if (Test-FoggStorageAccountExists $saName)
+            {
+                Get-FoggStorageAccount -ResourceGroupName $FoggObject.ResourceGroupName -StorageAccountName $saName | Out-Null
+            }
+        }
     }
 
     # flag variable helpers
@@ -433,7 +466,7 @@ function Test-Template
         {
             'vm'
                 {
-                    Test-TemplateVM -VM $obj -FoggObject $FoggObject -OS $OS
+                    Test-TemplateVM -VM $obj -FoggObject $FoggObject -OS $OS -Online:$Online
                 }
 
             'vpn'
@@ -454,7 +487,7 @@ function Test-Template
 
             'sa'
                 {
-                    Test-TemplateSA -SA $obj -FoggObject $FoggObject
+                    Test-TemplateSA -SA $obj -FoggObject $FoggObject -Online:$Online
                 }
 
             default
@@ -475,12 +508,23 @@ function Test-TemplateSA
         $SA,
 
         [Parameter(Mandatory=$true)]
-        $FoggObject
+        $FoggObject,
+
+        [switch]
+        $Online
     )
 
     # ensure name is valid
     $name = Get-FoggStorageAccountName -Name (Join-ValuesDashed @($FoggObject.LocationCode, $FoggObject.Stamp, $FoggObject.Platform, $SA.role))
     Test-FoggStorageAccountName $name
+
+    if ($Online)
+    {
+        if (Test-FoggStorageAccountExists $name)
+        {
+            Get-FoggStorageAccount -ResourceGroupName $FoggObject.ResourceGroupName -StorageAccountName $name | Out-Null
+        }
+    }
 }
 
 
@@ -634,11 +678,15 @@ function Test-TemplateVM
         [Parameter(Mandatory=$true)]
         $FoggObject,
 
-        $OS
+        $OS,
+
+        [switch]
+        $Online
     )
 
     # is there an OS section?
     $hasOS = ($OS -ne $null)
+    $hasVhd = ($vm.vhd -ne $null)
     $mainOS = $OS
 
     # get role
@@ -647,13 +695,15 @@ function Test-TemplateVM
     # ensure that each VM object has a subnet map
     if (!$FoggObject.SubnetAddressMap.Contains($role))
     {
-        throw "No subnet address mapped for the $($role) VM template object"
+        throw "No subnet address mapped for the $($role) VM object object"
     }
 
-    # ensure VM count is not null or negative/0
-    if ($vm.count -eq $null -or $vm.count -le 0)
+    # ensure VM count is not negative/0
+    $_count = (Get-FoggDefaultInt -Value $vm.count -Default 1)
+
+    if ($_count -le 0)
     {
-        throw "VM count cannot be null, 0 or negative for $($role): $($vm.count)"
+        throw "VM count cannot be 0 or negative for $($role): $($_count)"
     }
 
     # ensure that if append is true, off count is not supplied
@@ -663,7 +713,7 @@ function Test-TemplateVM
     }
 
     # ensure the off count is not negative or greater than VM count
-    if ($vm.off -ne $null -and ($vm.off -le 0 -or $vm.off -gt $vm.count))
+    if ($vm.off -ne $null -and ($vm.off -le 0 -or $vm.off -gt $_count))
     {
         throw "VMs to turn off cannot be negative or greater than VM count for $($role): $($vm.off)"
     }
@@ -680,31 +730,39 @@ function Test-TemplateVM
         $useLoadBalancer = $false
     }
 
-    if ($vm.count -gt 1 -and $useLoadBalancer -and (Test-Empty $vm.port))
+    if ($_count -gt 1 -and $useLoadBalancer -and (Test-Empty $vm.port))
     {
-        throw "A valid port value is required for the '$($role)' VM template for load balancing"
+        throw "A valid port value is required for the '$($role)' VM object for load balancing"
+    }
+
+    # check if vm has a vhd
+    if ($hasVhd)
+    {
+        Test-TemplateVMVhd -Role $role -Vhd $vm.vhd -FoggObject $FoggObject -Online:$Online
     }
 
     # ensure that each VM has an OS setting if global OS does not exist
     if (!$hasOS -and $vm.os -eq $null)
     {
-        throw "The '$($role)' VM template is missing the OS settings section"
+        throw "The '$($role)' VM object is missing the OS settings section"
     }
 
     if ($vm.os -ne $null)
     {
-        Test-TemplateVMOS -Role $role -OS $vm.os
+        Test-TemplateVMOS -Role $role -Location $FoggObject.Location -OS $vm.os -Online:$Online -VhdPresent:$hasVhd
         $mainOS = $vm.os
     }
 
+    $osType = $mainOS.type
+
     # ensure the VM name is valid
-    $vmName = Get-FoggVMName (Join-ValuesDashed @($FoggObject.Platform, $role)) $vm.count
-    Test-FoggVMName -OSType $mainOS.type -Name $vmName
+    $vmName = Get-FoggVMName -Name (Join-ValuesDashed @($FoggObject.Platform, $role)) -Index $_count
+    Test-FoggVMName -OSType $osType -Name $vmName
 
     # ensure that the provisioner keys exist
     if (!$FoggObject.HasProvisionScripts -and !(Test-ArrayEmpty $vm.provisioners))
     {
-        throw "The '$($role)' VM template specifies provisioners, but there is no Provisioner section"
+        throw "The '$($role)' VM object specifies provisioners, but there is no Provisioner section"
     }
 
     if ($FoggObject.HasProvisionScripts -and !(Test-ArrayEmpty $vm.provisioners))
@@ -714,12 +772,12 @@ function Test-TemplateVM
 
             if (Test-Empty $key)
             {
-                throw "Provisioner key cannot be empty in '$($role)' VM template"
+                throw "Provisioner key cannot be empty in '$($role)' VM object"
             }
 
             if (!(Test-ProvisionerExists -FoggObject $FoggObject -ProvisionerName $key))
             {
-                throw "Provisioner key not specified in Provisioners section for the '$($role)' VM template: $($key)"
+                throw "Provisioner key not specified in Provisioners section for the '$($role)' VM object: $($key)"
             }
         }
     }
@@ -735,49 +793,49 @@ function Test-TemplateVM
             # ensure sizes are greater than 0
             if ($_.size -eq $null -or $_.size -le 0)
             {
-                throw "Drive '$($_.name)' in the $($role) VM template must have a size greater than 0Gb"
+                throw "Drive '$($_.name)' in the $($role) VM object must have a size greater than 0Gb"
             }
 
             # ensure LUNs are greater than 0
             if ($_.lun -eq $null -or $_.lun -le 0)
             {
-                throw "Drive '$($_.name)' in the $($role) VM template must have a LUN greater than 0"
+                throw "Drive '$($_.name)' in the $($role) VM object must have a LUN greater than 0"
             }
 
             # ensure drives and letters aren't empty
             if (Test-Empty $_.name)
             {
-                throw "Drive '$($_.letter)' in the $($role) VM template has no drive name supplied"
+                throw "Drive '$($_.letter)' in the $($role) VM object has no drive name supplied"
             }
 
             if (Test-Empty $_.letter)
             {
-                throw "Drive '$($_.name)' in the $($role) VM template has no drive letter supplied"
+                throw "Drive '$($_.name)' in the $($role) VM object has no drive letter supplied"
             }
 
             # ensure the drive letter is not one of the reserved ones
             $reservedDrives = @('A', 'B', 'C', 'D', 'E', 'Z')
             if ($reservedDrives -icontains $_.letter)
             {
-                throw "Drive '$($_.name)' in the $($role) VM template cannot use one of the following drive letters: $($reservedDrives -join ', ')"
+                throw "Drive '$($_.name)' in the $($role) VM object cannot use one of the following drive letters: $($reservedDrives -join ', ')"
             }
 
             if ($_.letter -inotmatch '^[a-z]{1}$')
             {
-                throw "Drive '$($_.name)' in the $($role) VM template must have a valid alpha drive letter"
+                throw "Drive '$($_.name)' in the $($role) VM object must have a valid alpha drive letter"
             }
 
             # ensure the name is alphanumeric
             if ($_.name -inotmatch '^[a-z0-9 ]+$')
             {
-                throw "Drive '$($_.name)' in the $($role) VM template must have a valid alphanumeric drive name"
+                throw "Drive '$($_.name)' in the $($role) VM object must have a valid alphanumeric drive name"
             }
 
             # ensure caching value is correct
             $cachings = @('ReadOnly', 'ReadWrite', 'None')
             if (![string]::IsNullOrWhiteSpace($_.caching) -and $cachings -inotcontains $_.caching)
             {
-                throw "Drive '$($_.name)' in the $($role) VM template has an invalid caching option '$($_.caching)', valid values: $($cachings -join ', ')"
+                throw "Drive '$($_.name)' in the $($role) VM object has an invalid caching option '$($_.caching)', valid values: $($cachings -join ', ')"
             }
         }
 
@@ -785,21 +843,21 @@ function Test-TemplateVM
         $dupe = Test-ArrayIsUnique $vm.drives.lun
         if ($dupe -ne $null)
         {
-            throw "Drive LUNs need to be unique, found two drives with LUN '$($dupe)' for the $($role) VM template"
+            throw "Drive LUNs need to be unique, found two drives with LUN '$($dupe)' for the $($role) VM object"
         }
 
         # ensure the name are unique
         $dupe = Test-ArrayIsUnique $vm.drives.name
         if ($dupe -ne $null)
         {
-            throw "Drive names need to be unique, found two drives with name '$($dupe)' for the $($role) VM template"
+            throw "Drive names need to be unique, found two drives with name '$($dupe)' for the $($role) VM object"
         }
 
         # ensure the letters are unique
         $dupe = Test-ArrayIsUnique $vm.drives.letter
         if ($dupe -ne $null)
         {
-            throw "Drive letters need to be unique, found two drives with letter '$($dupe)' for the $($role) VM template"
+            throw "Drive letters need to be unique, found two drives with letter '$($dupe)' for the $($role) VM object"
         }
 
         # get the drive names
@@ -816,6 +874,7 @@ function Test-TemplateVM
 function Test-FirewallRules
 {
     param (
+        [Parameter()]
         $FirewallRules
     )
 
@@ -919,6 +978,62 @@ function Test-FirewallRule
     }
 }
 
+function Test-TemplateVMVhd
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Role,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        $FoggObject,
+
+        $Vhd,
+
+        [switch]
+        $Online
+    )
+
+    if ($Vhd -eq $null)
+    {
+        return
+    }
+
+    $Role = $Role.ToLowerInvariant()
+
+    # if there's no vhd name, fail
+    if (Test-Empty $Vhd.name)
+    {
+        throw "The $($Role) VM object has no VHD name supplied"
+    }
+
+    # ensure that a valid storage account has been supplied
+    if ($Vhd.sa -eq $null -or (Test-Empty $Vhd.sa.name))
+    {
+        throw "The $($Role) VM object has no storage account supplied"
+    }
+
+    if ($Online)
+    {
+        # test that the storage account exists and we have access
+        if (Test-FoggStorageAccountExists $Vhd.sa.name)
+        {
+            $sa = Get-FoggStorageAccount -ResourceGroupName $FoggObject.ResourceGroupName -StorageAccountName $Vhd.sa.name
+        }
+
+        # ensure the vhd actually exists
+        $name = Get-FoggVhdName -Name $Vhd.name
+        $ctx = $sa.Context
+        $blob = (Get-AzureStorageBlob -Blob $name -Context $ctx -ErrorAction Ignore -Container 'vhds').Name
+
+        if (Test-Empty $blob)
+        {
+            throw "Failed to find VHD $($name) in storage account $($Vhd.sa.name)"
+        }
+    }
+}
 
 function Test-TemplateVMOS
 {
@@ -928,7 +1043,18 @@ function Test-TemplateVMOS
         [string]
         $Role,
 
-        $OS
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Location,
+
+        $OS,
+
+        [switch]
+        $VhdPresent,
+
+        [switch]
+        $Online
     )
 
     if ($OS -eq $null)
@@ -943,29 +1069,44 @@ function Test-TemplateVMOS
         throw "$($Role) OS settings must declare a size type"
     }
 
-    if (Test-Empty $OS.publisher)
-    {
-        throw "$($Role) OS settings must declare a publisher type"
-    }
-
-    if (Test-Empty $OS.offer)
-    {
-        throw "$($Role) OS settings must declare a offer type"
-    }
-
-    if (Test-Empty $OS.skus)
-    {
-        throw "$($Role) OS settings must declare a sku type"
-    }
-
     if (Test-Empty $OS.type)
     {
-        throw "$($Role) OS settings must declare an OS type (Windows/Linux)"
+        throw "$($Role) OS settings must declare an OS type of either: Windows, Linux"
     }
 
-    if ($OS.type -ine 'windows' -and $OS.type -ine 'linux')
+    if (@('windows', 'linux') -inotcontains $OS.type)
     {
-        throw "$($Role) OS settings must declare a valid OS type (Windows/Linux)"
+        throw "$($Role) OS settings must declare a valid OS type of either: Windows, Linux"
+    }
+
+    if (!$VhdPresent)
+    {
+        if (Test-Empty $OS.publisher)
+        {
+            throw "$($Role) OS settings must declare a publisher type"
+        }
+
+        if (Test-Empty $OS.offer)
+        {
+            throw "$($Role) OS settings must declare a offer type"
+        }
+
+        if (Test-Empty $OS.skus)
+        {
+            throw "$($Role) OS settings must declare a sku type"
+        }
+    }
+
+    if ($Online)
+    {
+        Test-FoggVMSize -Size $OS.size -Location $Location
+
+        if (!$VhdPresent)
+        {
+            Test-FoggVMPublisher -Publisher $OS.publisher -Location $Location
+            Test-FoggVMOffer -Offer $OS.offer -Publisher $OS.publisher -Location $Location
+            Test-FoggVMSkus -Skus $OS.skus -Offer $OS.offer -Publisher $OS.publisher -Location $Location
+        }
     }
 }
 
@@ -1895,7 +2036,8 @@ function New-DeployTemplateVM
         $useLoadBalancer = $false
     }
 
-    Write-Information "Deploying $($VMTemplate.count) VM(s) for the '$($role)' template"
+    $_count = (Get-FoggDefaultInt -Value $VMTemplate.count -Default 1)
+    Write-Information "Deploying $($_count) VM(s) for the '$($role)' template"
 
     # create an availability set and, if VM count > 1, a load balancer
     if ($useAvailabilitySet)
@@ -1905,7 +2047,7 @@ function New-DeployTemplateVM
         $vmInfo.AvailabilitySet = $avsetName
     }
 
-    if ($useLoadBalancer -and $VMTemplate.count -gt 1)
+    if ($useLoadBalancer -and $_count -gt 1)
     {
         $lbName = (Get-FoggLoadBalancerName $basename)
         $lb = New-FoggLoadBalancer -FoggObject $FoggObject -Name $lbName -SubnetId $subnet.Id `
@@ -1942,7 +2084,7 @@ function New-DeployTemplateVM
     # create each of the VMs
     $_vms = @()
 
-    1..($VMTemplate.count) | ForEach-Object {
+    1..($_count) | ForEach-Object {
         # does the VM have OS settings, or use global?
         $os = $Template.os
         if ($VMTemplate.os -ne $null)
@@ -1952,8 +2094,8 @@ function New-DeployTemplateVM
 
         # create the VM
         $_vms += (New-FoggVM -FoggObject $FoggObject -Name $basename -Index ($_ + $baseIndex) -VMCredentials $VMCredentials `
-            -StorageAccount $StorageAccount -SubnetId $subnet.Id -VMSize $os.size -VMSkus $os.skus -VMOffer $os.offer `
-            -VMType $os.type -VMPublisher $os.publisher -AvailabilitySet $avset -Drives $VMTemplate.drives -PublicIP:$usePublicIP)
+            -StorageAccount $StorageAccount -SubnetId $subnet.Id -OS $os -Vhd $VMTemplate.vhd -AvailabilitySet $avset `
+            -Drives $VMTemplate.drives -PublicIP:$usePublicIP)
     }
 
     # loop through each VM and deploy it

@@ -271,7 +271,7 @@ function Set-FoggTags
 }
 
 
-function Test-FoggStorageAccount
+function Test-FoggStorageAccountExists
 {
     param (
         [Parameter(Mandatory=$true)]
@@ -292,6 +292,32 @@ function Test-FoggStorageAccount
         Write-Notice $sa.Message
         return $true
     }
+}
+
+
+function Get-FoggStorageAccount
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $ResourceGroupName,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $StorageAccountName
+    )
+
+    $StorageAccountName = ($StorageAccountName.ToLowerInvariant()) -ireplace '-', ''
+
+    $storage = Get-AzureRmStorageAccount -ResourceGroupName $ResourceGroupName -Name $StorageAccountName -ErrorAction Ignore
+    if ($storage -eq $null)
+    {
+        throw "The StorageAccount '$($StorageAccountName)' does not exist under ResourceGroup '$($ResourceGroupName)'. This is likely because the name is in use by someone else, and Storage Account names are unique globally for everybody"
+    }
+
+    return $storage
 }
 
 
@@ -323,17 +349,10 @@ function New-FoggStorageAccount
     Write-Information "Creating storage account $($Name) in resource group $($FoggObject.ResourceGroupName)"
 
     # get an existing storage account, and check if it's ours or someone elses
-    if (Test-FoggStorageAccount $Name)
+    if (Test-FoggStorageAccountExists $Name)
     {
-        Write-Notice "Using existing storage account for $($Name)`n"
-        
-        # attempt to get existing storage account
-        $storage = Get-AzureRmStorageAccount -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -ErrorAction Ignore
-        if ($storage -eq $null)
-        {
-            throw "The StorageAccount '$($Name)' does not exist under ResourceGroup '$($FoggObject.ResourceGroupName)'. This is likely because the name is in use by someone else, and Storage Account names are unique globally for everybody"
-        }
-
+        Write-Notice "Found existing storage account for $($Name)`n"
+        $storage = Get-FoggStorageAccount -ResourceGroupName $FoggObject.ResourceGroupName -StorageAccountName $Name
         return $storage
     }
 
@@ -2148,32 +2167,16 @@ function New-FoggVM
         $SubnetId,
 
         [Parameter(Mandatory=$true)]
-        [ValidateNotNullOrEmpty()]
-        [string]
-        $VMSize,
+        [ValidateNotNull()]
+        $OS,
 
-        [Parameter(Mandatory=$true)]
-        [ValidateNotNullOrEmpty()]
-        [string]
-        $VMSkus,
+        [Parameter()]
+        $Vhd,
 
-        [Parameter(Mandatory=$true)]
-        [ValidateNotNullOrEmpty()]
-        [string]
-        $VMOffer,
-
-        [Parameter(Mandatory=$true)]
-        [ValidateNotNullOrEmpty()]
-        [string]
-        $VMPublisher,
-
-        [Parameter(Mandatory=$true)]
-        [ValidateNotNullOrEmpty()]
-        [string]
-        $VMType,
-
+        [Parameter()]
         $AvailabilitySet,
 
+        [Parameter()]
         $Drives,
 
         [switch]
@@ -2191,15 +2194,27 @@ function New-FoggVM
     {
         Write-Notice "Updating existing VM for $($VMName)`n"
         $vm = Update-FoggVM -FoggObject $FoggObject -Name $Name -Index $Index -SubnetId $SubnetId `
-            -VMSize $VMSize -Drives $Drives -StorageAccount $StorageAccount -PublicIP:$PublicIP
+            -OS $OS -Drives $Drives -StorageAccount $StorageAccount -PublicIP:$PublicIP
         return $vm
     }
 
+    # set basic "has"/"is" variables
+    $hasVhd = ($Vhd -ne $null)
+
     # disk/os names
     $DiskName = "$($VMName)-disk1"
-    $BlobName = "vhds/$($DiskName).vhd"
+    $ContainerName = 'vhds'
+    $BlobName = "$($ContainerName)/$($DiskName).vhd"
     $SAEndpoint = $StorageAccount.PrimaryEndpoints.Blob.ToString()
     $OSDiskUri = "$($SAEndpoint)$($BlobName)"
+
+    if ($hasVhd)
+    {
+        $VhdSA = Get-FoggStorageAccount -ResourceGroupName $FoggObject.ResourceGroupName -StorageAccountName $Vhd.sa.name
+        $VhdSAEndpoint = $VhdSA.PrimaryEndpoints.Blob.ToString()
+        $VhdName = Get-FoggVhdName -Name $Vhd.name
+        $VhdUri = "$($VhdSAEndpoint)$($ContainerName)/$($VhdName)"
+    }
 
     # create public IP address
     if ($PublicIP)
@@ -2214,11 +2229,11 @@ function New-FoggVM
     # setup initial VM config
     if ($AvailabilitySet -eq $null)
     {
-        $VM = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize
+        $VM = New-AzureRmVMConfig -VMName $VMName -VMSize $OS.size
     }
     else
     {
-        $VM = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetId $AvailabilitySet.Id
+        $VM = New-AzureRmVMConfig -VMName $VMName -VMSize $OS.size -AvailabilitySetId $AvailabilitySet.Id
     }
 
     if (!$?)
@@ -2227,22 +2242,45 @@ function New-FoggVM
     }
 
     # assign images and OS to VM
-    $VM = Set-AzureRmVMOperatingSystem -VM $VM -Windows -ComputerName $VMName -Credential $VMCredentials -ProvisionVMAgent
-    $VM = Set-AzureRmVMSourceImage -VM $VM -PublisherName $VMPublisher -Offer $VMOffer -Skus $VMSkus -Version 'latest'
-    $VM = Add-AzureRmVMNetworkInterface -VM $VM -Id $nic.Id
+    if (!$hasVhd)
+    {
+        $VM = Set-AzureRmVMSourceImage -VM $VM -PublisherName $OS.publisher -Offer $OS.offer -Skus $OS.skus -Version 'latest'
+    }
+    else
+    {
+        Write-Information "Using Vhd: $($VhdName)"
+    }
 
-    switch ($VMType.ToLowerInvariant())
+    switch ($OS.type.ToLowerInvariant())
     {
         'windows'
             {
-                $VM = Set-AzureRmVMOSDisk -VM $VM -Name $DiskName -VhdUri $OSDiskUri -CreateOption FromImage -Windows
+                if ($hasVhd)
+                {
+                    $VM = Set-AzureRmVMOSDisk -VM $VM -Name $DiskName -VhdUri $VhdUri -CreateOption Attach -Windows
+                }
+                else
+                {
+                    $VM = Set-AzureRmVMOperatingSystem -VM $VM -Windows -ComputerName $VMName -Credential $VMCredentials -ProvisionVMAgent
+                    $VM = Set-AzureRmVMOSDisk -VM $VM -Name $DiskName -VhdUri $OSDiskUri -CreateOption FromImage -Windows
+                }
             }
 
         'linux'
             {
-                $VM = Set-AzureRmVMOSDisk -VM $VM -Name $DiskName -VhdUri $OSDiskUri -CreateOption FromImage -Linux
+                if ($hasVhd)
+                {
+                    $VM = Set-AzureRmVMOSDisk -VM $VM -Name $DiskName -VhdUri $VhdUri -CreateOption Attach -Linux
+                }
+                else
+                {
+                    $VM = Set-AzureRmVMOperatingSystem -VM $VM -Linux -ComputerName $VMName -Credential $VMCredentials -ProvisionVMAgent
+                    $VM = Set-AzureRmVMOSDisk -VM $VM -Name $DiskName -VhdUri $OSDiskUri -CreateOption FromImage -Linux
+                }
             }
     }
+
+    $VM = Add-AzureRmVMNetworkInterface -VM $VM -Id $nic.Id
 
     if (!$?)
     {
@@ -2283,9 +2321,8 @@ function Update-FoggVM
         $SubnetId,
 
         [Parameter(Mandatory=$true)]
-        [ValidateNotNullOrEmpty()]
-        [string]
-        $VMSize,
+        [ValidateNotNull()]
+        $OS,
 
         $Drives,
 
@@ -2311,12 +2348,12 @@ function Update-FoggVM
 
     # update the VM size if it's different
     $vm = Get-FoggVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $VMName -Index $Index -RealName
-    if ($vm.HardwareProfile.VmSize -ine $VMSize)
+    if ($vm.HardwareProfile.VmSize -ine $OS.size)
     {
-        Write-Information "Updating VM size to $($VMSize)"
+        Write-Information "Updating VM size to $($OS.size)"
         Stop-FoggVM -FoggObject $FoggObject -Name $VMName -StayProvisioned
 
-        $vm.HardwareProfile.VmSize = $VMSize
+        $vm.HardwareProfile.VmSize = $OS.size
         Update-AzureRmVM -ResourceGroupName $FoggObject.ResourceGroupName -VM $vm | Out-Null
         
         Write-Success "Size of VM updated`n"
@@ -2882,7 +2919,7 @@ function New-FoggPublicIpAddress
 }
 
 
-function Get-FoggVMSizeDetails
+function Get-FoggVMSizes
 {
     param (
         [Parameter(Mandatory=$true)]
@@ -3065,5 +3102,98 @@ function Test-FoggStorageAccountName
     if ($Name -notmatch $regex)
     {
         throw "Storage Account name '$($Name)' can only contain lowercase alphanumeric characters"
+    }
+}
+
+function Test-FoggVMSize
+{
+    param (
+        [string]
+        $Size,
+
+        [string]
+        $Location
+    )
+
+    if (Test-Empty $Size)
+    {
+        throw "No VM size supplied"
+    }
+
+    if ((Get-AzureRmVMSize -Location $Location).Name -inotcontains $Size)
+    {
+        throw "VM size $($Size) is not valid for the $($Location) region"
+    }
+}
+
+function Test-FoggVMPublisher
+{
+    param (
+        [string]
+        $Publisher,
+
+        [string]
+        $Location
+    )
+
+    if (Test-Empty $Publisher)
+    {
+        throw "No VM image publisher supplied"
+    }
+
+    if ((Get-AzureRmVMImagePublisher -Location $Location).PublisherName -inotcontains $Publisher)
+    {
+        throw "VM image publisher $($Publisher) is not valid for the $($Location) region"
+    }
+}
+
+function Test-FoggVMOffer
+{
+    param (
+        [string]
+        $Offer,
+
+        [string]
+        $Publisher,
+
+        [string]
+        $Location
+    )
+
+    if (Test-Empty $Offer)
+    {
+        throw "No VM image offer supplied"
+    }
+
+    if ((Get-AzureRmVMImageOffer -Location $Location -PublisherName $Publisher).Offer -inotcontains $Offer)
+    {
+        throw "VM image offer $($Offer) is not valid for the $($Location) region"
+    }
+}
+
+function Test-FoggVMSkus
+{
+    param (
+        [string]
+        $Skus,
+
+        [string]
+        $Offer,
+
+        [string]
+        $Publisher,
+
+        [string]
+        $Location
+    )
+
+    if (Test-Empty $Skus)
+    {
+        throw "No VM image skus supplied"
+    }
+
+    if ((Get-AzureRmVMImageSku -Location $Location -PublisherName $Publisher -Offer $Offer).Skus -inotcontains $Skus)
+    {
+        throw "VM image skus $($Skus) is not valid for the $($Location) region"
     }
 }

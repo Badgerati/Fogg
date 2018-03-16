@@ -154,14 +154,17 @@ $ErrorActionPreference = 'Stop'
 $WarningPreference = 'Ignore'
 
 
-function Restore-FoggModule([string]$Path, [string]$Name)
+function Restore-FoggModule([string]$Path, [string]$Name, [switch]$Remove)
 {
     if ((Get-Module -Name $Name) -ne $null)
     {
         Remove-Module -Name $Name -Force | Out-Null
     }
 
-    Import-Module "$($Root)\Modules\$($Name).psm1" -Force -ErrorAction Stop
+    if (!$Remove)
+    {
+        Import-Module "$($Root)\Modules\$($Name).psm1" -Force -ErrorAction Stop
+    }
 }
 
 
@@ -178,7 +181,10 @@ function Test-Files
     param (
         [Parameter(Mandatory=$true)]
         [ValidateNotNull()]
-        $FoggObject
+        $FoggObject,
+
+        [switch]
+        $Online
     )
 
     # Parse the contents of the template file
@@ -191,7 +197,7 @@ function Test-Files
     Test-FirewallRules -FirewallRules $template.firewall
 
     # Check the template section
-    Test-Template -Template $template -FoggObject $FoggObject | Out-Null
+    Test-Template -Template $template -FoggObject $FoggObject -Online:$Online | Out-Null
 
     # return the template for further usage
     return $template
@@ -282,6 +288,13 @@ try
         }
 
         $locs += $FoggObject.Location
+    }
+
+
+    # now we're logged in, quickly re-run validation but with the -Online flag set
+    foreach ($FoggObject in $FoggObjects.Groups)
+    {
+        Test-Files -FoggObject $FoggObject -Online | Out-Null
     }
 
 
@@ -445,6 +458,11 @@ finally
 
     # Output the total time taken
     Write-Duration $timer -PreText 'Total Duration' -NewLine
+
+    # unload modules
+    Restore-FoggModule -Path $root -Name 'FoggTools' -Remove
+    Restore-FoggModule -Path $root -Name 'FoggNames' -Remove
+    Restore-FoggModule -Path $root -Name 'FoggAzure' -Remove
 }
 
 
