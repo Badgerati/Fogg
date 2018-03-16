@@ -2619,8 +2619,8 @@ function Add-FoggDataDisk
             Write-Details "`nCreating new disk: $($diskName), for drive $($_.name) ($($_.letter):)"
             $VM = Add-AzureRmVMDataDisk -VM $VM -Name $diskName -VhdUri $diskUri -Lun $_.lun -Caching ReadOnly `
                 -DiskSizeInGB $_.size -CreateOption Empty
-            
-                Write-Success 'New disk created'
+
+            Write-Success 'New disk created'
         }
 
         # if a match is found, attempt to update the disk
