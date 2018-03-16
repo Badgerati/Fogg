@@ -38,7 +38,7 @@ sa step for creating extra storage accounts
 allow creation of vms from vhds
     - from a vhd in an existing sa in the same rg
 
-[ ] -----
+[x] -----
 allow create of vms from a template image file
 
 [x] -----

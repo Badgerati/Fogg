@@ -687,10 +687,17 @@ function Test-TemplateVM
     # is there an OS section?
     $hasOS = ($OS -ne $null)
     $hasVhd = ($vm.vhd -ne $null)
+    $hasImage = ($vm.image -ne $null)
     $mainOS = $OS
 
     # get role
     $role = $VM.role.ToLowerInvariant()
+
+    # ensure we don't have a vhd and an image
+    if ($hasVhd -and $hasImage)
+    {
+        throw "The $($role) VM object cannot have both a Vhd and Image sections defined"
+    }
 
     # ensure that each VM object has a subnet map
     if (!$FoggObject.SubnetAddressMap.Contains($role))
@@ -735,10 +742,16 @@ function Test-TemplateVM
         throw "A valid port value is required for the '$($role)' VM object for load balancing"
     }
 
-    # check if vm has a vhd
+    # check if vhd is valid, if supplied
     if ($hasVhd)
     {
         Test-TemplateVMVhd -Role $role -Vhd $vm.vhd -FoggObject $FoggObject -Online:$Online
+    }
+
+    # check if image is valid, if supplied
+    if ($hasImage)
+    {
+        Test-TemplateVMImage -Role $role -Image $vm.image -FoggObject $FoggObject -Online:$Online
     }
 
     # ensure that each VM has an OS setting if global OS does not exist
@@ -975,6 +988,55 @@ function Test-FirewallRule
     if ([string]::IsNullOrWhiteSpace($FirewallRule.access) -or $accesses -inotcontains $FirewallRule.access)
     {
         throw "An access of Allow or Deny is required for firewall rule $($FirewallRule.name)"
+    }
+}
+
+function Test-TemplateVMImage
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Role,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        $FoggObject,
+
+        $Image,
+
+        [switch]
+        $Online
+    )
+
+    if ($Image -eq $null)
+    {
+        return
+    }
+
+    $Role = $Role.ToLowerInvariant()
+
+    # if there's no image name, fail
+    if (Test-Empty $Image.name)
+    {
+        throw "The $($Role) VM object has no image name supplied"
+    }
+
+    if ($Online)
+    {
+        $rg = $Image.rg
+        if (Test-Empty $rg)
+        {
+            $rg = $FoggObject.ResourceGroupName
+        }
+
+        # ensure the image actually exists
+        $img = (Get-AzureRmImage -ResourceGroupName $rg -ImageName $Image.name -ErrorAction Ignore).Id
+
+        if (Test-Empty $img)
+        {
+            throw "Failed to find image $($name) in resource group $($rg)"
+        }
     }
 }
 
@@ -2094,8 +2156,8 @@ function New-DeployTemplateVM
 
         # create the VM
         $_vms += (New-FoggVM -FoggObject $FoggObject -Name $basename -Index ($_ + $baseIndex) -VMCredentials $VMCredentials `
-            -StorageAccount $StorageAccount -SubnetId $subnet.Id -OS $os -Vhd $VMTemplate.vhd -AvailabilitySet $avset `
-            -Drives $VMTemplate.drives -PublicIP:$usePublicIP)
+            -StorageAccount $StorageAccount -SubnetId $subnet.Id -OS $os -Vhd $VMTemplate.vhd -Image $VMTemplate.image `
+            -AvailabilitySet $avset -Drives $VMTemplate.drives -PublicIP:$usePublicIP)
     }
 
     # loop through each VM and deploy it

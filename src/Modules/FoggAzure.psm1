@@ -2174,6 +2174,9 @@ function New-FoggVM
         $Vhd,
 
         [Parameter()]
+        $Image,
+
+        [Parameter()]
         $AvailabilitySet,
 
         [Parameter()]
@@ -2200,6 +2203,7 @@ function New-FoggVM
 
     # set basic "has"/"is" variables
     $hasVhd = ($Vhd -ne $null)
+    $hasImage = ($Image -ne $null)
 
     # disk/os names
     $DiskName = "$($VMName)-disk1"
@@ -2244,7 +2248,23 @@ function New-FoggVM
     # assign images and OS to VM
     if (!$hasVhd)
     {
-        $VM = Set-AzureRmVMSourceImage -VM $VM -PublisherName $OS.publisher -Offer $OS.offer -Skus $OS.skus -Version 'latest'
+        if ($hasImage)
+        {
+            Write-Information "Using Image: $($Image.name)"
+
+            $rg = $Image.rg
+            if (Test-Empty $rg)
+            {
+                $rg = $FoggObject.ResourceGroupName
+            }
+
+            $imageId = (Get-AzureRmImage -ResourceGroupName $rg -ImageName $Image.name).Id
+            $VM = Set-AzureRmVMSourceImage -VM $VM -Id $imageId
+        }
+        else
+        {
+            $VM = Set-AzureRmVMSourceImage -VM $VM -PublisherName $OS.publisher -Offer $OS.offer -Skus $OS.skus -Version 'latest'
+        }
     }
     else
     {
