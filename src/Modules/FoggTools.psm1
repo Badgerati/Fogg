@@ -248,7 +248,6 @@ function Test-ArrayIsUnique
     return $dupe
 }
 
-
 function Test-TemplateHasType
 {
     param (
@@ -410,7 +409,7 @@ function Test-Template
         Test-TemplateVMOS -Role 'global' -Location $FoggObject.Location -OS $OS -Online:$Online
     }
 
-    # ensure the global storage account name is valid - but only if we have VMs
+    # ensure the global storage account name is valid - but only if we have VMs, and if one of them is unmanaged
     if (Test-TemplateHasType $templateObjs 'vm')
     {
         $saName = Get-FoggStorageAccountName -Name (Join-ValuesDashed @($FoggObject.LocationCode, $FoggObject.Stamp, $FoggObject.Platform, 'gbl'))
@@ -688,6 +687,7 @@ function Test-TemplateVM
     $hasOS = ($OS -ne $null)
     $hasVhd = ($vm.vhd -ne $null)
     $hasImage = ($vm.image -ne $null)
+    $isManaged = [bool]$vm.managed
     $mainOS = $OS
 
     # get role
@@ -697,6 +697,12 @@ function Test-TemplateVM
     if ($hasVhd -and $hasImage)
     {
         throw "The $($role) VM object cannot have both a Vhd and Image sections defined"
+    }
+
+    # ensure we dont have a vhd and the vm is managed
+    if ($hasVhd -and $isManaged)
+    {
+        throw "The $($Role) VM object cannot be both managed and have Vhd defined"
     }
 
     # ensure that each VM object has a subnet map
@@ -2063,6 +2069,7 @@ function New-DeployTemplateVM
     $role = $VMTemplate.role.ToLowerInvariant()
     $basename = (Join-ValuesDashed @($FoggObject.Platform, $role))
     $usePublicIP = [bool]$VMTemplate.usePublicIP
+    $useManagedDisks = [bool]$VMTemplate.managed
     $subnetPrefix = $FoggObject.SubnetAddressMap[$role]
     $subnetName = (Get-FoggSubnetName $basename)
     $subnet = ($VNet.Subnets | Where-Object { $_.Name -ieq $subnetName -or $_.AddressPrefix -ieq $subnetPrefix })
@@ -2105,7 +2112,7 @@ function New-DeployTemplateVM
     if ($useAvailabilitySet)
     {
         $avsetName = (Get-FoggAvailabilitySetName $basename)
-        $avset = New-FoggAvailabilitySet -FoggObject $FoggObject -Name $avsetName
+        $avset = New-FoggAvailabilitySet -FoggObject $FoggObject -Name $avsetName -Managed:$useManagedDisks
         $vmInfo.AvailabilitySet = $avsetName
     }
 
@@ -2157,7 +2164,7 @@ function New-DeployTemplateVM
         # create the VM
         $_vms += (New-FoggVM -FoggObject $FoggObject -Name $basename -Index ($_ + $baseIndex) -VMCredentials $VMCredentials `
             -StorageAccount $StorageAccount -SubnetId $subnet.Id -OS $os -Vhd $VMTemplate.vhd -Image $VMTemplate.image `
-            -AvailabilitySet $avset -Drives $VMTemplate.drives -PublicIP:$usePublicIP)
+            -AvailabilitySet $avset -Drives $VMTemplate.drives -PublicIP:$usePublicIP -Managed:$useManagedDisks)
     }
 
     # loop through each VM and deploy it

@@ -11,8 +11,8 @@ param (
 )
 
 # split out the letters and names
-$lettersArray = ($Letters -split ',' | ForEach-Object { $_.Trim() })
-$drivesArray = ($Drives -split ',' | ForEach-Object { $_.Trim() })
+$lettersArray = @($Letters -split ',' | ForEach-Object { $_.Trim() })
+$drivesArray = @($Drives -split ',' | ForEach-Object { $_.Trim() })
 
 # filter between drives that exist and ones that dont
 $count = 0

@@ -57,8 +57,9 @@ partially done - logic in place, just needs adding to Foggfile and main Paramete
 [x] -----
 Run "Remove-AzureRmAccount" on completion
 
-[ ] -----
+[x] -----
 managed disks
+    - os/data disks
 
 [ ] -----
 role uniqueness is not global in template - it should be unique to each type

@@ -1872,7 +1872,10 @@ function New-FoggAvailabilitySet
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
         [string]
-        $Name
+        $Name,
+
+        [switch]
+        $Managed
     )
 
     $Name = (Get-FoggAvailabilitySetName $Name)
@@ -1883,12 +1886,32 @@ function New-FoggAvailabilitySet
     $av = Get-FoggAvailabilitySet -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name
     if ($av -ne $null)
     {
+        if (!$av.Managed -and $Managed)
+        {
+            Write-Host "Updating availability set $($Name) to be managed"
+            Update-AzureRmAvailabilitySet -AvailabilitySet $av -Managed | Out-Null
+            if (!$?)
+            {
+                throw "Failed to set availability set $($Name) to managed"
+            }
+
+            $av = Get-FoggAvailabilitySet -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name
+        }
+
         Write-Notice "Using existing availability set for $($Name)`n"
         return $av
     }
 
     # create new av set
-    $av = New-AzureRmAvailabilitySet -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Location $FoggObject.Location
+    if ($Managed)
+    {
+        $av = New-AzureRmAvailabilitySet -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Location $FoggObject.Location -Managed
+    }
+    else
+    {
+        $av = New-AzureRmAvailabilitySet -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Location $FoggObject.Location
+    }
+
     if (!$?)
     {
         throw "Failed to create availability set $($Name)"
@@ -2158,7 +2181,7 @@ function New-FoggVM
         [pscredential]
         $VMCredentials,
 
-        [Parameter(Mandatory=$true)]
+        [Parameter()]
         $StorageAccount,
 
         [Parameter(Mandatory=$true)]
@@ -2183,7 +2206,10 @@ function New-FoggVM
         $Drives,
 
         [switch]
-        $PublicIP
+        $PublicIP,
+
+        [switch]
+        $Managed
     )
 
     $Name = $Name.ToLowerInvariant()
@@ -2197,7 +2223,7 @@ function New-FoggVM
     {
         Write-Notice "Updating existing VM for $($VMName)`n"
         $vm = Update-FoggVM -FoggObject $FoggObject -Name $Name -Index $Index -SubnetId $SubnetId `
-            -OS $OS -Drives $Drives -StorageAccount $StorageAccount -PublicIP:$PublicIP
+            -OS $OS -Drives $Drives -StorageAccount $StorageAccount -PublicIP:$PublicIP -Managed:$Managed
         return $vm
     }
 
@@ -2206,11 +2232,16 @@ function New-FoggVM
     $hasImage = ($Image -ne $null)
 
     # disk/os names
-    $DiskName = "$($VMName)-disk1"
-    $ContainerName = 'vhds'
-    $BlobName = "$($ContainerName)/$($DiskName).vhd"
-    $SAEndpoint = $StorageAccount.PrimaryEndpoints.Blob.ToString()
-    $OSDiskUri = "$($SAEndpoint)$($BlobName)"
+    $DiskName = "$($VMName)-osdisk1"
+
+    # only need to generate disk vhd uri if using un-managed disks
+    if (!$Managed)
+    {
+        $ContainerName = 'vhds'
+        $BlobName = "$($ContainerName)/$($DiskName).vhd"
+        $SAEndpoint = $StorageAccount.PrimaryEndpoints.Blob.ToString()
+        $OSDiskUri = "$($SAEndpoint)$($BlobName)"
+    }
 
     if ($hasVhd)
     {
@@ -2245,7 +2276,7 @@ function New-FoggVM
         throw "Failed to create the VM Config for $($VMName)"
     }
 
-    # assign images and OS to VM
+    # assign the source image to VM
     if (!$hasVhd)
     {
         if ($hasImage)
@@ -2282,7 +2313,15 @@ function New-FoggVM
                 else
                 {
                     $VM = Set-AzureRmVMOperatingSystem -VM $VM -Windows -ComputerName $VMName -Credential $VMCredentials -ProvisionVMAgent
-                    $VM = Set-AzureRmVMOSDisk -VM $VM -Name $DiskName -VhdUri $OSDiskUri -CreateOption FromImage -Windows
+
+                    if ($Managed)
+                    {
+                        $VM = Set-AzureRmVMOSDisk -VM $VM -StorageAccountType PremiumLRS -DiskSizeInGB 128 -CreateOption FromImage -Caching ReadWrite -Name $DiskName -Windows
+                    }
+                    else
+                    {
+                        $VM = Set-AzureRmVMOSDisk -VM $VM -Name $DiskName -VhdUri $OSDiskUri -CreateOption FromImage -Windows
+                    }
                 }
             }
 
@@ -2295,7 +2334,15 @@ function New-FoggVM
                 else
                 {
                     $VM = Set-AzureRmVMOperatingSystem -VM $VM -Linux -ComputerName $VMName -Credential $VMCredentials -ProvisionVMAgent
-                    $VM = Set-AzureRmVMOSDisk -VM $VM -Name $DiskName -VhdUri $OSDiskUri -CreateOption FromImage -Linux
+                    
+                    if ($Managed)
+                    {
+                        $VM = Set-AzureRmVMOSDisk -VM $VM -StorageAccountType PremiumLRS -DiskSizeInGB 128 -CreateOption FromImage -Caching ReadWrite -Name $DiskName -Linux
+                    }
+                    else
+                    {
+                        $VM = Set-AzureRmVMOSDisk -VM $VM -Name $DiskName -VhdUri $OSDiskUri -CreateOption FromImage -Linux
+                    }
                 }
             }
     }
@@ -2308,7 +2355,7 @@ function New-FoggVM
     }
 
     # create any additional drives
-    $VM = Add-FoggDataDisk -FoggObject $FoggObject -VMName $VMName -VM $VM -StorageAccount $StorageAccount -Drives $Drives
+    $VM = Add-FoggDataDisk -FoggObject $FoggObject -VMName $VMName -VM $VM -StorageAccount $StorageAccount -Drives $Drives -Managed:$Managed
 
     Write-Success "VM $($VMName) prepared`n"
     return $VM
@@ -2332,7 +2379,7 @@ function Update-FoggVM
         [int]
         $Index,
 
-        [Parameter(Mandatory=$true)]
+        [Parameter()]
         $StorageAccount,
 
         [Parameter(Mandatory=$true)]
@@ -2344,10 +2391,14 @@ function Update-FoggVM
         [ValidateNotNull()]
         $OS,
 
+        [Parameter()]
         $Drives,
 
         [switch]
-        $PublicIP
+        $PublicIP,
+
+        [switch]
+        $Managed
     )
 
     $Name = $Name.ToLowerInvariant()
@@ -2383,7 +2434,7 @@ function Update-FoggVM
     $vm = Get-FoggVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $VMName -Index $Index -RealName
 
     # update the VM with any additional drives not yet assigned
-    $vm = Add-FoggDataDisk -FoggObject $FoggObject -VMName $VMName -VM $vm -StorageAccount $StorageAccount -Drives $Drives
+    $vm = Add-FoggDataDisk -FoggObject $FoggObject -VMName $VMName -VM $vm -StorageAccount $StorageAccount -Drives $Drives -Managed:$Managed
 
     # return the updated VM
     return $vm
@@ -2570,11 +2621,13 @@ function Add-FoggDataDisk
         [ValidateNotNull()]
         $VM,
 
-        [Parameter(Mandatory=$true)]
-        [ValidateNotNull()]
+        [Parameter()]
         $StorageAccount,
 
-        $Drives
+        $Drives,
+
+        [switch]
+        $Managed
     )
 
     Write-Information "Setting up additional data disks"
@@ -2582,7 +2635,7 @@ function Add-FoggDataDisk
     # if no drives passed, just return the VM
     if (Test-ArrayEmpty $Drives)
     {
-        Write-Host 'No additional data drives to create passed'
+        Write-Host 'No additional data disks to create passed'
         return $VM
     }
 
@@ -2597,14 +2650,21 @@ function Add-FoggDataDisk
     }
 
     # set the storage account endpoint
-    $SAEndpoint = $StorageAccount.PrimaryEndpoints.Blob.ToString()
+    if (!$Managed)
+    {
+        $SAEndpoint = $StorageAccount.PrimaryEndpoints.Blob.ToString()
+    }
 
     # loop through each of the drives, creating new ones
     $Drives | ForEach-Object {
         # generate the disk name and blob URIs
-        $diskName = "$($VMName)-data-disk$($_.lun)"
-        $blobName = "vhds/$($diskName).vhd"
-        $diskUri = "$($SAEndpoint)$($blobName)"
+        $diskName = "$($VMName)-datadisk$($_.lun)"
+
+        if (!$Managed)
+        {
+            $blobName = "vhds/$($diskName).vhd"
+            $diskUri = "$($SAEndpoint)$($blobName)"
+        }
 
         # if the profile doesn't contain the diskname, create the disk
         if ($diskNames -inotcontains $diskName)
@@ -2617,8 +2677,19 @@ function Add-FoggDataDisk
 
             # create new disk
             Write-Details "`nCreating new disk: $($diskName), for drive $($_.name) ($($_.letter):)"
-            $VM = Add-AzureRmVMDataDisk -VM $VM -Name $diskName -VhdUri $diskUri -Lun $_.lun -Caching ReadOnly `
-                -DiskSizeInGB $_.size -CreateOption Empty
+
+            if ($Managed)
+            {
+                $dc = New-AzureRmDiskConfig -Location $FoggObject.Location -DiskSizeGB $_.size -CreateOption Empty
+                $d = New-AzureRmDisk -ResourceGroupName $FoggObject.ResourceGroupName -DiskName $diskName -Disk $dc
+                $VM = Add-AzureRmVMDataDisk -VM $VM -Name $diskName -Lun $_.Lun -Caching ReadOnly -CreateOption Attach `
+                    -DiskSizeInGB $_.size -ManagedDiskId $d.Id
+            }
+            else
+            {
+                $VM = Add-AzureRmVMDataDisk -VM $VM -Name $diskName -VhdUri $diskUri -Lun $_.lun -Caching ReadOnly `
+                    -DiskSizeInGB $_.size -CreateOption Empty
+            }
 
             Write-Success 'New disk created'
         }
@@ -2651,7 +2722,17 @@ function Add-FoggDataDisk
                 Write-Information "Updating the disk to $($size)GB and caching of $($caching)"
 
                 Stop-FoggVM -FoggObject $FoggObject -Name $VM.Name
-                $VM = Set-AzureRmVMDataDisk -VM $VM -Lun $_.lun -Caching $caching -DiskSizeInGB $size
+                
+                if ($Managed)
+                {
+                    $duc = New-AzureRmDiskUpdateConfig -DiskSizeGB $size
+                    Update-AzureRmDisk -ResourceGroupName $FoggObject.ResourceGroupName -DiskName $diskName -DiskUpdate $duc | Out-Null
+                    $VM = Set-AzureRmVMDataDisk -VM $VM -Lun $_.Lun -Caching $caching -DiskSizeInGB $size
+                }
+                else
+                {
+                    $VM = Set-AzureRmVMDataDisk -VM $VM -Lun $_.lun -Caching $caching -DiskSizeInGB $size
+                }
 
                 Write-Information 'Disk set to be updated'
             }

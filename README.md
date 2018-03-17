@@ -19,7 +19,7 @@ choco install fogg
 
 * PowerShell v4.0+
 * PowerShellGet module
-* AzureRM module (installed via PowerShellGet: `Install-Module AzureRM`)
+* AzureRM module v5.3+ (installed via PowerShellGet: `Install-Module AzureRM`)
 
 ## Features
 
