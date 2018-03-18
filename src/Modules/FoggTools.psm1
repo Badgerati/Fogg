@@ -426,7 +426,7 @@ function Test-Template
 
     # flag variable helpers
     $alreadyHasVpn = $false
-    $roleMap = @()
+    $roleMap = @{}
 
     # loop through each template object, verifying it
     foreach ($obj in $templateObjs)
@@ -437,31 +437,41 @@ function Test-Template
 
         if (Test-Empty $role)
         {
-            throw 'All template objects in a Fogg Azure template file require a role'
+            throw 'All template objects in a Fogg template file require a role'
         }
 
         if (Test-Empty $type)
         {
-            throw 'All template objects in a Fogg Azure template file require a type'
+            throw 'All template objects in a Fogg template file require a type'
         }
 
         # check role uniqueness and value validity
         $role = $role.ToLowerInvariant()
+        $type = $type.ToLowerInvariant()
 
         if ($role -inotmatch '^[a-z0-9]+$')
         {
             throw "Role for template object $($role) must be a valid alphanumerical value"
         }
 
-        if ($roleMap.Contains($role))
+        if ($roleMap.ContainsKey($type))
         {
-            throw "There is already a template object with role: '$($role)'"
+            if ($roleMap[$type].Contains($role))
+            {
+                throw "There is already a template $($type) object with role: $($role)"
+            }
+            else
+            {
+                $roleMap[$type] += $role
+            }
+        }
+        else
+        {
+            $roleMap.Add($type, @($role))
         }
 
-        $roleMap += $role
-
         # verify based on template object type
-        switch ($type.ToLowerInvariant())
+        switch ($type)
         {
             'vm'
                 {
@@ -733,12 +743,12 @@ function Test-TemplateVM
 
     # if there's more than one VM (load balanced) a port is required
     $useLoadBalancer = $true
-    if (!(Test-Empty $vm.useLoadBalancer))
+    if (!(Test-Empty $vm.loadBalance))
     {
-        $useLoadBalancer = [bool]$VMTemplate.useLoadBalancer
+        $useLoadBalancer = [bool]$vm.loadBalance
     }
 
-    if (!(Test-Empty $vm.useAvailabilitySet) -and $vm.useAvailabilitySet -eq $false)
+    if (!(Test-Empty $vm.availabilitySet) -and $vm.availabilitySet -eq $false)
     {
         $useLoadBalancer = $false
     }
@@ -2068,7 +2078,7 @@ function New-DeployTemplateVM
 
     $role = $VMTemplate.role.ToLowerInvariant()
     $basename = (Join-ValuesDashed @($FoggObject.Platform, $role))
-    $usePublicIP = [bool]$VMTemplate.usePublicIP
+    $usePublicIP = [bool]$VMTemplate.publicIp
     $useManagedDisks = [bool]$VMTemplate.managed
     $subnetPrefix = $FoggObject.SubnetAddressMap[$role]
     $subnetName = (Get-FoggSubnetName $basename)
@@ -2088,18 +2098,18 @@ function New-DeployTemplateVM
 
     # are we using a load balancer and availability set?
     $useLoadBalancer = $true
-    if (!(Test-Empty $VMTemplate.useLoadBalancer))
+    if (!(Test-Empty $VMTemplate.loadBalance))
     {
-        $useLoadBalancer = [bool]$VMTemplate.useLoadBalancer
+        $useLoadBalancer = [bool]$VMTemplate.loadBalance
     }
 
     $useAvailabilitySet = $true
-    if (!(Test-Empty $VMTemplate.useAvailabilitySet))
+    if (!(Test-Empty $VMTemplate.availabilitySet))
     {
-        $useAvailabilitySet = [bool]$VMTemplate.useAvailabilitySet
+        $useAvailabilitySet = [bool]$VMTemplate.availabilitySet
     }
 
-    # if useAvailabilitySet is false, then by default set useLoadBalancer to false
+    # if useAvailabilitySet is false, then by default set loadBalance to false
     if (!$useAvailabilitySet)
     {
         $useLoadBalancer = $false

@@ -61,7 +61,7 @@ Run "Remove-AzureRmAccount" on completion
 managed disks
     - os/data disks
 
-[ ] -----
+[x] -----
 role uniqueness is not global in template - it should be unique to each type
     - you can have "data/vm" and "data/sa", but you can't have "data/sa" again
 
@@ -69,9 +69,13 @@ role uniqueness is not global in template - it should be unique to each type
 move creation of global vnet (unless re-using one) to be a defined step
     - vm type now has a "vnet" section, to define "name" and "rg" (optional)
 
-[ ] -----
-update all examples/readme
+[-] -----
+    - update all examples/readme
+    - update wiki
 
-[ ] -----
+[x] -----
 vnet example
 storage account example
+vm managed example
+vm image example
+vm vhd example

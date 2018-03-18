@@ -2,14 +2,13 @@
     "template": [
         {
             "type": "vm",
-            "role": "vm",
-            "count": 1,
+            "role": "qa",
             "append": true,
             "provisioners": [
                 "remoting",
                 "choco"
             ],
-            "usePublicIP": true,
+            "publicIp": true,
             "os": {
                 "size": "Standard_DS1_v2",
                 "type": "Windows",

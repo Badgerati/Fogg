@@ -1,14 +1,13 @@
 {
     "SubscriptionName": "<SUB_NAME_HERE>",
-    "Platform": "platform",
     "Groups": [
         {
-            "ResourceGroupName": "basic-platform-rg",
+            "ResourceGroupName": "managed-rg",
             "Location": "westeurope",
             "TemplatePath": ".\\template.json",
-            "VNetAddress": "10.6.0.0/16",
+            "VNetAddress": "10.16.0.0/16",
             "SubnetAddresses": {
-                "vm": "10.6.0.0/24"
+                "web": "10.16.0.0/24"
             }
         }
     ]

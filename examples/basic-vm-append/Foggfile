@@ -1,9 +1,8 @@
 {
     "SubscriptionName": "<SUB_NAME_HERE>",
-    "Platform": "append",
     "Groups": [
         {
-            "ResourceGroupName": "basic-append-rg",
+            "ResourceGroupName": "append-rg",
             "Location": "westeurope",
             "TemplatePath": ".\\template.json",
             "VNetAddress": "10.9.0.0/16",

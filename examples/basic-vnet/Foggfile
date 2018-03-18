@@ -1,0 +1,10 @@
+{
+    "SubscriptionName": "<SUB_NAME_HERE>",
+    "Groups": [
+        {
+            "ResourceGroupName": "vnets-rg",
+            "Location": "westeurope",
+            "TemplatePath": ".\\template.json"
+        }
+    ]
+}

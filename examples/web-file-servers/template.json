@@ -1,35 +1,27 @@
 {
     "template": [
         {
-            "role": "web",
             "type": "vm",
+            "role": "web",
             "count": 2,
             "provisioners": [
                 "remoting",
                 "web"
             ],
-            "usePublicIP": true,
+            "publicIp": true,
+            "loadBalance": true,
             "port": 80,
             "firewall": {
-                "inbound": [
-                    {
-                        "name": "HTTP",
-                        "priority": 101,
-                        "source": "*:*",
-                        "destination": "@{subnet}:80",
-                        "access": "Allow"
-                    }
-                ]
+                "http": true
             }
         },
         {
-            "role": "file",
             "type": "vm",
-            "count": 1,
+            "role": "file",
             "provisioners": [
                 "remoting"
             ],
-            "usePublicIP": true,
+            "publicIp": true,
             "firewall": {
                 "inbound": [
                     {
@@ -55,14 +47,6 @@
         "web": "dsc: .\\WebServer.ps1"
     },
     "firewall": {
-        "inbound": [
-            {
-                "name": "RDP",
-                "priority": 4095,
-                "source": "*:*",
-                "destination": "@{subnet}:3389",
-                "access": "Allow"
-            }
-        ]
+        "rdp": true
     }
 }
