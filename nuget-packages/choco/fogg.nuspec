@@ -7,15 +7,17 @@
     <version>$version$</version>
     <authors>Badgerati</authors>
     <owners>Badgerati</owners>
-    <summary>PowerShell tool to aide and simplify the creation, deployment and provisioning of infrastructure in Azure</summary>
+    <summary>PowerShell tool to simplify the creation, deployment and provisioning of infrastructure in Azure</summary>
     <description>
-Fogg is a PowerShell v4.0+ tool to aide and simplify the creation, deployment and provisioning of infrastructure (IaaS) in Azure using Azure Resource Manager (does not support Classic).
+Fogg is a PowerShell tool to simplify the creation, deployment and provisioning of infrastructure (IaaS) in Azure using Azure Resource Manager (does not support Classic).
 
 ### Features
 
-* Deploy and provision Virtual Machines in Azure
-* Spin-up mulitple Resource Groups at once using a Foggfile
-* Has inbuilt provision scripts, with more that can be added on request
+* Deploy and provision Virtual Machines in Azure using Resource Manager
+* Supports unmanaged and managed disks
+* Ability to spin-up VMs using existing Images or VHDs
+* Spin-up multiple Resource Groups at once using a Foggfile
+* Has inbuilt provisioning scripts, with more that can be added on request
 * Inbuilt firewall ports for quicker allow/deny of in/outbound rules
 * Provision using:
   * PowerShell Desired State Configuration (DSC)
@@ -34,12 +36,13 @@ Fogg is a PowerShell v4.0+ tool to aide and simplify the creation, deployment an
 * Returns an object containing the information of what was deployed
 * Ability to append new VMs rather than always creating and updating the same ones
 * Add additional data drives to VMs and add them as new partitions
+* Add tags onto all resources
     </description>
     <projectUrl>https://github.com/Badgerati/Fogg</projectUrl>
     <packageSourceUrl>https://github.com/Badgerati/Fogg/tree/master/nuget-packages</packageSourceUrl>
     <docsUrl>https://github.com/Badgerati/Fogg/wiki</docsUrl>
     <bugTrackerUrl>https://github.com/Badgerati/Fogg/issues</bugTrackerUrl>
-    <tags>fogg powershell azure automation deployment provision infrastructure arm devops vm subnet firewall vnet json windows iaas cloud</tags>
+    <tags>fogg powershell azure automation deployment provision infrastructure arm devops vm subnet firewall vnet json windows iaas cloud sa tags managed disks</tags>
     <copyright>Copyright 2017</copyright>
     <licenseUrl>https://github.com/Badgerati/Fogg/blob/master/LICENSE.txt</licenseUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>

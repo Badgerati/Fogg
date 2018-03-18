@@ -1,14 +1,12 @@
 {
-    "pretag": "pretag",
     "template": [
         {
-            "tag": "vm",
             "type": "vm",
-            "count": 1,
+            "role": "test",
             "provisioners": [
                 "remoting"
             ],
-            "usePublicIP": true,
+            "publicIp": true,
             "os": {
                 "size": "Standard_DS1_v2",
                 "type": "Windows",
@@ -22,14 +20,6 @@
         "remoting": "dsc: @{remoting}"
     },
     "firewall": {
-        "inbound": [
-            {
-                "name": "RDP",
-                "priority": 4095,
-                "source": "*:*",
-                "destination": "@{subnet}:3389",
-                "access": "Allow"
-            }
-        ]
+        "rdp": true
     }
 }

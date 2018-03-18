@@ -1,0 +1,14 @@
+{
+    "template": [
+        {
+            "type": "vnet",
+            "role": "qa",
+            "address": "10.15.0.0/16",
+            "subnets": {
+                "GatewaySubnet": "10.15.1.0/24",
+                "web": "10.15.2.0/24",
+                "app": "10.15.3.0/24"
+            }
+        }
+    ]
+}

@@ -3,11 +3,6 @@
         {
             "type": "vm",
             "role": "web",
-            "provisioners": [
-                "remoting",
-                "web",
-                "logs"
-            ],
             "publicIp": true,
             "os": {
                 "size": "Standard_DS1_v2",
@@ -16,16 +11,12 @@
                 "offer": "WindowsServer",
                 "skus": "2016-Datacenter"
             },
-            "firewall": {
-                "http|both": true
+            "image": {
+                "name": "some-image-file",
+                "rg": "some-other-or-same-rg"
             }
         }
     ],
-    "provisioners": {
-        "remoting": "dsc: .\\Remoting.ps1",
-        "web": "dsc: @{web-server}",
-        "logs": "custom: .\\Directories.ps1"
-    },
     "firewall": {
         "rdp": true
     }

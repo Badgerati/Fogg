@@ -1,13 +1,14 @@
 {
     "SubscriptionName": "<SUB_NAME_HERE>",
+    "Platform": "platform",
     "Groups": [
         {
-            "ResourceGroupName": "choco-rg",
+            "ResourceGroupName": "platform-rg",
             "Location": "westeurope",
             "TemplatePath": ".\\template.json",
-            "VNetAddress": "10.7.0.0/16",
+            "VNetAddress": "10.6.0.0/16",
             "SubnetAddresses": {
-                "vm": "10.7.0.0/24"
+                "vm": "10.6.0.0/24"
             }
         }
     ]

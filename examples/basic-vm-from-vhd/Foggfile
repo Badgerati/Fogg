@@ -2,12 +2,13 @@
     "SubscriptionName": "<SUB_NAME_HERE>",
     "Groups": [
         {
-            "ResourceGroupName": "choco-rg",
+            "ResourceGroupName": "vhd-rg",
             "Location": "westeurope",
             "TemplatePath": ".\\template.json",
-            "VNetAddress": "10.7.0.0/16",
+            "Stamp": "vhd1337",
+            "VNetAddress": "10.16.0.0/16",
             "SubnetAddresses": {
-                "vm": "10.7.0.0/24"
+                "web": "10.16.0.0/24"
             }
         }
     ]

@@ -1,0 +1,9 @@
+{
+    "template": [
+        {
+            "type": "sa",
+            "role": "files",
+            "premium": false
+        }
+    ]
+}

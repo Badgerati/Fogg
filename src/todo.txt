@@ -1,0 +1,81 @@
+v1.0.0::
+
+[x] -----
+unique stamp for storage accounts as an arg/foggfile
+
+[x] -----
+standardise all names into a separate module
+
+[x] -----
+[x] change "tag" to be "role"
+[x] change "pretag" to be "platform" (and be optional, and main vnet forced to rg-less resource group name)
+[x] platform should be arguments/foggfile (not in template/objs)
+
+> ["platform"-]"role"[-vm1]
+
+[x] -----
+remove "Legacy" stuff for vms and public ips
+
+[x] -----
+have a vnet type/step, and only make vnetname/rg/address/subnet-addresses mandatory in foggfile if vms/vpn are in the template
+    - vnet name (maybe time for variable name? "@{ResourceGroupName}-vnet")
+    - vnet mask
+    - subnet masks
+    - with validation
+    - GatewaySubnet should not be standardised
+
+[x] -----
+validate that the azure location passed is a valid location
+
+[x] -----
+don't request VM creds when template has no VMs in it
+
+[x] -----
+sa step for creating extra storage accounts
+    - with validation
+
+[x] -----
+allow creation of vms from vhds
+    - from a vhd in an existing sa in the same rg
+
+[x] -----
+allow create of vms from a template image file
+
+[x] -----
+if vm count is null or not supplied, just assume "1", rather than fail
+
+[ ] -----
+have option to create vms, (sysprep?), download vhds, then remove resource group
+
+[x] -----
+unload imported modules after running - no sense keeping them imported afterwards
+
+[x] -----
+tags on resources?
+partially done - logic in place, just needs adding to Foggfile and main Parameters
+
+[x] -----
+Run "Remove-AzureRmAccount" on completion
+
+[x] -----
+managed disks
+    - os/data disks
+
+[x] -----
+role uniqueness is not global in template - it should be unique to each type
+    - you can have "data/vm" and "data/sa", but you can't have "data/sa" again
+
+[ ] -----
+move creation of global vnet (unless re-using one) to be a defined step
+    - vm type now has a "vnet" section, to define "name" and "rg" (optional)
+
+[-] -----
+    - update all examples/readme
+    - update wiki
+
+[x] -----
+vnet example
+storage account example
+vm managed example
+vm image example
+vm vhd example

@@ -1,0 +1,12 @@
+{
+    "SubscriptionName": "<SUB_NAME_HERE>",
+    "Platform": "fogg",
+    "Groups": [
+        {
+            "ResourceGroupName": "storage-rg",
+            "Location": "westeurope",
+            "Stamp": "1337",
+            "TemplatePath": ".\\template.json"
+        }
+    ]
+}

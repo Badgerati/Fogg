@@ -2,7 +2,7 @@
     "SubscriptionName": "<SUB_NAME_HERE>",
     "Groups": [
         {
-            "ResourceGroupName": "basic-drives-rg",
+            "ResourceGroupName": "drives-rg",
             "Location": "westeurope",
             "TemplatePath": ".\\template.json",
             "VNetAddress": "10.11.0.0/16",

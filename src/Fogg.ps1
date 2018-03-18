@@ -32,7 +32,7 @@
 
     .PARAMETER SubnetAddresses
         This is a map of subnet addresses for VMs (ie, @{'web'='10.1.0.0/24'})
-        The name is the tag name of the VM, and there must be a subnet for each VM section in you template
+        The subnet name is the role of the VM, and there must be a subnet for each VM section in you template
 
         You can pass more subnets than you have VMs (for linking/firewalling to existing ones), as these can
         be referenced in firewalls as "@{subnet|jump}" for example if you pass "@{'jump'='10.1.99.0/24'}"
@@ -45,6 +45,16 @@
 
     .PARAMETER VNetName
         Paired with VNetResourceGroupName, if passed will use an existing Virtual Network in Azure
+
+    .PARAMETER Platform
+        (Optional) The name of the platform that is being deployed
+
+    .PARAMETER Stamp
+        (Optional) This is a unique value that is used for storage accounts
+
+    .PARAMETER Tags
+        (Optional) This is a map of tags to set/update against each resource within the created resource group. The tags
+        against the resource group are also set/updated.
 
     .PARAMETER Version
         Switch parameter, if passed will display the current version of Fogg and end execution
@@ -72,47 +82,72 @@
 #>
 param (
     [string]
+    [Alias('rg')]
     $ResourceGroupName,
 
     [string]
+    [Alias('loc')]
     $Location,
 
     [string]
+    [Alias('sub')]
     $SubscriptionName,
 
+    [Alias('snets')]
     $SubnetAddresses,
 
     [string]
+    [Alias('tp')]
     $TemplatePath,
 
     [string]
+    [Alias('fp')]
     $FoggfilePath,
 
     [pscredential]
+    [Alias('screds')]
     $SubscriptionCredentials,
 
     [pscredential]
+    [Alias('vmcreds')]
     $VMCredentials,
 
     [string]
+    [Alias('vnetaddr')]
     $VNetAddress,
 
     [string]
+    [Alias('vnetrg')]
     $VNetResourceGroupName,
 
     [string]
+    [Alias('vnet')]
     $VNetName,
 
+    [string]
+    [Alias('p')]
+    $Platform,
+
+    [string]
+    [Alias('s')]
+    $Stamp,
+
+    [Alias('t')]
+    $Tags,
+
     [switch]
+    [Alias('v')]
     $Version,
 
     [switch]
     $Validate,
 
     [switch]
+    [Alias('ic')]
     $IgnoreCores,
 
     [switch]
+    [Alias('no')]
     $NoOutput
 )
 
@@ -120,11 +155,25 @@ $ErrorActionPreference = 'Stop'
 $WarningPreference = 'Ignore'
 
 
+function Restore-FoggModule([string]$Path, [string]$Name, [switch]$Remove)
+{
+    if ((Get-Module -Name $Name) -ne $null)
+    {
+        Remove-Module -Name $Name -Force | Out-Null
+    }
+
+    if (!$Remove)
+    {
+        Import-Module "$($Root)\Modules\$($Name).psm1" -Force -ErrorAction Stop
+    }
+}
+
 
 # Import the FoggTools
 $root = Split-Path -Parent -Path $MyInvocation.MyCommand.Path
-Import-Module "$($root)\Modules\FoggTools.psm1" -ErrorAction Stop
-Import-Module "$($root)\Modules\FoggAzure.psm1" -ErrorAction Stop
+Restore-FoggModule -Path $root -Name 'FoggTools'
+Restore-FoggModule -Path $root -Name 'FoggNames'
+Restore-FoggModule -Path $root -Name 'FoggAzure'
 
 
 # Simple function for validating the Foggfile and templates
@@ -133,7 +182,10 @@ function Test-Files
     param (
         [Parameter(Mandatory=$true)]
         [ValidateNotNull()]
-        $FoggObject
+        $FoggObject,
+
+        [switch]
+        $Online
     )
 
     # Parse the contents of the template file
@@ -146,7 +198,7 @@ function Test-Files
     Test-FirewallRules -FirewallRules $template.firewall
 
     # Check the template section
-    Test-Template -Template $template -FoggObject $FoggObject -OS $template.os | Out-Null
+    Test-Template -Template $template -FoggObject $FoggObject -Online:$Online | Out-Null
 
     # return the template for further usage
     return $template
@@ -174,7 +226,8 @@ if (!(Test-PowerShellVersion 4))
 # create new fogg object from parameters and foggfile
 $FoggObjects = New-FoggObject -FoggRootPath $root -ResourceGroupName $ResourceGroupName -Location $Location -SubscriptionName $SubscriptionName `
     -SubnetAddresses $SubnetAddresses -TemplatePath $TemplatePath -FoggfilePath $FoggfilePath -SubscriptionCredentials $SubscriptionCredentials `
-    -VMCredentials $VMCredentials -VNetAddress $VNetAddress -VNetResourceGroupName $VNetResourceGroupName -VNetName $VNetName
+    -VMCredentials $VMCredentials -VNetAddress $VNetAddress -VNetResourceGroupName $VNetResourceGroupName -VNetName $VNetName -Tags $Tags `
+    -Platform $Platform -Stamp $Stamp
 
 # Start timer
 $timer = [DateTime]::UtcNow
@@ -182,7 +235,7 @@ $timer = [DateTime]::UtcNow
 
 try
 {
-    # validate the template files and section
+    # validate the template files and sections
     Write-Information "Verifying template files"
 
     foreach ($FoggObject in $FoggObjects.Groups)
@@ -220,8 +273,34 @@ try
     }
 
 
-    # Set the VM admin credentials
-    Add-FoggAdminAccount -FoggObject $FoggObjects
+    # ensure that each of the locations specified are valid, and set location short codes
+    $locs = @()
+
+    foreach ($FoggObject in $FoggObjects.Groups)
+    {
+        if ($locs -icontains $FoggObject.Location)
+        {
+            continue
+        }
+
+        if (!(Test-FoggLocation -Location $FoggObject.Location))
+        {
+            throw "Location supplied is invalid: $($FoggObject.Location)"
+        }
+
+        $locs += $FoggObject.Location
+    }
+
+
+    # now we're logged in, quickly re-run validation but with the -Online flag set
+    foreach ($FoggObject in $FoggObjects.Groups)
+    {
+        Test-Files -FoggObject $FoggObject -Online | Out-Null
+    }
+
+
+    # have we set VM creds? but only if we have VMs to create
+    $VMCredentialsSet = $false
 
 
     # loop through each group within the FoggObject
@@ -230,15 +309,16 @@ try
         # Retrieve the template for the current Group
         $template = Test-Files -FoggObject $FoggObject
 
-        # If we have a pretag on the template, set against this FoggObject
-        if (![string]::IsNullOrWhiteSpace($template.pretag))
+        # Set the VM admin credentials, but only if we have VMs to create
+        if (!$VMCredentialsSet -and (Test-TemplateHasType $template.template 'vm'))
         {
-            $FoggObject.PreTag = $template.pretag.ToLowerInvariant()
+            Add-FoggAdminAccount -FoggObject $FoggObjects
+            $VMCredentialsSet = $true
         }
 
 
         # If we're using an existng virtual network, ensure it actually exists
-        if ($FoggObject.UseExistingVNet)
+        if ($FoggObject.UseGlobalVNet -and $FoggObject.UseExistingVNet)
         {
             if ((Get-FoggVirtualNetwork -ResourceGroupName $FoggObject.VNetResourceGroupName -Name $FoggObject.VNetName) -eq $null)
             {
@@ -253,12 +333,12 @@ try
             New-FoggResourceGroup -FoggObject $FoggObject | Out-Null
 
 
-            # only create storage account if we have VMs
-            if (Test-TemplateHasVMs $template.template)
+            # only create global storage account if we have VMs
+            if (Test-TemplateHasType $template.template 'vm')
             {
                 # Create the storage account
                 $usePremiumStorage = [bool]$template.usePremiumStorage
-                $sa = New-FoggStorageAccount -FoggObject $FoggObject -Premium:$usePremiumStorage
+                $sa = New-FoggStorageAccount -FoggObject $FoggObject -Role 'gbl' -Premium:$usePremiumStorage
                 $FoggObject.StorageAccountName = $sa.StorageAccountName
 
                 # publish Provisioner scripts to storage account
@@ -266,42 +346,45 @@ try
             }
 
 
-            # create the virtual network, or use existing one (by name and resource group)
-            if ($FoggObject.UseExistingVNet)
+            # create vnet/snet if we're using a global one
+            if ($FoggObject.UseGlobalVNet)
             {
-                $vnet = Get-FoggVirtualNetwork -ResourceGroupName $FoggObject.VNetResourceGroupName -Name $FoggObject.VNetName
+                # create the virtual network, or use existing one (by name and resource group)
+                if ($FoggObject.UseExistingVNet)
+                {
+                    $vnet = Get-FoggVirtualNetwork -ResourceGroupName $FoggObject.VNetResourceGroupName -Name $FoggObject.VNetName
+                }
+                else
+                {
+                    $vnet = New-FoggVirtualNetwork -ResourceGroupName $FoggObject.ResourceGroupName -Name (Remove-RGTag $FoggObject.ResourceGroupName) `
+                        -Location $FoggObject.Location -Address $FoggObject.VNetAddress
+                }
+
+                # set vnet group information
+                $FoggObject.VNetAddress = $vnet.AddressSpace.AddressPrefixes[0]
+                $FoggObject.VNetResourceGroupName = $vnet.ResourceGroupName
+                $FoggObject.VNetName = $vnet.Name
             }
-            else
-            {
-                $vnet = New-FoggVirtualNetwork -FoggObject $FoggObject
-            }
-            
-            # set vnet group information
-            $FoggObject.VNetAddress = $vnet.AddressSpace.AddressPrefixes[0]
-            $FoggObject.VNetResourceGroupName = $vnet.ResourceGroupName
-            $FoggObject.VNetName = $vnet.Name
 
 
             # Create virtual subnets and security groups for VM objects in template
             $vms = ($template.template | Where-Object { $_.type -ieq 'vm' })
             foreach ($vm in $vms)
             {
-                $tag = $vm.tag.ToLowerInvariant()
-                $tagname = "$($FoggObject.PreTag)-$($tag)"
-                $snetname = "$($tagname)-snet"
-                $subnet = $FoggObject.SubnetAddressMap[$tag]
+                $role = $vm.role.ToLowerInvariant()
+                $basename = (Join-ValuesDashed @($FoggObject.Platform, $role))
+                $subnet = $FoggObject.SubnetAddressMap[$role]
 
                 # Create network security group inbound/outbound rules
-                $rules = New-FirewallRules -Firewall $vm.firewall -Subnets $FoggObject.SubnetAddressMap -CurrentTag $tag
-                $rules = New-FirewallRules -Firewall $template.firewall -Subnets $FoggObject.SubnetAddressMap -CurrentTag $tag -Rules $rules
+                $rules = New-FirewallRules -Firewall $vm.firewall -Subnets $FoggObject.SubnetAddressMap -CurrentRole $role
+                $rules = New-FirewallRules -Firewall $template.firewall -Subnets $FoggObject.SubnetAddressMap -CurrentRole $role -Rules $rules
 
                 # Create network security group rules, and bind to VM
-                $nsg = New-FoggNetworkSecurityGroup -FoggObject $FoggObject -Name "$($tagname)-nsg" -Rules $rules
-                $FoggObject.NsgMap.Add($tagname, $nsg.Id)
+                $nsg = New-FoggNetworkSecurityGroup -FoggObject $FoggObject -Name $basename -Rules $rules
+                $FoggObject.NsgMap.Add($basename, $nsg.Id)
 
                 # assign subnet to vnet
-                $vnet = Add-FoggSubnetToVNet -FoggObject $FoggObject -VNet $vnet -SubnetName $snetname `
-                    -Address $subnet -NetworkSecurityGroup $nsg
+                $vnet = Add-FoggSubnetToVNet -ResourceGroupName $vnet.ResourceGroupName -VNetName $vnet.Name -SubnetName $basename -Address $subnet -NetworkSecurityGroup $nsg
             }
 
 
@@ -309,9 +392,9 @@ try
             $vpn = ($template.template | Where-Object { $_.type -ieq 'vpn' } | Select-Object -First 1)
             if ($vpn -ne $null)
             {
-                $tag = $vpn.tag.ToLowerInvariant()
-                $subnet = $FoggObject.SubnetAddressMap[$tag]
-                $vnet = Add-FoggGatewaySubnetToVNet -FoggObject $FoggObject -VNet $vnet -Address $subnet
+                $role = $vpn.role.ToLowerInvariant()
+                $subnet = $FoggObject.SubnetAddressMap[$role]
+                $vnet = Add-FoggGatewaySubnetToVNet -ResourceGroupName $vnet.ResourceGroupName -VNetName $vnet.Name -Address $subnet
             }
 
 
@@ -330,8 +413,21 @@ try
                         {
                             New-DeployTemplateVPN -VPNTemplate $obj -FoggObject $FoggObject -VNet $vnet
                         }
+
+                    'vnet'
+                        {
+                            New-DeployTemplateVNet -VNetTemplate $obj -FoggObject $FoggObject
+                        }
+
+                    'sa'
+                        {
+                            New-DeployTemplateSA -SATemplate $obj -FoggObject $FoggObject
+                        }
                 }
             }
+
+            # set/update all tags within the group
+            Update-FoggResourceTags -ResourceGroupName $FoggObject.ResourceGroupName -Tags $FoggObjects.Tags
         }
         catch [exception]
         {
@@ -358,8 +454,16 @@ try
 }
 finally
 {
+    # logout of azure
+    Remove-FoggAccount -FoggObject $FoggObjects
+
     # Output the total time taken
     Write-Duration $timer -PreText 'Total Duration' -NewLine
+
+    # unload modules
+    Restore-FoggModule -Path $root -Name 'FoggTools' -Remove
+    Restore-FoggModule -Path $root -Name 'FoggNames' -Remove
+    Restore-FoggModule -Path $root -Name 'FoggAzure' -Remove
 }
 
 
@@ -386,7 +490,7 @@ foreach ($FoggObject in $FoggObjects.Groups)
     # set location info
     $rg.Location = $FoggObject.Location
 
-    # set vnet info
+    # set global vnet info
     $rg.VirtualNetwork = @{
         'Name' = $FoggObject.VNetName;
         'ResourceGroupName' = $FoggObject.VNetResourceGroupName;
@@ -423,6 +527,32 @@ foreach ($FoggObject in $FoggObjects.Groups)
         ForEach-Object { $info.Add($_.Name, $_.Value) }
 
     $rg.VPNInfo += $info
+
+    # set vnet info
+    if ($rg.VirtualNetworkInfo -eq $null)
+    {
+        $rg.VirtualNetworkInfo = @{}
+    }
+
+    $info = @{}
+    $FoggObject.VirtualNetworkInfo.GetEnumerator() | 
+        Where-Object { !$rg.VirtualNetworkInfo.ContainsKey($_.Name) } |
+        ForEach-Object { $info.Add($_.Name, $_.Value) }
+
+    $rg.VirtualNetworkInfo += $info
+
+    # set storage account info
+    if ($rg.StorageAccountInfo -eq $null)
+    {
+        $rg.StorageAccountInfo = @{}
+    }
+
+    $info = @{}
+    $FoggObject.StorageAccountInfo.GetEnumerator() | 
+        Where-Object { !$rg.StorageAccountInfo.ContainsKey($_.Name) } |
+        ForEach-Object { $info.Add($_.Name, $_.Value) }
+
+    $rg.StorageAccountInfo += $info
 }
 
 return $result

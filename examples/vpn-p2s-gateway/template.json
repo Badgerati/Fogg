@@ -1,8 +1,8 @@
 {
     "template": [
         {
-            "tag": "vpn",
             "type": "vpn",
+            "role": "p2s",
             "configType": "p2s",
             "vpnType": "RouteBased",
             "gatewaySku": "Standard",

@@ -2,7 +2,7 @@
     "SubscriptionName": "<SUB_NAME_HERE>",
     "Groups": [
         {
-            "ResourceGroupName": "basic-rg",
+            "ResourceGroupName": "web-srv-rg",
             "Location": "westeurope",
             "TemplatePath": ".\\template.json",
             "VNetAddress": "10.1.0.0/16",
