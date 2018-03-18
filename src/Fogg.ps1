@@ -143,6 +143,7 @@ param (
     $Validate,
 
     [switch]
+    [Alias('ic')]
     $IgnoreCores,
 
     [switch]
