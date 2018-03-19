@@ -423,6 +423,11 @@ try
                         {
                             New-DeployTemplateSA -SATemplate $obj -FoggObject $FoggObject
                         }
+
+                    'redis'
+                        {
+                            # New-DeployTemplateRedis -RedisTemplate $obj -FoggObject $FoggObject
+                        }
                 }
             }
 

@@ -270,6 +270,55 @@ function Set-FoggTags
     return $Tags
 }
 
+function Test-FoggRedisCacheExists
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $ResourceGroupName,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Name
+    )
+
+    $Name = (Get-FoggRedisCacheName -Name $Name)
+
+    $redis = Get-AzureRmRedisCache -ResourceGroupName $ResourceGroupName -Name $Name -ErrorAction Ignore
+    if ($redis -eq $null)
+    {
+        return $false
+    }
+
+    return $true
+}
+
+function Get-FoggRedisCache
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $ResourceGroupName,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Name
+    )
+
+    $Name = (Get-FoggRedisCacheName -Name $Name)
+
+    $redis = Get-AzureRmRedisCache -ResourceGroupName $ResourceGroupName -Name $Name -ErrorAction Ignore
+    if ($redis -eq $null)
+    {
+        throw "The Redis Cache '$($Name)' does not exist under ResourceGroup '$($ResourceGroupName)'. This is likely because the name is in use by someone else, and Redis Cache names are unique globally for everybody"
+    }
+
+    return $redis
+}
 
 function Test-FoggStorageAccountExists
 {
@@ -314,7 +363,7 @@ function Get-FoggStorageAccount
     $storage = Get-AzureRmStorageAccount -ResourceGroupName $ResourceGroupName -Name $StorageAccountName -ErrorAction Ignore
     if ($storage -eq $null)
     {
-        throw "The StorageAccount '$($StorageAccountName)' does not exist under ResourceGroup '$($ResourceGroupName)'. This is likely because the name is in use by someone else, and Storage Account names are unique globally for everybody"
+        throw "The Storage Account '$($StorageAccountName)' does not exist under Resource Group '$($ResourceGroupName)'. This is likely because the name is in use by someone else, and Storage Account names are unique globally for everybody"
     }
 
     return $storage
@@ -3180,6 +3229,30 @@ function Test-FoggVMName
     }
 }
 
+function Test-FoggRedisCacheName
+{
+    param (
+        [string]
+        $Name
+    )
+
+    if (Test-Empty $Name)
+    {
+        throw "No Redis Cache name supplied"
+    }
+
+    $length = $Name.Length
+    if ($length -lt 1 -or $length -gt 63)
+    {
+        throw "Redis Cache name '$($Name)' must be between 1-63 characters"
+    }
+
+    $regex = '^[a-z0-9\-]+$'
+    if ($Name -notmatch $regex)
+    {
+        throw "Redis Cache name '$($Name)' can only contain lowercase alphanumeric and hyphen characters"
+    }
+}
 
 function Test-FoggStorageAccountName
 {

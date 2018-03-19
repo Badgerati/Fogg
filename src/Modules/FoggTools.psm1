@@ -475,7 +475,7 @@ function Test-Template
         {
             'vm'
                 {
-                    Test-TemplateVM -VM $obj -FoggObject $FoggObject -OS $OS -Online:$Online
+                    Test-TemplateVM -Template $obj -FoggObject $FoggObject -OS $OS -Online:$Online
                 }
 
             'vpn'
@@ -485,18 +485,23 @@ function Test-Template
                         throw "Cannot have 2 VPN template objects"
                     }
 
-                    Test-TemplateVPN -VPN $obj -FoggObject $FoggObject
+                    Test-TemplateVPN -Template $obj -FoggObject $FoggObject
                     $alreadyHasVpn = $true
                 }
 
             'vnet'
                 {
-                    Test-TemplateVNet -VNet $obj -FoggObject $FoggObject
+                    Test-TemplateVNet -Template $obj -FoggObject $FoggObject
                 }
 
             'sa'
                 {
-                    Test-TemplateSA -SA $obj -FoggObject $FoggObject -Online:$Online
+                    Test-TemplateSA -Template $obj -FoggObject $FoggObject -Online:$Online
+                }
+
+            'redis'
+                {
+                    Test-TemplateRedis -Template $obj -FoggObject $FoggObject -Online:$Online
                 }
 
             default
@@ -509,12 +514,92 @@ function Test-Template
     return $templateCount
 }
 
+function Test-TemplateRedis
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        $Template,
+
+        [Parameter(Mandatory=$true)]
+        $FoggObject,
+
+        [switch]
+        $Online
+    )
+
+    # get role
+    $role = $Template.role.ToLowerInvariant()
+
+    # ensure name is valid
+    $name = Get-FoggRedisCacheName -Name (Join-ValuesDashed @($FoggObject.LocationCode, $FoggObject.Stamp, $FoggObject.Platform, $role))
+    Test-FoggRedisCacheName $name
+    
+    # ensure the sku is valid
+    $skus = @('Basic', 'Standard', 'Premium')
+    if ($skus -inotcontains $Template.sku)
+    {
+        throw "The $($role) Redis Cache sku supplied is invalid, valid values are: $($skus -join ', ')"
+    }
+
+    # ensure the shard count is valid
+    $shards = [int]$Template.shards
+    if ($Template.shards -ne $null -and ($shards -lt 1 -or $shards -gt 10))
+    {
+        throw "The $($role) Redis Cache shard count is invalid, should be between 1-10"
+    }
+
+    # ensure the size is valid
+    $sizes = @('P1', 'P2', 'P3', 'P4', 'C0', 'C1', 'C2', 'C3', 'C4', 'C5', 'C6', '250MB', '1GB', '2.5GB', '6GB', '13GB', '26GB', '53GB')
+    if ($sizes -inotcontains $Template.size)
+    {
+        throw "The $($role) Redis Cache size supplied is invalid, valid values are: $($sizes -join ', ')"
+    }
+
+    # ensure the firewall rules have names and ip ranges
+    if ($Template.firewall -ne $null)
+    {
+        $Template.firewall.psobject.properties.name | ForEach-Object {
+            if (Test-Empty $_)
+            {
+                throw "The $($role) Redis Cache has a firewall rule with no name supplied"
+            }
+
+            if (Test-Empty $Template.firewall[$_])
+            {
+                throw "The $($role) Redis Cache firewall rule '$($_)' has no IP range supplied"
+            }
+        }
+    }
+
+    # ensure the redis config keys supplied are valid
+    $configKeys = @('rdb-backup-enabled', 'rdb-storage-connection-string', 'rdb-backup-frequency', 'maxmemory-reserved', 'maxmemory-policy', 'notify-keyspace-events',
+        'hash-max-ziplist-entries', 'hash-max-ziplist-value', 'set-max-intset-entries', 'zset-max-ziplist-entries', 'zset-max-ziplist-value', 'databases')
+
+    if ($Template.config -ne $null)
+    {
+        $Template.config.psobject.properties.name | ForEach-Object {
+            if ($configKeys -inotcontains $_)
+            {
+                throw "The $($role) Redis Cache configuration has an invalid property: $($_). Valid values are:`n$($configKeys -join "`n")"
+            }
+        }
+    }
+
+    # if online and the cache exist, ensure it's ours
+    if ($Online)
+    {
+        if (Test-FoggRedisCacheExists -ResourceGroupName $FoggObject.ResourceGroupName -Name $name)
+        {
+            Get-FoggRedisCache -ResourceGroupName $FoggObject.ResourceGroupName -Name $name | Out-Null
+        }
+    }
+}
 
 function Test-TemplateSA
 {
     param (
         [Parameter(Mandatory=$true)]
-        $SA,
+        $Template,
 
         [Parameter(Mandatory=$true)]
         $FoggObject,
@@ -524,9 +609,10 @@ function Test-TemplateSA
     )
 
     # ensure name is valid
-    $name = Get-FoggStorageAccountName -Name (Join-ValuesDashed @($FoggObject.LocationCode, $FoggObject.Stamp, $FoggObject.Platform, $SA.role))
+    $name = Get-FoggStorageAccountName -Name (Join-ValuesDashed @($FoggObject.LocationCode, $FoggObject.Stamp, $FoggObject.Platform, $Template.role))
     Test-FoggStorageAccountName $name
 
+    # if online and storage account exists, ensure it's ours
     if ($Online)
     {
         if (Test-FoggStorageAccountExists $name)
@@ -541,23 +627,23 @@ function Test-TemplateVNet
 {
     param (
         [Parameter(Mandatory=$true)]
-        $VNet,
+        $Template,
 
         [Parameter(Mandatory=$true)]
         $FoggObject
     )
 
     # get role
-    $role = $VNet.role.ToLowerInvariant()
+    $role = $Template.role.ToLowerInvariant()
 
     # ensure we have an address
-    if (Test-Empty $VNet.address)
+    if (Test-Empty $Template.address)
     {
         throw "VNet for $($role) has no address prefix"
     }
 
     # ensure subnets have names and addresses
-    $subnets = ConvertFrom-JsonObjectToMap $VNet.subnets
+    $subnets = ConvertFrom-JsonObjectToMap $Template.subnets
     $subnets.Keys | ForEach-Object {
         if (Test-Empty $_)
         {
@@ -576,14 +662,14 @@ function Test-TemplateVPN
 {
     param (
         [Parameter(Mandatory=$true)]
-        $VPN,
+        $Template,
 
         [Parameter(Mandatory=$true)]
         $FoggObject
     )
 
     # get role
-    $role = $VPN.role.ToLowerInvariant()
+    $role = $Template.role.ToLowerInvariant()
 
     # ensure that the VPN object has a subnet map
     if (!$FoggObject.SubnetAddressMap.Contains($role))
@@ -592,32 +678,32 @@ function Test-TemplateVPN
     }
 
     # ensure we have a valid VPN type
-    if ($VPN.vpnType -ine 'RouteBased' -and $VPN.vpnType -ine 'PolicyBased')
+    if ($Template.vpnType -ine 'RouteBased' -and $Template.vpnType -ine 'PolicyBased')
     {
         throw "VPN type for $($role) must be one of either 'RouteBased' or 'PolicyBased'"
     }
 
     # ensure we have a Gateway SKU
-    if (Test-Empty $VPN.gatewaySku)
+    if (Test-Empty $Template.gatewaySku)
     {
         throw "VPN has no Gateway SKU specified: Basic, Standard, or HighPerformance"
     }
 
     # PolicyBased VPN can only have a SKU of Basic
-    if ($VPN.vpnType -ieq 'PolicyBased' -and $VPN.gatewaySku -ine 'Basic')
+    if ($Template.vpnType -ieq 'PolicyBased' -and $Template.gatewaySku -ine 'Basic')
     {
         throw "PolicyBased VPN can only have a Gateway SKU of 'Basic'"
     }
 
     # Do we have a valid VPN config
     $configTypes = @('s2s', 'p2s', 'v2v')
-    if ((Test-Empty $VPN.configType) -or $configTypes -inotcontains $VPN.configType)
+    if ((Test-Empty $Template.configType) -or $configTypes -inotcontains $Template.configType)
     {
         throw "VPN configuration must be one of the following: $($configTypes -join ', ')"
     }
 
     # continue rest of validation based on VPN configuration
-    switch ($VPN.configType.ToLowerInvariant())
+    switch ($Template.configType.ToLowerInvariant())
     {
         's2s'
             {
@@ -636,7 +722,7 @@ function Test-TemplateVPN
                 }
 
                 # ensure we have a shared key
-                if (Test-Empty $VPN.sharedKey)
+                if (Test-Empty $Template.sharedKey)
                 {
                     throw "VPN has no shared key specified"
                 }
@@ -652,18 +738,18 @@ function Test-TemplateVPN
                 }
 
                 # ensure we have a cert path, and it exists
-                if (Test-Empty $VPN.certPath)
+                if (Test-Empty $Template.certPath)
                 {
                     throw "VPN has no public certificate (.cer) path specified"
                 }
 
-                if (!(Test-PathExists $VPN.certPath))
+                if (!(Test-PathExists $Template.certPath))
                 {
-                    throw "VPN public certificate path does not exist: $($VPN.certPath)"
+                    throw "VPN public certificate path does not exist: $($Template.certPath)"
                 }
 
                 # ensure the certificate extension is .cer
-                $file = Split-Path -Leaf -Path $VPN.certPath
+                $file = Split-Path -Leaf -Path $Template.certPath
                 if ([System.IO.Path]::GetExtension($file) -ine '.cer')
                 {
                     throw "VPN public certificate is not a valid .cer file: $($file)"
@@ -682,7 +768,7 @@ function Test-TemplateVM
 {
     param (
         [Parameter(Mandatory=$true)]
-        $VM,
+        $Template,
 
         [Parameter(Mandatory=$true)]
         $FoggObject,
@@ -695,13 +781,13 @@ function Test-TemplateVM
 
     # is there an OS section?
     $hasOS = ($OS -ne $null)
-    $hasVhd = ($vm.vhd -ne $null)
-    $hasImage = ($vm.image -ne $null)
-    $isManaged = [bool]$vm.managed
+    $hasVhd = ($Template.vhd -ne $null)
+    $hasImage = ($Template.image -ne $null)
+    $isManaged = [bool]$Template.managed
     $mainOS = $OS
 
     # get role
-    $role = $VM.role.ToLowerInvariant()
+    $role = $Template.role.ToLowerInvariant()
 
     # ensure we don't have a vhd and an image
     if ($hasVhd -and $hasImage)
@@ -722,7 +808,7 @@ function Test-TemplateVM
     }
 
     # ensure VM count is not negative/0
-    $_count = (Get-FoggDefaultInt -Value $vm.count -Default 1)
+    $_count = (Get-FoggDefaultInt -Value $Template.count -Default 1)
 
     if ($_count -le 0)
     {
@@ -730,30 +816,30 @@ function Test-TemplateVM
     }
 
     # ensure that if append is true, off count is not supplied
-    if ($vm.append -and $vm.off -ne $null -and $vm.off -gt 0)
+    if ($Template.append -and $Template.off -ne $null -and $Template.off -gt 0)
     {
         throw "VMs to turn off cannot be supplied if append property is true for $($role)"
     }
 
     # ensure the off count is not negative or greater than VM count
-    if ($vm.off -ne $null -and ($vm.off -le 0 -or $vm.off -gt $_count))
+    if ($Template.off -ne $null -and ($Template.off -le 0 -or $Template.off -gt $_count))
     {
-        throw "VMs to turn off cannot be negative or greater than VM count for $($role): $($vm.off)"
+        throw "VMs to turn off cannot be negative or greater than VM count for $($role): $($Template.off)"
     }
 
     # if there's more than one VM (load balanced) a port is required
     $useLoadBalancer = $true
-    if (!(Test-Empty $vm.loadBalance))
+    if (!(Test-Empty $Template.loadBalance))
     {
-        $useLoadBalancer = [bool]$vm.loadBalance
+        $useLoadBalancer = [bool]$Template.loadBalance
     }
 
-    if (!(Test-Empty $vm.availabilitySet) -and $vm.availabilitySet -eq $false)
+    if (!(Test-Empty $vTemplatem.availabilitySet) -and $Template.availabilitySet -eq $false)
     {
         $useLoadBalancer = $false
     }
 
-    if ($_count -gt 1 -and $useLoadBalancer -and (Test-Empty $vm.port))
+    if ($_count -gt 1 -and $useLoadBalancer -and (Test-Empty $Template.port))
     {
         throw "A valid port value is required for the '$($role)' VM object for load balancing"
     }
@@ -761,25 +847,25 @@ function Test-TemplateVM
     # check if vhd is valid, if supplied
     if ($hasVhd)
     {
-        Test-TemplateVMVhd -Role $role -Vhd $vm.vhd -FoggObject $FoggObject -Online:$Online
+        Test-TemplateVMVhd -Role $role -Vhd $Template.vhd -FoggObject $FoggObject -Online:$Online
     }
 
     # check if image is valid, if supplied
     if ($hasImage)
     {
-        Test-TemplateVMImage -Role $role -Image $vm.image -FoggObject $FoggObject -Online:$Online
+        Test-TemplateVMImage -Role $role -Image $Template.image -FoggObject $FoggObject -Online:$Online
     }
 
     # ensure that each VM has an OS setting if global OS does not exist
-    if (!$hasOS -and $vm.os -eq $null)
+    if (!$hasOS -and $Template.os -eq $null)
     {
         throw "The '$($role)' VM object is missing the OS settings section"
     }
 
-    if ($vm.os -ne $null)
+    if ($Template.os -ne $null)
     {
-        Test-TemplateVMOS -Role $role -Location $FoggObject.Location -OS $vm.os -Online:$Online -VhdPresent:$hasVhd
-        $mainOS = $vm.os
+        Test-TemplateVMOS -Role $role -Location $FoggObject.Location -OS $Template.os -Online:$Online -VhdPresent:$hasVhd
+        $mainOS = $Template.os
     }
 
     $osType = $mainOS.type
@@ -789,14 +875,14 @@ function Test-TemplateVM
     Test-FoggVMName -OSType $osType -Name $vmName
 
     # ensure that the provisioner keys exist
-    if (!$FoggObject.HasProvisionScripts -and !(Test-ArrayEmpty $vm.provisioners))
+    if (!$FoggObject.HasProvisionScripts -and !(Test-ArrayEmpty $Template.provisioners))
     {
         throw "The '$($role)' VM object specifies provisioners, but there is no Provisioner section"
     }
 
-    if ($FoggObject.HasProvisionScripts -and !(Test-ArrayEmpty $vm.provisioners))
+    if ($FoggObject.HasProvisionScripts -and !(Test-ArrayEmpty $Template.provisioners))
     {
-        $vm.provisioners | ForEach-Object {
+        $Template.provisioners | ForEach-Object {
             $key = ($_ -split '\:')[0]
 
             if (Test-Empty $key)
@@ -812,13 +898,13 @@ function Test-TemplateVM
     }
 
     # ensure firewall rules are valid
-    Test-FirewallRules -FirewallRules $vm.firewall
+    Test-FirewallRules -FirewallRules $Template.firewall
 
     # if the VM has extra drives, ensure the section is valid and add the provisioner
-    if (!(Test-ArrayEmpty $vm.drives))
+    if (!(Test-ArrayEmpty $Template.drives))
     {
         # ensure other values are correct
-        $vm.drives | ForEach-Object {
+        $Template.drives | ForEach-Object {
             # ensure sizes are greater than 0
             if ($_.size -eq $null -or $_.size -le 0)
             {
@@ -869,29 +955,29 @@ function Test-TemplateVM
         }
 
         # ensure the LUNs are unique
-        $dupe = Test-ArrayIsUnique $vm.drives.lun
+        $dupe = Test-ArrayIsUnique $Template.drives.lun
         if ($dupe -ne $null)
         {
             throw "Drive LUNs need to be unique, found two drives with LUN '$($dupe)' for the $($role) VM object"
         }
 
         # ensure the name are unique
-        $dupe = Test-ArrayIsUnique $vm.drives.name
+        $dupe = Test-ArrayIsUnique $Template.drives.name
         if ($dupe -ne $null)
         {
             throw "Drive names need to be unique, found two drives with name '$($dupe)' for the $($role) VM object"
         }
 
         # ensure the letters are unique
-        $dupe = Test-ArrayIsUnique $vm.drives.letter
+        $dupe = Test-ArrayIsUnique $Template.drives.letter
         if ($dupe -ne $null)
         {
             throw "Drive letters need to be unique, found two drives with letter '$($dupe)' for the $($role) VM object"
         }
 
         # get the drive names
-        $drives = $vm.drives.name -join ','
-        $letters = $vm.drives.letter -join ','
+        $drives = $Template.drives.name -join ','
+        $letters = $Template.drives.letter -join ','
 
         # add provisioner
         $scriptPath = Get-ProvisionerInternalPath -FoggObject $FoggObject -Type 'drives' -ScriptName 'attach-drives' -OS 'win'

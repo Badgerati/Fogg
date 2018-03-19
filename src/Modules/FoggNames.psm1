@@ -271,6 +271,18 @@ function Get-FoggStorageAccountName
     return ($Name -ireplace '-', '')
 }
 
+function Get-FoggRedisCacheName
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Name
+    )
+
+    return (Get-FoggStandardisedName -Name "$($Name)" -Tag '-redis')
+}
+
 function Get-FoggDirectionName
 {
     param (
