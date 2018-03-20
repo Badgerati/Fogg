@@ -57,6 +57,11 @@ partially done - logic in place, just needs adding to Foggfile and main Paramete
 [x] -----
 Run "Remove-AzureRmAccount" on completion
 
+[-] -----
+Add Redis Cache step
+    - subnets have now changed to be "<platform>-<role>-<type>-snet"
+    - subnets now don't have to be supplied when using existing vnets
+
 [x] -----
 managed disks
     - os/data disks

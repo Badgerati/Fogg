@@ -529,11 +529,19 @@ function Test-TemplateRedis
 
     # get role
     $role = $Template.role.ToLowerInvariant()
+    $basename = (Join-ValuesDashed @($FoggObject.Platform, $role))
+    $useSubnet = [bool]$Template.subnet
 
     # ensure name is valid
     $name = Get-FoggRedisCacheName -Name (Join-ValuesDashed @($FoggObject.LocationCode, $FoggObject.Stamp, $FoggObject.Platform, $role))
     Test-FoggRedisCacheName $name
-    
+
+    # if subnet is true, check we have a subnet for this redis cache
+    if ($useSubnet -and $Online -and !$FoggObject.SubnetAddressMap.ContainsKey("$($basename)-redis"))
+    {
+        throw "No subnet address mapped for the $($role) Redis Cache object, expecting: $($basename)-redis"
+    }
+
     # ensure the sku is valid
     $skus = @('Basic', 'Standard', 'Premium')
     if ($skus -inotcontains $Template.sku)
@@ -543,7 +551,7 @@ function Test-TemplateRedis
 
     # ensure the shard count is valid
     $shards = [int]$Template.shards
-    if ($Template.shards -ne $null -and ($shards -lt 1 -or $shards -gt 10))
+    if (!(Test-Empty $Template.shards) -and ($shards -lt 1 -or $shards -gt 10))
     {
         throw "The $($role) Redis Cache shard count is invalid, should be between 1-10"
     }
@@ -556,7 +564,7 @@ function Test-TemplateRedis
     }
 
     # ensure the firewall rules have names and ip ranges
-    if ($Template.firewall -ne $null)
+    if (!(Test-Empty $Template.firewall))
     {
         $Template.firewall.psobject.properties.name | ForEach-Object {
             if (Test-Empty $_)
@@ -575,7 +583,7 @@ function Test-TemplateRedis
     $configKeys = @('rdb-backup-enabled', 'rdb-storage-connection-string', 'rdb-backup-frequency', 'maxmemory-reserved', 'maxmemory-policy', 'notify-keyspace-events',
         'hash-max-ziplist-entries', 'hash-max-ziplist-value', 'set-max-intset-entries', 'zset-max-ziplist-entries', 'zset-max-ziplist-value', 'databases')
 
-    if ($Template.config -ne $null)
+    if (!(Test-Empty $Template.config))
     {
         $Template.config.psobject.properties.name | ForEach-Object {
             if ($configKeys -inotcontains $_)
@@ -670,11 +678,12 @@ function Test-TemplateVPN
 
     # get role
     $role = $Template.role.ToLowerInvariant()
+    $basename = (Join-ValuesDashed @($FoggObject.Platform, $role))
 
     # ensure that the VPN object has a subnet map
-    if (!$FoggObject.SubnetAddressMap.Contains($role))
+    if ($Online -and !$FoggObject.SubnetAddressMap.ContainsKey("$($basename)-vpn"))
     {
-        throw "No subnet address mapped for the VPN template object"
+        throw "No subnet address mapped for the $($role) VPN object, expecting: $($basename)-vpn"
     }
 
     # ensure we have a valid VPN type
@@ -708,17 +717,17 @@ function Test-TemplateVPN
         's2s'
             {
                 # ensure we have a VPN Gateway IP in subnet map
-                $roleGIP = "$($role)-gip"
-                if (!$FoggObject.SubnetAddressMap.Contains($roleGIP))
+                $roleGIP = "$($basename)-gip"
+                if ($Online -and !$FoggObject.SubnetAddressMap.Contains("$($roleGIP)-vpn"))
                 {
-                    throw "No Gateway IP mapped for the VPN: $($roleGIP)"
+                    throw "No Gateway IP mapped for the VPN: $($roleGIP)-vpn"
                 }
 
                 # ensure we have a on-premises address prefixes in subnet map
-                $roleOpm = "$($role)-opm"
-                if (!$FoggObject.SubnetAddressMap.Contains($roleOpm))
+                $roleOpm = "$($basename)-opm"
+                if ($Online -and !$FoggObject.SubnetAddressMap.Contains("$($roleOpm)-vpn"))
                 {
-                    throw "No On-Premises address prefix(es) mapped for the VPN: $($roleOpm)"
+                    throw "No On-Premises address prefix(es) mapped for the VPN: $($roleOpm)-vpn"
                 }
 
                 # ensure we have a shared key
@@ -731,10 +740,10 @@ function Test-TemplateVPN
         'p2s'
             {
                 # ensure we have a VPN client address pool in subnet map
-                $roleCAP = "$($role)-cap"
-                if (!$FoggObject.SubnetAddressMap.Contains($roleCAP))
+                $roleCAP = "$($basename)-cap"
+                if ($Online -and !$FoggObject.SubnetAddressMap.Contains("$($roleCAP)-vpn"))
                 {
-                    throw "No VPN Client Address Pool mapped for the VPN: $($roleCAP)"
+                    throw "No VPN Client Address Pool mapped for the VPN: $($roleCAP)-vpn"
                 }
 
                 # ensure we have a cert path, and it exists
@@ -788,6 +797,7 @@ function Test-TemplateVM
 
     # get role
     $role = $Template.role.ToLowerInvariant()
+    $basename = (Join-ValuesDashed @($FoggObject.Platform, $role))
 
     # ensure we don't have a vhd and an image
     if ($hasVhd -and $hasImage)
@@ -802,9 +812,9 @@ function Test-TemplateVM
     }
 
     # ensure that each VM object has a subnet map
-    if (!$FoggObject.SubnetAddressMap.Contains($role))
+    if ($Online -and !$FoggObject.SubnetAddressMap.ContainsKey("$($basename)-vm"))
     {
-        throw "No subnet address mapped for the $($role) VM object object"
+        throw "No subnet address mapped for the $($role) VM object, expecting: $($basename)-vm"
     }
 
     # ensure VM count is not negative/0
@@ -1937,6 +1947,11 @@ function New-FoggGroupObject
     $VNetResourceGroupName = (Get-FoggResourceGroupName $VNetResourceGroupName)
     $VNetName = (Get-FoggVirtualNetworkName $VNetName)
 
+    if ($SubnetAddresses -eq $null)
+    {
+        $SubnetAddresses = @{}
+    }
+
     # create fogg object with params
     $group = @{}
     $group.ResourceGroupName = $ResourceGroupName
@@ -1960,6 +1975,7 @@ function New-FoggGroupObject
     $group.VirtualMachineInfo = @{}
     $group.VirtualNetworkInfo = @{}
     $group.StorageAccountInfo = @{}
+    $group.RedisCacheInfo = @{}
     $group.VPNInfo = @{}
 
     $groupObj = New-Object -TypeName PSObject -Property $group
@@ -2000,19 +2016,19 @@ function Test-FoggObjectParameters
         throw 'No location to deploy VMs supplied'
     }
 
-    # only validate vnet/snet if template has vms/vpns
-    if ((Test-TemplateHasType $template.template 'vm') -or (Test-TemplateHasType $template.template 'vpn'))
+    # only validate vnet/snet if template has vms/vpns/redis
+    if ((Test-TemplateHasType $template.template 'vm') -or (Test-TemplateHasType $template.template 'vpn') -or (Test-TemplateHasType $template.template 'redis'))
     {
         # if no vnet address or vnet resource group/name for existing vnet, fail
         if (!$FoggObject.UseExistingVNet -and (Test-Empty $FoggObject.VNetAddress))
         {
-            throw 'No address prefix, or resource group and vnet name, supplied to create, or re-use, virtual network'
+            throw 'No address prefix, or resource group and vnet name, supplied to create, or re-use, a virtual network'
         }
 
-        # if no subnets passed, fail
-        if (Test-Empty $FoggObject.SubnetAddressMap)
+        # subnets are required when creating a new global vnet
+        if (!$FoggObject.UseExistingVNet -and (Test-Empty $FoggObject.SubnetAddressMap))
         {
-            throw 'No address prefixes for virtual subnets supplied'
+            throw 'No address prefixes for new subnets supplied'
         }
     }
 
@@ -2020,7 +2036,6 @@ function Test-FoggObjectParameters
     Test-FoggResourceGroupName $FoggObject.ResourceGroupName
     Test-FoggResourceGroupName $FoggObject.VNetResourceGroupName -Optional
 }
-
 
 function Test-FoggLocation
 {
@@ -2034,7 +2049,6 @@ function Test-FoggLocation
     return ((Get-FoggLocation -Location $Location) -ne $null)
 }
 
-
 function Get-FoggLocation
 {
     param (
@@ -2047,6 +2061,67 @@ function Get-FoggLocation
     return (Get-AzureRmLocation | Where-Object { $_.Location -ieq $Location } | Select-Object -First 1)
 }
 
+function New-DeployTemplateRedis
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        $RedisTemplate,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        $FoggObject,
+
+        [Parameter()]
+        $VNet
+    )
+
+    $startTime = [DateTime]::UtcNow
+    $role = $RedisTemplate.role.ToLowerInvariant()
+    $basename = (Join-ValuesDashed @($FoggObject.Platform, $role))
+
+    # template variables
+    $nonSsl = [bool]$RedisTemplate.nonSsl
+    $useSubnet = [bool]$RedisTemplate.subnet
+    $shards = (Get-FoggDefaultInt -Value $RedisTemplate.shards -Default 1)
+
+    # subnet info
+    if ($useSubnet)
+    {
+        $subnetPrefix = $FoggObject.SubnetAddressMap["$($basename)-redis"]
+        $subnetName = (Get-FoggSubnetName $basename)
+        $subnetId = ($VNet.Subnets | Where-Object { $_.Name -ieq $subnetName -or $_.AddressPrefix -ieq $subnetPrefix }).Id
+    }
+
+    # Redis Cache information
+    $FoggObject.RedisCacheInfo.Add($role, @{})
+    $redisInfo = $FoggObject.RedisCacheInfo[$role]
+
+    Write-Information "Deploying Redis Cache for the '$($role)' template"
+
+    # create the redis cache
+    $redis = New-FoggRedisCache -FoggObject $FoggObject -Role $role -SubnetId $subnetId -EnableNonSslPort:$nonSsl #todo: params
+
+    # basic redis info
+    $redisInfo.Add('Name', $redis.Name)
+    $redisInfo.Add('HostName', $redis.HostName)
+    $redisInfo.Add('StaticIP', $redis.StaticIP)
+    $redisInfo.Add('Shards', $redis.ShardCount)
+    
+    # redis ports info
+    $redisInfo.Add('Ports', @{})
+    $redisInfo.Ports.Add('Ssl', $redis.SslPort)
+    $redisInfo.Ports.Add('NonSsl', $redis.Port)
+    $redisInfo.Ports.Add('NonSslPortEnabled', $nonSsl)
+
+    # redis access key info
+    $key = Get-FoggRedisCacheKey -ResourceGroupName $FoggObject.ResourceGroupName -Name $redis.Name
+    $redisInfo.Add('AccessKey', $key.PrimaryKey)
+
+    # output the time taken to create Redis Cache
+    Write-Duration $startTime -PreText 'Redis Cache Duration'
+    Write-Host ([string]::Empty)
+}
 
 function New-DeployTemplateSA
 {
@@ -2080,7 +2155,6 @@ function New-DeployTemplateSA
     Write-Duration $startTime -PreText 'Storage Account Duration'
     Write-Host ([string]::Empty)
 }
-
 
 function New-DeployTemplateVNet
 {
@@ -2132,7 +2206,6 @@ function New-DeployTemplateVNet
     Write-Host ([string]::Empty)
 }
 
-
 function New-DeployTemplateVM
 {
     param (
@@ -2166,7 +2239,7 @@ function New-DeployTemplateVM
     $basename = (Join-ValuesDashed @($FoggObject.Platform, $role))
     $usePublicIP = [bool]$VMTemplate.publicIp
     $useManagedDisks = [bool]$VMTemplate.managed
-    $subnetPrefix = $FoggObject.SubnetAddressMap[$role]
+    $subnetPrefix = $FoggObject.SubnetAddressMap["$($basename)-vm"]
     $subnetName = (Get-FoggSubnetName $basename)
     $subnet = ($VNet.Subnets | Where-Object { $_.Name -ieq $subnetName -or $_.AddressPrefix -ieq $subnetPrefix })
 
@@ -2332,7 +2405,6 @@ function New-DeployTemplateVM
     }
 }
 
-
 function New-DeployTemplateVPN
 {
     param (
@@ -2363,8 +2435,8 @@ function New-DeployTemplateVPN
         's2s'
             {
                 # get required IP addresses
-                $gatewayIP = $FoggObject.SubnetAddressMap["$($role)-gip"]
-                $addressOnPrem = $FoggObject.SubnetAddressMap["$($role)-opm"]
+                $gatewayIP = $FoggObject.SubnetAddressMap["$($basename)-gip"]
+                $addressOnPrem = $FoggObject.SubnetAddressMap["$($basename)-opm"]
 
                 # create the local network gateway for the VPN
                 $lng = New-FoggLocalNetworkGateway -FoggObject $FoggObject -Name $basename `
@@ -2382,7 +2454,7 @@ function New-DeployTemplateVPN
         'p2s'
             {
                 # get required IP addresses
-                $clientPool = $FoggObject.SubnetAddressMap["$($role)-cap"]
+                $clientPool = $FoggObject.SubnetAddressMap["$($basename)-cap"]
 
                 # resolve the cert path
                 $certPath = Resolve-Path -Path $VPNTemplate.certPath -ErrorAction Ignore

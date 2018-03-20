@@ -293,8 +293,28 @@ try
 
 
     # now we're logged in, quickly re-run validation but with the -Online flag set
+    # and if we're using an existing vnet, set the subnet addresses from that vnet
     foreach ($FoggObject in $FoggObjects.Groups)
     {
+        if ($FoggObject.UseGlobalVNet -and $FoggObject.UseExistingVNet)
+        {
+            $vnet = (Get-FoggVirtualNetwork -ResourceGroupName $FoggObject.ResourceGroupName -Name $FoggObject.VNetName)
+            if ($vnet -eq $null)
+            {
+                throw "Virtual network $($FoggObject.VNetName) in resource group $($FoggObject.VNetResourceGroupName) does not exist"
+            }
+
+            $vnet.Subnets | ForEach-Object {
+                $n = $_.Name -ireplace '-snet', ''
+                $n = $n -ireplace "$($FoggObject.Platform)-", ''
+
+                if (!$FoggObject.SubnetAddressMap.ContainsKey($n))
+                {
+                    $FoggObject.SubnetAddressMap.Add($n, $_.AddressPrefix)
+                }
+            }
+        }
+
         Test-Files -FoggObject $FoggObject -Online | Out-Null
     }
 
@@ -314,16 +334,6 @@ try
         {
             Add-FoggAdminAccount -FoggObject $FoggObjects
             $VMCredentialsSet = $true
-        }
-
-
-        # If we're using an existng virtual network, ensure it actually exists
-        if ($FoggObject.UseGlobalVNet -and $FoggObject.UseExistingVNet)
-        {
-            if ((Get-FoggVirtualNetwork -ResourceGroupName $FoggObject.VNetResourceGroupName -Name $FoggObject.VNetName) -eq $null)
-            {
-                throw "Virtual network $($FoggObject.VNetName) in resource group $($FoggObject.VNetResourceGroupName) does not exist"
-            }
         }
 
 
@@ -367,13 +377,13 @@ try
             }
 
 
-            # Create virtual subnets and security groups for VM objects in template
+            # Create subnets and security groups for VM objects in template
             $vms = ($template.template | Where-Object { $_.type -ieq 'vm' })
             foreach ($vm in $vms)
             {
                 $role = $vm.role.ToLowerInvariant()
-                $basename = (Join-ValuesDashed @($FoggObject.Platform, $role))
-                $subnet = $FoggObject.SubnetAddressMap[$role]
+                $basename = (Join-ValuesDashed @($FoggObject.Platform, $role, '-vm'))
+                $subnet = $FoggObject.SubnetAddressMap[$basename]
 
                 # Create network security group inbound/outbound rules
                 $rules = New-FirewallRules -Firewall $vm.firewall -Subnets $FoggObject.SubnetAddressMap -CurrentRole $role
@@ -388,12 +398,25 @@ try
             }
 
 
+            # create subnet for redis - if we have redis objects in template
+            $redis = ($template.template | Where-Object { $_.type -ieq 'redis' })
+            foreach ($r in $redis)
+            {
+                $role = $r.role.ToLowerInvariant()
+                $basename = (Join-ValuesDashed @($FoggObject.Platform, $role, '-redis'))
+                $subnet = $FoggObject.SubnetAddressMap[$basename]
+
+                $vnet = Add-FoggSubnetToVNet -ResourceGroupName $vnet.ResourceGroupName -VNetName $vnet.Name -SubnetName $basename -Address $subnet
+            }
+
+
             # Create Gateway subnet for VPN objects in template
             $vpn = ($template.template | Where-Object { $_.type -ieq 'vpn' } | Select-Object -First 1)
             if ($vpn -ne $null)
             {
                 $role = $vpn.role.ToLowerInvariant()
-                $subnet = $FoggObject.SubnetAddressMap[$role]
+                $basename = (Join-ValuesDashed @($FoggObject.Platform, $role, '-vpn'))
+                $subnet = $FoggObject.SubnetAddressMap[$basename]
                 $vnet = Add-FoggGatewaySubnetToVNet -ResourceGroupName $vnet.ResourceGroupName -VNetName $vnet.Name -Address $subnet
             }
 
@@ -426,7 +449,7 @@ try
 
                     'redis'
                         {
-                            # New-DeployTemplateRedis -RedisTemplate $obj -FoggObject $FoggObject
+                            New-DeployTemplateRedis -RedisTemplate $obj -FoggObject $FoggObject -VNet $vnet
                         }
                 }
             }

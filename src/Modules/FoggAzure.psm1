@@ -314,9 +314,115 @@ function Get-FoggRedisCache
     $redis = Get-AzureRmRedisCache -ResourceGroupName $ResourceGroupName -Name $Name -ErrorAction Ignore
     if ($redis -eq $null)
     {
-        throw "The Redis Cache '$($Name)' does not exist under ResourceGroup '$($ResourceGroupName)'. This is likely because the name is in use by someone else, and Redis Cache names are unique globally for everybody"
+        throw "The Redis Cache '$($Name)' does not exist under Resource Group '$($ResourceGroupName)'. This is likely because the name is in use by someone else, and Redis Cache names are unique globally for everybody"
     }
 
+    return $redis
+}
+
+function Get-FoggRedisCacheKey
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $ResourceGroupName,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Name
+    )
+
+    $Name = (Get-FoggRedisCacheName -Name $Name)
+
+    $redis = Get-AzureRmRedisCacheKey -ResourceGroupName $ResourceGroupName -Name $Name -ErrorAction Ignore
+    if ($redis -eq $null)
+    {
+        return $null
+    }
+
+    return $redis.PrimaryKey
+}
+
+function New-FoggRedisCache
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        $FoggObject,
+
+        [Parameter(Mandatory=$true)]
+        [string]
+        $Role,
+
+        [Parameter(Mandatory=$true)]
+        [string]
+        $Size,
+
+        [Parameter(Mandatory=$true)]
+        [string]
+        $Sku,
+
+        [Parameter(Mandatory=$true)]
+        [int]
+        $ShardCount,
+
+        [Parameter()]
+        [string]
+        $SubnetId,
+
+        [Parameter()]
+        $Configuration,
+
+        [Parameter()]
+        $FirewallRules,
+
+        [switch]
+        $EnableNonSslPort
+    )
+
+    # generate the redis cache name
+    $basename = (Join-ValuesDashed @($FoggObject.LocationCode, $FoggObject.Stamp, $FoggObject.Platform, $Role))
+    $Name = Get-FoggRedisCacheName -Name $basename
+
+    if (Test-Empty $Configuration)
+    {
+        $Configuration = @{}
+    }
+
+    Write-Information "Creating Redis Cache $($Name) in resource group $($FoggObject.ResourceGroupName)"
+
+    # get an existing redis cache, and check if it's ours or someone elses
+    if (Test-FoggRedisCacheExists -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name)
+    {
+        Write-Notice "Found existing Redis Cache for $($Name)`n"
+        $redis = Get-FoggRedisCache -ResourceGroupName $FoggObject.ResourceGroupName -StorageAccountName $Name
+
+        #todo: update
+            # loop on provisioning
+
+        return $redis
+    }
+
+    # create a new redis cache
+    $redis = New-AzureRmRedisCache -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Location $FoggObject.Location `
+        -Size $Size -Sku $Sku -RedisConfiguration $Configuration -ShardCount $ShardCount -SubnetId $SubnetId -EnableNonSslPort $EnableNonSslPort
+
+    if (!$?)
+    {
+        throw "Failed to create Redis Cache $($Name)"
+    }
+
+    # loop on ProvisionState until Succeeded
+
+    # add any firewall rules to the cache
+    if (!(Test-Empty $FirewallRules))
+    {
+        # also need to loop on provisioning?
+    }
+
+    Write-Success "Redis Cache $($Name) created at $($FoggObject.Location)`n"
     return $redis
 }
 
@@ -395,12 +501,12 @@ function New-FoggStorageAccount
     $basename = (Join-ValuesDashed @($FoggObject.LocationCode, $FoggObject.Stamp, $FoggObject.Platform, $Role))
     $Name = Get-FoggStorageAccountName -Name $basename
 
-    Write-Information "Creating storage account $($Name) in resource group $($FoggObject.ResourceGroupName)"
+    Write-Information "Creating Storage Account $($Name) in Resource Group $($FoggObject.ResourceGroupName)"
 
     # get an existing storage account, and check if it's ours or someone elses
     if (Test-FoggStorageAccountExists $Name)
     {
-        Write-Notice "Found existing storage account for $($Name)`n"
+        Write-Notice "Found existing Storage Account for $($Name)`n"
         $storage = Get-FoggStorageAccount -ResourceGroupName $FoggObject.ResourceGroupName -StorageAccountName $Name
         return $storage
     }
@@ -411,10 +517,10 @@ function New-FoggStorageAccount
 
     if (!$?)
     {
-        throw "Failed to create storage account $($Name)"
+        throw "Failed to create Storage Account $($Name)"
     }
 
-    Write-Success "Storage account $($Name) created at $($FoggObject.Location)`n"
+    Write-Success "Storage Account $($Name) created at $($FoggObject.Location)`n"
     return $sa
 }
 
