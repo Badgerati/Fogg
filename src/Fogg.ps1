@@ -382,7 +382,7 @@ try
             foreach ($vm in $vms)
             {
                 $role = $vm.role.ToLowerInvariant()
-                $basename = (Join-ValuesDashed @($FoggObject.Platform, $role, '-vm'))
+                $basename = (Join-ValuesDashed @($FoggObject.Platform, $role, 'vm'))
                 $subnet = $FoggObject.SubnetAddressMap[$basename]
 
                 # Create network security group inbound/outbound rules
@@ -403,7 +403,7 @@ try
             foreach ($r in $redis)
             {
                 $role = $r.role.ToLowerInvariant()
-                $basename = (Join-ValuesDashed @($FoggObject.Platform, $role, '-redis'))
+                $basename = (Join-ValuesDashed @($FoggObject.Platform, $role, 'redis'))
                 $subnet = $FoggObject.SubnetAddressMap[$basename]
 
                 $vnet = Add-FoggSubnetToVNet -ResourceGroupName $vnet.ResourceGroupName -VNetName $vnet.Name -SubnetName $basename -Address $subnet
@@ -415,7 +415,7 @@ try
             if ($vpn -ne $null)
             {
                 $role = $vpn.role.ToLowerInvariant()
-                $basename = (Join-ValuesDashed @($FoggObject.Platform, $role, '-vpn'))
+                $basename = (Join-ValuesDashed @($FoggObject.Platform, $role, 'vpn'))
                 $subnet = $FoggObject.SubnetAddressMap[$basename]
                 $vnet = Add-FoggGatewaySubnetToVNet -ResourceGroupName $vnet.ResourceGroupName -VNetName $vnet.Name -Address $subnet
             }
@@ -581,6 +581,19 @@ foreach ($FoggObject in $FoggObjects.Groups)
         ForEach-Object { $info.Add($_.Name, $_.Value) }
 
     $rg.StorageAccountInfo += $info
+
+    # set redis cache info
+    if ($rg.RedisCacheInfo -eq $null)
+    {
+        $rg.RedisCacheInfo = @{}
+    }
+
+    $info = @{}
+    $FoggObject.RedisCacheInfo.GetEnumerator() | 
+        Where-Object { !$rg.RedisCacheInfo.ContainsKey($_.Name) } |
+        ForEach-Object { $info.Add($_.Name, $_.Value) }
+
+    $rg.RedisCacheInfo += $info
 }
 
 return $result

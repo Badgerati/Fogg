@@ -62,6 +62,15 @@ Add Redis Cache step
     - subnets have now changed to be "<platform>-<role>-<type>-snet"
     - subnets now don't have to be supplied when using existing vnets
 
+    - if using a subnet - make sure firewall updates redis whitelist and nsg
+    - redis info obj should include: port (ssl or non-ssl), static IP, access key, url/name
+    - attempt to put validation checks in for premium on config settings?
+
+    - when updating, check what is being updated (does not affect creating new caches)
+    --> size (or sku+size for premium)
+    --> sku (unless like above was premium)
+    --> all other properties
+
 [x] -----
 managed disks
     - os/data disks

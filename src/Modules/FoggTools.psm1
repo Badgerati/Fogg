@@ -138,7 +138,7 @@ function Join-ValuesDashed
     }
 
     $v = ($Values | Where-Object { !(Test-Empty $_) }) -join '-'
-    return $v
+    return ($v -ireplace '--', '-')
 }
 
 
@@ -566,13 +566,14 @@ function Test-TemplateRedis
     # ensure the firewall rules have names and ip ranges
     if (!(Test-Empty $Template.firewall))
     {
-        $Template.firewall.psobject.properties.name | ForEach-Object {
+        $firewall = ConvertFrom-JsonObjectToMap -JsonObject $Template.firewall
+        $firewall.Keys | ForEach-Object {
             if (Test-Empty $_)
             {
                 throw "The $($role) Redis Cache has a firewall rule with no name supplied"
             }
 
-            if (Test-Empty $Template.firewall[$_])
+            if (Test-Empty $firewall[$_])
             {
                 throw "The $($role) Redis Cache firewall rule '$($_)' has no IP range supplied"
             }
@@ -585,11 +586,26 @@ function Test-TemplateRedis
 
     if (!(Test-Empty $Template.config))
     {
-        $Template.config.psobject.properties.name | ForEach-Object {
+        $config = ConvertFrom-JsonObjectToMap -JsonObject $Template.config
+        $config.Keys | ForEach-Object {
             if ($configKeys -inotcontains $_)
             {
                 throw "The $($role) Redis Cache configuration has an invalid property: $($_). Valid values are:`n$($configKeys -join "`n")"
             }
+        }
+    }
+
+    # check certain arguments against sku when not premium
+    if ($Template.sku -ine 'premium')
+    {
+        if ($useSubnet)
+        {
+            throw "The $($role) Redis Cache can only use a subnet if it's Sku is Premium"
+        }
+
+        if ($shards -ne 1)
+        {
+            throw "The $($role) Redis Cache can only have more than 1 shard if it's Sku is Premium"
         }
     }
 
@@ -2099,8 +2115,22 @@ function New-DeployTemplateRedis
 
     Write-Information "Deploying Redis Cache for the '$($role)' template"
 
+    # default variables
+    $config = @{}
+    if ($RedisTemplate.config -ne $null)
+    {
+        $config = ConvertFrom-JsonObjectToMap -JsonObject $RedisTemplate.config
+    }
+
+    $firewall = $null
+    if ($RedisTemplate.firewall -ne $null)
+    {
+        $firewall = ConvertFrom-JsonObjectToMap -JsonObject $RedisTemplate.firewall
+    }
+
     # create the redis cache
-    $redis = New-FoggRedisCache -FoggObject $FoggObject -Role $role -SubnetId $subnetId -EnableNonSslPort:$nonSsl #todo: params
+    $redis = New-FoggRedisCache -FoggObject $FoggObject -Role $role -Size $RedisTemplate.size -Sku $RedisTemplate.sku `
+        -ShardCount $shards -SubnetId $subnetId -Configuration $config -FirewallRules $firewall -EnableNonSslPort:$nonSsl
 
     # basic redis info
     $redisInfo.Add('Name', $redis.Name)
@@ -2115,8 +2145,8 @@ function New-DeployTemplateRedis
     $redisInfo.Ports.Add('NonSslPortEnabled', $nonSsl)
 
     # redis access key info
-    $key = Get-FoggRedisCacheKey -ResourceGroupName $FoggObject.ResourceGroupName -Name $redis.Name
-    $redisInfo.Add('AccessKey', $key.PrimaryKey)
+    $key = (Get-FoggRedisCacheKey -ResourceGroupName $FoggObject.ResourceGroupName -Name $redis.Name)
+    $redisInfo.Add('AccessKey', $key)
 
     # output the time taken to create Redis Cache
     Write-Duration $startTime -PreText 'Redis Cache Duration'

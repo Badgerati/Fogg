@@ -207,7 +207,7 @@ function Update-FoggResourceTags
     }
 
     # retieve all of the resources in the group
-    $resources = Get-AzureRmResource -ResourceGroupName $ResourceGroupName
+    $resources = Find-AzureRmResource -ResourceGroupName $ResourceGroupName
     $count = ($resources | Measure-Object).Count
 
     Write-Information "Updating tags on all $($count) Resource(s) in Resource Group $($ResourceGroupName)"
@@ -345,6 +345,191 @@ function Get-FoggRedisCacheKey
     return $redis.PrimaryKey
 }
 
+function Get-FoggRedisCacheFirewallRule
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $ResourceGroupName,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Name,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $RuleName
+    )
+
+    return Get-AzureRmRedisCacheFirewallRule -ResourceGroupName $ResourceGroupName -Name $Name -RuleName $RuleName -ErrorAction Ignore
+}
+
+function New-FoggRedisCacheFirewallRules
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $ResourceGroupName,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Name,
+
+        [Parameter(Mandatory=$true)]
+        $FirewallRules
+    )
+
+    if (Test-Empty $FirewallRules)
+    {
+        return
+    }
+
+    # check if redis cache exists - if it doesn't just return
+    if (!(Test-FoggRedisCacheExists -ResourceGroupName $ResourceGroupName -Name $Name))
+    {
+        return
+    }
+
+    # if it does exist, is it ours?
+    Get-FoggRedisCache -ResourceGroupName $ResourceGroupName -Name $Name | Out-Null
+
+    Write-Information "Configuring Redis Cache firewall rules for $($Name)"
+
+    # loop through each firewall rule, creating and updating them
+    $rules = $FirewallRules.Keys
+
+    foreach ($rule in $rules)
+    {
+        # check to see if the rule already exists
+        $r = Get-FoggRedisCacheFirewallRule -ResourceGroupName $ResourceGroupName -Name $Name -RuleName $rule
+
+        # get the start/end IP range
+        $split = $FirewallRules[$rule] -isplit '-'
+        $start = $split[0].Trim()
+        $end = $start
+
+        if ($split.Length -gt 1)
+        {
+            $end = $split[1].Trim()
+        }
+
+        Write-Information "> Rule $($rule): $($start) - $($end)"
+
+        # if it exists, need to check if it should be deleted and re-creating (updated)
+        if ($r -ne $null)
+        {
+            if ($r.StartIP -ine $start -or $r.EndIP -ine $end)
+            {
+                Remove-AzureRmRedisCacheFirewallRule -ResourceGroupName $ResourceGroupName -Name $Name -RuleName $rule | Out-Null
+            }
+            else
+            {
+                continue
+            }
+        }
+
+        # create the firewall rule
+        New-AzureRmRedisCacheFirewallRule -ResourceGroupName $ResourceGroupName -Name $Name -RuleName $rule -StartIP $start -EndIP $end | Out-Null
+        if (!$?)
+        {
+            throw "Failed to create firewall rule on Redis Cache"
+        }
+    }
+
+    Write-Information "Redis Cache firewall rules configured successfully"
+}
+
+function Update-FoggRedisCache
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        $FoggObject,
+
+        [Parameter(Mandatory=$true)]
+        [string]
+        $Role,
+
+        [Parameter(Mandatory=$true)]
+        [string]
+        $Size,
+
+        [Parameter(Mandatory=$true)]
+        [string]
+        $Sku,
+
+        [Parameter(Mandatory=$true)]
+        [int]
+        $ShardCount,
+
+        [Parameter()]
+        $Configuration,
+
+        [Parameter()]
+        $FirewallRules,
+
+        [switch]
+        $EnableNonSslPort
+    )
+
+    # generate the redis cache name
+    $basename = (Join-ValuesDashed @($FoggObject.LocationCode, $FoggObject.Stamp, $FoggObject.Platform, $Role))
+    $Name = Get-FoggRedisCacheName -Name $basename
+
+    if (Test-Empty $Configuration)
+    {
+        $Configuration = @{}
+    }
+
+    # check if redis cache exists - if it doesn't just return
+    if (!(Test-FoggRedisCacheExists -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name))
+    {
+        return
+    }
+
+    # if it does exist, is it ours?
+    Get-FoggRedisCache -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name | Out-Null
+
+    Write-Information "Updating Redis Cache $($Name) in resource group $($FoggObject.ResourceGroupName)"
+
+    # update the redis cache
+    if ($Sku -ine 'premium')
+    {
+        $redis = Set-AzureRmRedisCache -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Size $Size -Sku $Sku `
+            -RedisConfiguration $Configuration -EnableNonSslPort $EnableNonSslPort.IsPresent
+    }
+    else
+    {
+        $redis = Set-AzureRmRedisCache -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Size $Size -Sku $Sku `
+            -RedisConfiguration $Configuration -ShardCount $ShardCount -EnableNonSslPort $EnableNonSslPort.IsPresent
+    }
+
+    if (!$?)
+    {
+        throw "Failed to update Redis Cache $($Name)"
+    }
+
+    # loop on ProvisionState until Succeeded
+    Wait-FoggProvisionState -Resource $redis.Id
+
+    # update any firewall rules on the cache
+    if (!(Test-Empty $FirewallRules))
+    {
+        New-FoggRedisCacheFirewallRules -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -FirewallRules $FirewallRules
+    }
+
+    # refetch the cache
+    $redis = Get-FoggRedisCache -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name
+
+    Write-Success "Redis Cache $($Name) updated at $($FoggObject.Location)`n"
+    return $redis
+}
+
 function New-FoggRedisCache
 {
     param (
@@ -397,17 +582,25 @@ function New-FoggRedisCache
     if (Test-FoggRedisCacheExists -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name)
     {
         Write-Notice "Found existing Redis Cache for $($Name)`n"
-        $redis = Get-FoggRedisCache -ResourceGroupName $FoggObject.ResourceGroupName -StorageAccountName $Name
+        $redis = Get-FoggRedisCache -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name
 
-        #todo: update
-            # loop on provisioning
+        $redis = Update-FoggRedisCache -FoggObject $FoggObject -Role $Role -Size $Size -Sku $Sku -ShardCount $ShardCount `
+            -Configuration $Configuration -FirewallRules $FirewallRules -EnableNonSslPort:$EnableNonSslPort
 
         return $redis
     }
 
     # create a new redis cache
-    $redis = New-AzureRmRedisCache -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Location $FoggObject.Location `
-        -Size $Size -Sku $Sku -RedisConfiguration $Configuration -ShardCount $ShardCount -SubnetId $SubnetId -EnableNonSslPort $EnableNonSslPort
+    if ($Sku -ine 'premium')
+    {
+        $redis = New-AzureRmRedisCache -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Location $FoggObject.Location `
+            -Size $Size -Sku $Sku -RedisConfiguration $Configuration -SubnetId $SubnetId -EnableNonSslPort $EnableNonSslPort.IsPresent
+    }
+    else
+    {
+        $redis = New-AzureRmRedisCache -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Location $FoggObject.Location `
+            -Size $Size -Sku $Sku -RedisConfiguration $Configuration -ShardCount $ShardCount -SubnetId $SubnetId -EnableNonSslPort $EnableNonSslPort.IsPresent
+    }
 
     if (!$?)
     {
@@ -415,11 +608,12 @@ function New-FoggRedisCache
     }
 
     # loop on ProvisionState until Succeeded
+    Wait-FoggProvisionState -Resource $redis.Id
 
     # add any firewall rules to the cache
     if (!(Test-Empty $FirewallRules))
     {
-        # also need to loop on provisioning?
+        New-FoggRedisCacheFirewallRules -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -FirewallRules $FirewallRules
     }
 
     Write-Success "Redis Cache $($Name) created at $($FoggObject.Location)`n"
@@ -3475,5 +3669,36 @@ function Test-FoggVMSkus
     if ((Get-AzureRmVMImageSku -Location $Location -PublisherName $Publisher -Offer $Offer).Skus -inotcontains $Skus)
     {
         throw "VM image skus $($Skus) is not valid for the $($Location) region"
+    }
+}
+
+function Wait-FoggProvisionState
+{
+    param (
+        [Parameter()]
+        [string]
+        $ResourceId
+    )
+
+    # if there's no resourceId, just return
+    if (Test-Empty $ResourceId)
+    {
+        $return
+    }
+
+    # get the resource and current state
+    $state = (Get-AzureRmResource -ResourceId $ResourceId).Properties.ProvisioningState
+
+    # if there is no state, just return
+    if (Test-Empty $state)
+    {
+        return
+    }
+
+    # loop and sleep until state is succeeded
+    while ($state -ine 'Succeeded')
+    {
+        Start-Sleep -Seconds 15
+        $state = (Get-AzureRmResource -ResourceId $ResourceId).Properties.ProvisioningState
     }
 }
