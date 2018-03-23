@@ -556,13 +556,6 @@ function Test-TemplateRedis
         throw "The $($role) Redis Cache shard count is invalid, should be between 1-10"
     }
 
-    # ensure the size is valid
-    $sizes = @('P1', 'P2', 'P3', 'P4', 'C0', 'C1', 'C2', 'C3', 'C4', 'C5', 'C6', '250MB', '1GB', '2.5GB', '6GB', '13GB', '26GB', '53GB')
-    if ($sizes -inotcontains $Template.size)
-    {
-        throw "The $($role) Redis Cache size supplied is invalid, valid values are: $($sizes -join ', ')"
-    }
-
     # ensure the firewall rules have names and ip ranges
     if (!(Test-Empty $Template.firewall))
     {
@@ -595,9 +588,25 @@ function Test-TemplateRedis
         }
     }
 
-    # check certain arguments against sku when not premium
-    if ($Template.sku -ine 'premium')
+    # check certain args when sku is premium
+    if ($Template.sku -ieq 'premium')
     {
+        $sizes = @('P1', 'P2', 'P3', 'P4')
+        if ($sizes -inotcontains $Template.size)
+        {
+            throw "The $($role) Redis Cache size supplied is invalid for Premium caches, valid values are: $($sizes -join ', ')"
+        }
+    }
+
+    # check certain arguments against sku when not premium
+    else
+    {
+        $sizes = @('C0', 'C1', 'C2', 'C3', 'C4', 'C5', 'C6', '250MB', '1GB', '2.5GB', '6GB', '13GB', '26GB', '53GB')
+        if ($sizes -inotcontains $Template.size)
+        {
+            throw "The $($role) Redis Cache size supplied is invalid for Basic and Standard caches, valid values are: $($sizes -join ', ')"
+        }
+
         if ($useSubnet)
         {
             throw "The $($role) Redis Cache can only use a subnet if it's Sku is Premium"
@@ -2032,8 +2041,17 @@ function Test-FoggObjectParameters
         throw 'No location to deploy VMs supplied'
     }
 
-    # only validate vnet/snet if template has vms/vpns/redis
-    if ((Test-TemplateHasType $template.template 'vm') -or (Test-TemplateHasType $template.template 'vpn') -or (Test-TemplateHasType $template.template 'redis'))
+    # only validate vnet/snet if template has a vm/vpn/redis - and only if redis uses subnets
+    $hasVMs = (Test-TemplateHasType $template.template 'vm')
+    $hasVPNs = (Test-TemplateHasType $template.template 'vpn')
+
+    $hasRedisSubnet = $false
+    if (Test-TemplateHasType $template.template 'redis')
+    {
+        $hasRedisSubnet = ($template.template | Where-Object { $_.type -ieq 'redis' -and $_.subnet -eq $true } | Measure-Object).Count -ne 0
+    }
+
+    if ($hasVMs -or $hasVPNs -or $hasRedisSubnet)
     {
         # if no vnet address or vnet resource group/name for existing vnet, fail
         if (!$FoggObject.UseExistingVNet -and (Test-Empty $FoggObject.VNetAddress))

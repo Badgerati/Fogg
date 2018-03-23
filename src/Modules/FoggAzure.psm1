@@ -493,26 +493,52 @@ function Update-FoggRedisCache
     }
 
     # if it does exist, is it ours?
-    Get-FoggRedisCache -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name | Out-Null
+    $current = Get-FoggRedisCache -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name
 
     Write-Information "Updating Redis Cache $($Name) in resource group $($FoggObject.ResourceGroupName)"
 
-    # update the redis cache
-    if ($Sku -ine 'premium')
+    # run the updates based on the sku, and what's being updated
+    if ($Sku -ieq 'premium')
     {
-        $redis = Set-AzureRmRedisCache -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Size $Size -Sku $Sku `
-            -RedisConfiguration $Configuration -EnableNonSslPort $EnableNonSslPort.IsPresent
+        # update size and sku
+        if ($Size -ine $current.Size -or $Sku -ine $current.Sku)
+        {
+            Write-Information "> Updating sku to $($Sku) and size to $($Size)"
+            $redis = Set-AzureRmRedisCache -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Size $Size -Sku $Sku -ErrorAction Stop
+            Wait-FoggProvisionState -Resource $redis.Id
+        }
+
+        # update shard count
+        if ($ShardCount -ine $current.ShardCount)
+        {
+            Write-Information "> Updating number of shards to $($ShardCount)"
+            $redis = Set-AzureRmRedisCache -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -ShardCount $ShardCount -ErrorAction Stop
+            Wait-FoggProvisionState -Resource $redis.Id
+        }
     }
     else
     {
-        $redis = Set-AzureRmRedisCache -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Size $Size -Sku $Sku `
-            -RedisConfiguration $Configuration -ShardCount $ShardCount -EnableNonSslPort $EnableNonSslPort.IsPresent
+        # update size
+        if ($Size -ine $current.Size)
+        {
+            Write-Information "> Updating size to $($Size)"
+            $redis = Set-AzureRmRedisCache -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Size $Size -ErrorAction Stop
+            Wait-FoggProvisionState -Resource $redis.Id
+        }
+
+        # update sku
+        if ($Sku -ine $current.Sku)
+        {
+            Write-Information "> Updating sku to $($Sku)"
+            $redis = Set-AzureRmRedisCache -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Sku $Sku -ErrorAction Stop
+            Wait-FoggProvisionState -Resource $redis.Id
+        }
     }
 
-    if (!$?)
-    {
-        throw "Failed to update Redis Cache $($Name)"
-    }
+    # update general config
+    Write-Information "> Updating general Redis configuration"
+    $redis = Set-AzureRmRedisCache -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -RedisConfiguration $Configuration `
+        -EnableNonSslPort $EnableNonSslPort.IsPresent -ErrorAction Stop
 
     # loop on ProvisionState until Succeeded
     Wait-FoggProvisionState -Resource $redis.Id
@@ -590,16 +616,16 @@ function New-FoggRedisCache
         return $redis
     }
 
-    # create a new redis cache
-    if ($Sku -ine 'premium')
+    # create a new redis cache (only pass subnet if premium)
+    if ($Sku -ieq 'premium')
     {
         $redis = New-AzureRmRedisCache -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Location $FoggObject.Location `
-            -Size $Size -Sku $Sku -RedisConfiguration $Configuration -SubnetId $SubnetId -EnableNonSslPort $EnableNonSslPort.IsPresent
+            -Size $Size -Sku $Sku -RedisConfiguration $Configuration -ShardCount $ShardCount -SubnetId $SubnetId -EnableNonSslPort $EnableNonSslPort.IsPresent
     }
     else
     {
         $redis = New-AzureRmRedisCache -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Location $FoggObject.Location `
-            -Size $Size -Sku $Sku -RedisConfiguration $Configuration -ShardCount $ShardCount -SubnetId $SubnetId -EnableNonSslPort $EnableNonSslPort.IsPresent
+            -Size $Size -Sku $Sku -RedisConfiguration $Configuration -SubnetId $SubnetId -EnableNonSslPort $EnableNonSslPort.IsPresent
     }
 
     if (!$?)

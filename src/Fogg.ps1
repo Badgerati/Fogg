@@ -398,8 +398,8 @@ try
             }
 
 
-            # create subnet for redis - if we have redis objects in template
-            $redis = ($template.template | Where-Object { $_.type -ieq 'redis' })
+            # create subnet for redis - if we have redis objects in template that require subnets
+            $redis = ($template.template | Where-Object { $_.type -ieq 'redis' -and $_.subnet -eq $true })
             foreach ($r in $redis)
             {
                 $role = $r.role.ToLowerInvariant()
