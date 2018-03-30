@@ -345,7 +345,7 @@ function Get-FoggRedisCacheKey
     return $redis.PrimaryKey
 }
 
-function Get-FoggRedisCacheFirewallRule
+function Get-FoggRedisCacheWhitelistRule
 {
     param (
         [Parameter(Mandatory=$true)]
@@ -367,7 +367,7 @@ function Get-FoggRedisCacheFirewallRule
     return Get-AzureRmRedisCacheFirewallRule -ResourceGroupName $ResourceGroupName -Name $Name -RuleName $RuleName -ErrorAction Ignore
 }
 
-function New-FoggRedisCacheFirewallRules
+function New-FoggRedisCacheWhitelist
 {
     param (
         [Parameter(Mandatory=$true)]
@@ -381,10 +381,18 @@ function New-FoggRedisCacheFirewallRules
         $Name,
 
         [Parameter(Mandatory=$true)]
-        $FirewallRules
+        $Subnets,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $CurrentRole,
+
+        [Parameter()]
+        $Whitelist
     )
 
-    if (Test-Empty $FirewallRules)
+    if (Test-Empty $Whitelist)
     {
         return
     }
@@ -398,18 +406,29 @@ function New-FoggRedisCacheFirewallRules
     # if it does exist, is it ours?
     Get-FoggRedisCache -ResourceGroupName $ResourceGroupName -Name $Name | Out-Null
 
-    Write-Information "Configuring Redis Cache firewall rules for $($Name)"
+    Write-Information "Configuring Redis Cache whitelist for $($Name)"
 
     # loop through each firewall rule, creating and updating them
-    $rules = $FirewallRules.Keys
+    $rules = $Whitelist.Keys
 
     foreach ($rule in $rules)
     {
         # check to see if the rule already exists
-        $r = Get-FoggRedisCacheFirewallRule -ResourceGroupName $ResourceGroupName -Name $Name -RuleName $rule
+        $r = Get-FoggRedisCacheWhitelistRule -ResourceGroupName $ResourceGroupName -Name $Name -RuleName $rule
+
+        # get the current range
+        $range = $Whitelist[$rule]
+        $range = Get-ReplaceSubnet -Value $range -Subnets $Subnets -CurrentRole $CurrentRole
+
+        # see if we need to get subnet range from placeholder
+        $subnetRange = Get-SubnetRange -SubnetMask $range
+        if ($subnetRange -ne $null)
+        {
+            $range = "$($subnetRange.lowest)-$($subnetRange.highest)"
+        }
 
         # get the start/end IP range
-        $split = $FirewallRules[$rule] -isplit '-'
+        $split = $range -isplit '-'
         $start = $split[0].Trim()
         $end = $start
 
@@ -471,7 +490,7 @@ function Update-FoggRedisCache
         $Configuration,
 
         [Parameter()]
-        $FirewallRules,
+        $Whitelist,
 
         [switch]
         $EnableNonSslPort
@@ -544,9 +563,10 @@ function Update-FoggRedisCache
     Wait-FoggProvisionState -Resource $redis.Id
 
     # update any firewall rules on the cache
-    if (!(Test-Empty $FirewallRules))
+    if (!(Test-Empty $Whitelist))
     {
-        New-FoggRedisCacheFirewallRules -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -FirewallRules $FirewallRules
+        $crole = (Join-ValuesDashed @($FoggObject.Platform, $Role, 'redis'))
+        New-FoggRedisCacheWhitelist -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Whitelist $Whitelist -Subnets $FoggObject.SubnetAddressMap -CurrentRole $crole
     }
 
     # refetch the cache
@@ -587,7 +607,7 @@ function New-FoggRedisCache
         $Configuration,
 
         [Parameter()]
-        $FirewallRules,
+        $Whitelist,
 
         [switch]
         $EnableNonSslPort
@@ -611,7 +631,7 @@ function New-FoggRedisCache
         $redis = Get-FoggRedisCache -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name
 
         $redis = Update-FoggRedisCache -FoggObject $FoggObject -Role $Role -Size $Size -Sku $Sku -ShardCount $ShardCount `
-            -Configuration $Configuration -FirewallRules $FirewallRules -EnableNonSslPort:$EnableNonSslPort
+            -Configuration $Configuration -Whitelist $Whitelist -EnableNonSslPort:$EnableNonSslPort
 
         return $redis
     }
@@ -637,9 +657,10 @@ function New-FoggRedisCache
     Wait-FoggProvisionState -Resource $redis.Id
 
     # add any firewall rules to the cache
-    if (!(Test-Empty $FirewallRules))
+    if (!(Test-Empty $Whitelist))
     {
-        New-FoggRedisCacheFirewallRules -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -FirewallRules $FirewallRules
+        $crole = (Join-ValuesDashed @($FoggObject.Platform, $Role, 'redis'))
+        New-FoggRedisCacheWhitelist -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Whitelist $Whitelist -Subnets $FoggObject.SubnetAddressMap -CurrentRole $crole
     }
 
     Write-Success "Redis Cache $($Name) created at $($FoggObject.Location)`n"
@@ -888,7 +909,12 @@ function Set-ProvisionVM
         $VMName,
 
         [Parameter(Mandatory=$true)]
-        $StorageAccount
+        $StorageAccount,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $OSType
     )
 
     # check if there are any provision scripts
@@ -896,6 +922,9 @@ function Set-ProvisionVM
     {
         return
     }
+
+    # what's the current os type?
+    $OSType = $OSType.ToLowerInvariant()
 
     # cache the map for speed
     $map = $FoggObject.ProvisionMap
@@ -915,22 +944,22 @@ function Set-ProvisionVM
             $_args = $null
         }
 
-        # DSC
-        if ($map['dsc'].ContainsKey($key))
+        # DSC (only for windows)
+        if ($map['dsc'].ContainsKey($key) -and $OSType -ieq 'windows')
         {
             Set-FoggDscConfig -FoggObject $FoggObject -VMName $VMName -StorageAccount $StorageAccount `
                 -ScriptPath $map['dsc'][$key][0]
         }
 
-        # Custom
+        # Custom (both windows and linux)
         elseif ($map['custom'].ContainsKey($key))
         {
             Set-FoggCustomConfig -FoggObject $FoggObject -VMName $VMName -StorageAccount $StorageAccount `
-                -ContainerName 'provs-custom' -ScriptPath $map['custom'][$key][0] -Arguments $_args
+                -ContainerName 'provs-custom' -ScriptPath $map['custom'][$key][0] -Arguments $_args -OSType $OSType
         }
 
-        # Chocolatey
-        elseif ($map['choco'].ContainsKey($key))
+        # Chocolatey (only for windows)
+        elseif ($map['choco'].ContainsKey($key) -and $OSType -ieq 'windows')
         {
             $choco = $map['choco'][$key]
 
@@ -942,7 +971,7 @@ function Set-ProvisionVM
             Write-Details "Chocolatey Provisioner: $($key) ($($_args))"
 
             Set-FoggCustomConfig -FoggObject $FoggObject -VMName $VMName -StorageAccount $StorageAccount `
-                -ContainerName 'provs-choco' -ScriptPath $choco[0] -Arguments $_args
+                -ContainerName 'provs-choco' -ScriptPath $choco[0] -Arguments $_args -OSType $OSType
         }
 
         # Drives
@@ -952,7 +981,7 @@ function Set-ProvisionVM
             $_args = $drives[1]
 
             Set-FoggCustomConfig -FoggObject $FoggObject -VMName $VMName -StorageAccount $StorageAccount `
-                -ContainerName 'provs-drives' -ScriptPath $drives[0] -Arguments $_args
+                -ContainerName 'provs-drives' -ScriptPath $drives[0] -Arguments $_args -OSType $OSType
         }
     }
 }
@@ -1034,13 +1063,18 @@ function Set-FoggCustomConfig
         [string]
         $ScriptPath,
 
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $OSType,
+
         [string]
         $Arguments = $null
     )
 
     # get the name of the file to run
     $fileName = Split-Path -Leaf -Path "$($ScriptPath)"
-    $extName = Get-FoggCustomScriptExtensionName
+    $extName = Get-FoggCustomScriptExtensionName -OSType $OSType
 
     # parse the arguments - if we have any - into the write format
     if (!(Test-Empty $Arguments))
@@ -1055,17 +1089,38 @@ function Set-FoggCustomConfig
     Write-Information "Installing Custom Script Extension on VM $($VMName), and running script $($fileName)"
 
     # execute the script on the VM
-    if (Test-Empty $Arguments)
+    switch ($OSType.ToLowerInvariant())
     {
-        $output = Set-AzureRmVMCustomScriptExtension -ResourceGroupName $FoggObject.ResourceGroupName -VMName $VMName `
-            -Location $FoggObject.Location -StorageAccountName $saName -StorageAccountKey $saKey -ContainerName $ContainerName `
-            -FileName $fileName -Name $extName -Run $fileName -ErrorAction 'Continue'
-    }
-    else
-    {
-        $output = Set-AzureRmVMCustomScriptExtension -ResourceGroupName $FoggObject.ResourceGroupName -VMName $VMName `
-            -Location $FoggObject.Location -StorageAccountName $saName -StorageAccountKey $saKey -ContainerName $ContainerName `
-            -FileName $fileName -Name $extName -Run $fileName -Argument $Arguments -ErrorAction 'Continue'
+        'windows'
+            {
+                if (Test-Empty $Arguments)
+                {
+                    $output = Set-AzureRmVMCustomScriptExtension -ResourceGroupName $FoggObject.ResourceGroupName -VMName $VMName `
+                        -Location $FoggObject.Location -StorageAccountName $saName -StorageAccountKey $saKey -ContainerName $ContainerName `
+                        -FileName $fileName -Name $extName -Run $fileName -ErrorAction 'Continue'
+                }
+                else
+                {
+                    $output = Set-AzureRmVMCustomScriptExtension -ResourceGroupName $FoggObject.ResourceGroupName -VMName $VMName `
+                        -Location $FoggObject.Location -StorageAccountName $saName -StorageAccountKey $saKey -ContainerName $ContainerName `
+                        -FileName $fileName -Name $extName -Run $fileName -Argument $Arguments -ErrorAction 'Continue'
+                }
+            }
+
+        'linux'
+            {
+                $fileUri = "https://$($saName).blob.core.windows.net/$($ContainerName)/$($fileName)"
+                $settings = @{ "fileUris" = @($fileUri); "commandToExecute" = "./$($fileName)"; }
+                $protected = @{ "storageAccountName" = $saName; "storageAccountKey" = $saKey; }
+
+                $splitExtName = ($extName -isplit '\.')
+                $publisher = ($splitExtName[0..($splitExtName.Length - 2)] -join '.')
+                $extType = ($splitExtName[$splitExtName.Length - 1])
+
+                $output = Set-AzureRmVMExtension -ResourceGroupName $FoggObject.ResourceGroupName -VMName $VMName `
+                    -Location $FoggObject.Location -Name $extName -Publisher $publisher -ExtensionType $extType `
+                    -TypeHandlerVersion '2.0' -Settings $settings -ProtectedSettings $protected -ErrorAction 'Continue'
+            }
     }
 
     # did it succeed or fail?
@@ -1101,7 +1156,12 @@ function Get-FoggCustomScriptExtension
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
         [string]
-        $Name
+        $Name,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $OSType
     )
 
     $ResourceGroupName = (Get-FoggResourceGroupName $ResourceGroupName)
@@ -1109,7 +1169,19 @@ function Get-FoggCustomScriptExtension
 
     try
     {
-        $ext = Get-AzureRmVMCustomScriptExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name $Name
+        switch ($OSType.ToLowerInvariant())
+        {
+            'windows'
+                {
+                    $ext = Get-AzureRmVMCustomScriptExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name $Name
+                }
+
+            'linux'
+                {
+                    $ext = Get-AzureRmVMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name $Name
+                }
+        }
+
         if (!$?)
         {
             throw "Failed to make Azure call to retrieve Custom Script Extension $($Name) in $($ResourceGroupName)"
@@ -1141,19 +1213,38 @@ function Remove-FoggCustomScriptExtension
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
         [string]
-        $VMName
+        $VMName,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $OSType
     )
 
     $VMName = $VMName.ToLowerInvariant()
     $rg = $FoggObject.ResourceGroupName
-    $name = Get-FoggCustomScriptExtensionName
+    $name = Get-FoggCustomScriptExtensionName -OSType $OSType
 
     # only attempt to remove if the extension exists
-    $ext = Get-FoggCustomScriptExtension -ResourceGroupName $rg -VMName $VMName -Name $name
+    $ext = Get-FoggCustomScriptExtension -ResourceGroupName $rg -VMName $VMName -Name $name -OSType $OSType
     if ($ext -ne $null)
     {
         Write-Information "Uninstalling $($name) from $($VMName)"
-        Remove-AzureRmVMCustomScriptExtension -ResourceGroupName $rg -VMName $VMName -Name $name -Force | Out-Null
+
+        switch ($OSType.ToLowerInvariant())
+        {
+            'windows'
+                {
+                    Remove-AzureRmVMCustomScriptExtension -ResourceGroupName $rg -VMName $VMName -Name $name -Force | Out-Null
+                }
+
+            'linux'
+                {
+                    Remove-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name $name -Force | Out-Null
+                }
+        }
+
+        Start-Sleep -Seconds 10
         Write-Success "Extension uninstalled from $($VMName)`n"
     }
 }
@@ -1161,7 +1252,18 @@ function Remove-FoggCustomScriptExtension
 
 function Get-FoggCustomScriptExtensionName
 {
-    return 'Microsoft.Compute.CustomScriptExtension'
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $OSType
+    )
+
+    switch ($OSType.ToLowerInvariant())
+    {
+        'windows' { return 'Microsoft.Compute.CustomScriptExtension' }
+        'linux' { return 'Microsoft.Azure.Extensions.customScript' }
+    }
 }
 
 
@@ -1273,34 +1375,7 @@ function New-FoggStorageContainer
     return $container
 }
 
-
-function Get-FirewallPortMap
-{
-    return @{
-        'ftp' = '20-21';
-        'ssh' = '22';
-        'smtp' = '25';
-        'http' = '80';
-        'sftp' = '115';
-        'https' = '443';
-        'smb' = '445';
-        'ftps' = '989-990';
-        'sql' = '1433-1434';
-        'mysql' = '3306';
-        'rdp' = '3389';
-        'svn' = '3690';
-        'sql-mirror' = '5022-5023';
-        'postgresql' = '5432';
-        'winrm' = '5985-5986';
-        'redis' = '6379';
-        'puppet' = '8139-8140';
-        'git' = '9418';
-        'octopus' = '10933';
-    }
-}
-
-
-function New-FirewallRules
+function Add-FirewallRules
 {
     param (
         [Parameter(Mandatory=$true)]
@@ -1421,6 +1496,52 @@ function New-FirewallRules
     return $Rules
 }
 
+function Add-FirewallWhitelistRules
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        $Subnets,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $CurrentRole,
+
+        $Whitelist = $null,
+
+        [array]
+        $Rules = @()
+    )
+
+    # if there are no whitelist rules, return
+    if ($Whitelist -eq $null)
+    {
+        return $Rules
+    }
+
+    # get redis port
+    $portMap = Get-FirewallPortMap
+    $port = $portMap.redis
+
+    # add whitelist rules to nsg firewall
+    if (!(Test-ArrayEmpty $Whitelist))
+    {
+        $priority = 3500
+        $names = $Whitelist.psobject.properties.name
+
+        $names | ForEach-Object {
+            $_rule = $Whitelist.$_
+
+            $Rules += (New-FoggNetworkSecurityGroupRule -Name $_ -Priority $priority -Direction 'Inbound' `
+                -Source "$($_rule):*" -Destination "@{subnet}:$($port)" -Subnets $Subnets -CurrentRole $CurrentRole -Access 'Allow')
+
+            $priority++
+        }
+    }
+
+    # return the rules
+    return $Rules
+}
 
 function Get-FoggNetworkSecurityGroupRule
 {
@@ -1506,13 +1627,26 @@ function New-FoggNetworkSecurityGroupRule
 
     # split down the source for IP and Port
     $source_split = ($Source -split ':')
-    $sourcePrefix = Get-ReplaceSubnet -Value $source_split[0] -Subnets $Subnets -CurrentRole $CurrentRole
+    $sourcePrefix = (Get-ReplaceSubnet -Value $source_split[0] -Subnets $Subnets -CurrentRole $CurrentRole) -ireplace ' ', ''
     $sourcePort = Get-SubnetPort $source_split
 
     # split down the destination for IP and Port
     $dest_split = ($Destination -split ':')
-    $destPrefix = Get-ReplaceSubnet -Value $dest_split[0] -Subnets $Subnets -CurrentRole $CurrentRole
+    $destPrefix = (Get-ReplaceSubnet -Value $dest_split[0] -Subnets $Subnets -CurrentRole $CurrentRole) -ireplace ' ', ''
     $destPort = Get-SubnetPort $dest_split
+
+    # if it's an ip-range, get the subnet
+    if ($sourcePrefix.Contains('-'))
+    {
+        $s = $sourcePrefix -isplit '-'
+        $sourcePrefix = Get-SubnetMask -Low $s[0] -High $s[1]
+    }
+
+    if ($destPrefix.Contains('-'))
+    {
+        $s = $destPrefix -isplit '-'
+        $destPrefix = Get-SubnetMask -Low $s[0] -High $s[1]
+    }
 
     Write-Information "Creating NSG Rule $($Name), from '$($sourcePrefix):$($sourcePort)' to '$($destPrefix):$($destPort)'"
 
@@ -2280,11 +2414,11 @@ function New-FoggAvailabilitySet
     # create new av set
     if ($Managed)
     {
-        $av = New-AzureRmAvailabilitySet -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Location $FoggObject.Location -Managed
+        $av = New-AzureRmAvailabilitySet -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Location $FoggObject.Location -Managed -PlatformUpdateDomainCount 2 -PlatformFaultDomainCount 2
     }
     else
     {
-        $av = New-AzureRmAvailabilitySet -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Location $FoggObject.Location
+        $av = New-AzureRmAvailabilitySet -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Location $FoggObject.Location -PlatformUpdateDomainCount 2 -PlatformFaultDomainCount 2
     }
 
     if (!$?)
@@ -2669,6 +2803,7 @@ function New-FoggVM
         }
         else
         {
+            Write-Information "Using Published Image: $($OS.offer)"
             $VM = Set-AzureRmVMSourceImage -VM $VM -PublisherName $OS.publisher -Offer $OS.offer -Skus $OS.skus -Version 'latest'
         }
     }
@@ -2677,25 +2812,30 @@ function New-FoggVM
         Write-Information "Using Vhd: $($VhdName)"
     }
 
+    Write-Information "Setting OS: $($OS.type)"
+
     switch ($OS.type.ToLowerInvariant())
     {
         'windows'
             {
                 if ($hasVhd)
                 {
+                    Write-Information "=> Setting VM OS Disk"
                     $VM = Set-AzureRmVMOSDisk -VM $VM -Name $DiskName -VhdUri $VhdUri -CreateOption Attach -Windows
                 }
                 else
                 {
+                    Write-Information "=> Setting VM OS"
                     $VM = Set-AzureRmVMOperatingSystem -VM $VM -Windows -ComputerName $VMName -Credential $VMCredentials -ProvisionVMAgent
 
+                    Write-Information "=> Setting VM OS Disk"
                     if ($Managed)
                     {
-                        $VM = Set-AzureRmVMOSDisk -VM $VM -StorageAccountType PremiumLRS -DiskSizeInGB 128 -CreateOption FromImage -Caching ReadWrite -Name $DiskName -Windows
+                        $VM = Set-AzureRmVMOSDisk -VM $VM -Windows -StorageAccountType PremiumLRS -DiskSizeInGB 128 -CreateOption FromImage -Caching ReadWrite -Name $DiskName
                     }
                     else
                     {
-                        $VM = Set-AzureRmVMOSDisk -VM $VM -Name $DiskName -VhdUri $OSDiskUri -CreateOption FromImage -Windows
+                        $VM = Set-AzureRmVMOSDisk -VM $VM -Windows -Name $DiskName -VhdUri $OSDiskUri -CreateOption FromImage
                     }
                 }
             }
@@ -2704,19 +2844,22 @@ function New-FoggVM
             {
                 if ($hasVhd)
                 {
+                    Write-Information "=> Setting VM OS Disk"
                     $VM = Set-AzureRmVMOSDisk -VM $VM -Name $DiskName -VhdUri $VhdUri -CreateOption Attach -Linux
                 }
                 else
                 {
-                    $VM = Set-AzureRmVMOperatingSystem -VM $VM -Linux -ComputerName $VMName -Credential $VMCredentials -ProvisionVMAgent
-                    
+                    Write-Information "=> Setting VM OS"
+                    $VM = Set-AzureRmVMOperatingSystem -VM $VM -Linux -ComputerName $VMName -Credential $VMCredentials
+
+                    Write-Information "=> Setting VM OS Disk"
                     if ($Managed)
                     {
-                        $VM = Set-AzureRmVMOSDisk -VM $VM -StorageAccountType PremiumLRS -DiskSizeInGB 128 -CreateOption FromImage -Caching ReadWrite -Name $DiskName -Linux
+                        $VM = Set-AzureRmVMOSDisk -VM $VM -Linux -StorageAccountType PremiumLRS -DiskSizeInGB 128 -CreateOption FromImage -Caching ReadWrite -Name $DiskName
                     }
                     else
                     {
-                        $VM = Set-AzureRmVMOSDisk -VM $VM -Name $DiskName -VhdUri $OSDiskUri -CreateOption FromImage -Linux
+                        $VM = Set-AzureRmVMOSDisk -VM $VM -Linux -Name $DiskName -VhdUri $OSDiskUri -CreateOption FromImage
                     }
                 }
             }

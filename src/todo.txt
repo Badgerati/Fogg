@@ -59,17 +59,21 @@ Run "Remove-AzureRmAccount" on completion
 
 [-] -----
 Add Redis Cache step
-    - subnets have now changed to be "<platform>-<role>-<type>-snet"
-    - subnets now don't have to be supplied when using existing vnets
+    [x] - subnets have now changed to be "<platform>-<role>-<type>-snet"
+    [ ] - update readme/wiki and examples for new subnet format
+    [x] - subnets now don't have to be supplied when using existing vnets
 
-    - if using a subnet - make sure firewall updates redis whitelist and nsg
-    - redis info obj should include: port (ssl or non-ssl), static IP, access key, url/name
-    - attempt to put validation checks in for premium on config settings?
+    [x] - if using a subnet - make sure firewall updates redis whitelist and nsg
+    [x] - redis info obj should include: port (ssl or non-ssl), static IP, access key, url/name
+    [-] - attempt to put validation checks in for premium on config settings?
 
-    - when updating, check what is being updated (does not affect creating new caches)
-    --> size (or sku+size for premium)
-    --> sku (unless like above was premium)
-    --> all other properties
+    [x] - when updating, check what is being updated (does not affect creating new caches)
+        --> size (or sku+size for premium)
+        --> sku (unless like above was premium)
+        --> all other properties
+
+[ ] -----
+yum and apt-get provisioners?
 
 [x] -----
 managed disks
@@ -81,15 +85,16 @@ role uniqueness is not global in template - it should be unique to each type
 
 [ ] -----
 move creation of global vnet (unless re-using one) to be a defined step
-    - vm type now has a "vnet" section, to define "name" and "rg" (optional)
+    - "vm" type now has a "vnet" section, to define "name" and "rg" (optional) - but how to get newly created vnet-snets into snet list?
 
 [-] -----
     - update all examples/readme
     - update wiki
 
-[x] -----
-vnet example
-storage account example
-vm managed example
-vm image example
-vm vhd example
+[-] -----
+    [x] - vnet example
+    [x] - storage account example
+    [x] - vm managed example
+    [x] - vm image example
+    [x] - vm vhd example
+    [ ] - redis example

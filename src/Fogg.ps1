@@ -344,6 +344,7 @@ try
 
 
             # only create global storage account if we have VMs
+            # even if managed, still need one for diags and provision scripts
             if (Test-TemplateHasType $template.template 'vm')
             {
                 # Create the storage account
@@ -382,12 +383,13 @@ try
             foreach ($vm in $vms)
             {
                 $role = $vm.role.ToLowerInvariant()
-                $basename = (Join-ValuesDashed @($FoggObject.Platform, $role, 'vm'))
+                $type = $vm.type.ToLowerInvariant()
+                $basename = (Join-ValuesDashed @($FoggObject.Platform, $role, $type))
                 $subnet = $FoggObject.SubnetAddressMap[$basename]
 
                 # Create network security group inbound/outbound rules
-                $rules = New-FirewallRules -Firewall $vm.firewall -Subnets $FoggObject.SubnetAddressMap -CurrentRole $role
-                $rules = New-FirewallRules -Firewall $template.firewall -Subnets $FoggObject.SubnetAddressMap -CurrentRole $role -Rules $rules
+                $rules = Add-FirewallRules -Firewall $vm.firewall -Subnets $FoggObject.SubnetAddressMap -CurrentRole $basename
+                $rules = Add-FirewallRules -Firewall $template.firewall -Subnets $FoggObject.SubnetAddressMap -CurrentRole $basename -Rules $rules
 
                 # Create network security group rules, and bind to VM
                 $nsg = New-FoggNetworkSecurityGroup -FoggObject $FoggObject -Name $basename -Rules $rules
@@ -403,11 +405,21 @@ try
             foreach ($r in $redis)
             {
                 $role = $r.role.ToLowerInvariant()
-                $basename = (Join-ValuesDashed @($FoggObject.Platform, $role, 'redis'))
+                $type = $r.type.ToLowerInvariant()
+                $basename = (Join-ValuesDashed @($FoggObject.Platform, $role, $type))
                 $subnet = $FoggObject.SubnetAddressMap[$basename]
 
-                $vnet = Add-FoggSubnetToVNet -ResourceGroupName $vnet.ResourceGroupName -VNetName $vnet.Name -SubnetName $basename -Address $subnet
+                # Create network security group inbound whitelist rules
+                $rules = Add-FirewallWhitelistRules -Whitelist $r.whitelist -Subnets $FoggObject.SubnetAddressMap -CurrentRole $basename
+
+                # Create network security group rules, and bind to the redis cache
+                $nsg = New-FoggNetworkSecurityGroup -FoggObject $FoggObject -Name $basename -Rules $rules
+                $FoggObject.NsgMap.Add($basename, $nsg.Id)
+
+                # assign subnet to vnet
+                $vnet = Add-FoggSubnetToVNet -ResourceGroupName $vnet.ResourceGroupName -VNetName $vnet.Name -SubnetName $basename -Address $subnet -NetworkSecurityGroup $nsg
             }
+            return
 
 
             # Create Gateway subnet for VPN objects in template
@@ -415,7 +427,8 @@ try
             if ($vpn -ne $null)
             {
                 $role = $vpn.role.ToLowerInvariant()
-                $basename = (Join-ValuesDashed @($FoggObject.Platform, $role, 'vpn'))
+                $type = $vm.type.ToLowerInvariant()
+                $basename = (Join-ValuesDashed @($FoggObject.Platform, $role, $type))
                 $subnet = $FoggObject.SubnetAddressMap[$basename]
                 $vnet = Add-FoggGatewaySubnetToVNet -ResourceGroupName $vnet.ResourceGroupName -VNetName $vnet.Name -Address $subnet
             }
@@ -428,28 +441,28 @@ try
                 {
                     'vm'
                         {
-                            New-DeployTemplateVM -Template $template -VMTemplate $obj -FoggObject $FoggObject `
+                            New-DeployTemplateVM -FullTemplate $template -Template $obj -FoggObject $FoggObject `
                                 -VNet $vnet -StorageAccount $sa -VMCredentials $FoggObjects.VMCredentials
                         }
 
                     'vpn'
                         {
-                            New-DeployTemplateVPN -VPNTemplate $obj -FoggObject $FoggObject -VNet $vnet
+                            New-DeployTemplateVPN -Template $obj -FoggObject $FoggObject -VNet $vnet
                         }
 
                     'vnet'
                         {
-                            New-DeployTemplateVNet -VNetTemplate $obj -FoggObject $FoggObject
+                            New-DeployTemplateVNet -Template $obj -FoggObject $FoggObject
                         }
 
                     'sa'
                         {
-                            New-DeployTemplateSA -SATemplate $obj -FoggObject $FoggObject
+                            New-DeployTemplateSA -Template $obj -FoggObject $FoggObject
                         }
 
                     'redis'
                         {
-                            New-DeployTemplateRedis -RedisTemplate $obj -FoggObject $FoggObject -VNet $vnet
+                            New-DeployTemplateRedis -Template $obj -FoggObject $FoggObject -VNet $vnet
                         }
                 }
             }

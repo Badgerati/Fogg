@@ -529,18 +529,13 @@ function Test-TemplateRedis
 
     # get role
     $role = $Template.role.ToLowerInvariant()
+    $type = $Template.type.ToLowerInvariant()
     $basename = (Join-ValuesDashed @($FoggObject.Platform, $role))
     $useSubnet = [bool]$Template.subnet
 
     # ensure name is valid
     $name = Get-FoggRedisCacheName -Name (Join-ValuesDashed @($FoggObject.LocationCode, $FoggObject.Stamp, $FoggObject.Platform, $role))
     Test-FoggRedisCacheName $name
-
-    # if subnet is true, check we have a subnet for this redis cache
-    if ($useSubnet -and $Online -and !$FoggObject.SubnetAddressMap.ContainsKey("$($basename)-redis"))
-    {
-        throw "No subnet address mapped for the $($role) Redis Cache object, expecting: $($basename)-redis"
-    }
 
     # ensure the sku is valid
     $skus = @('Basic', 'Standard', 'Premium')
@@ -556,19 +551,19 @@ function Test-TemplateRedis
         throw "The $($role) Redis Cache shard count is invalid, should be between 1-10"
     }
 
-    # ensure the firewall rules have names and ip ranges
-    if (!(Test-Empty $Template.firewall))
+    # ensure the whitelist rules have names and ip ranges
+    if (!(Test-Empty $Template.whitelist))
     {
-        $firewall = ConvertFrom-JsonObjectToMap -JsonObject $Template.firewall
-        $firewall.Keys | ForEach-Object {
+        $whitelist = ConvertFrom-JsonObjectToMap -JsonObject $Template.whitelist
+        $whitelist.Keys | ForEach-Object {
             if (Test-Empty $_)
             {
-                throw "The $($role) Redis Cache has a firewall rule with no name supplied"
+                throw "The $($role) Redis Cache has a whitelist rule with no name supplied"
             }
 
-            if (Test-Empty $firewall[$_])
+            if (Test-Empty $whitelist[$_])
             {
-                throw "The $($role) Redis Cache firewall rule '$($_)' has no IP range supplied"
+                throw "The $($role) Redis Cache whitelist rule '$($_)' has no IP range supplied"
             }
         }
     }
@@ -618,6 +613,12 @@ function Test-TemplateRedis
         }
     }
 
+    # if subnet is true, check we have a subnet for this redis cache
+    if ($useSubnet -and $Online -and !$FoggObject.SubnetAddressMap.ContainsKey("$($basename)-$($type)"))
+    {
+        throw "No subnet address mapped for the $($role) Redis Cache object, expecting: $($basename)-$($type)"
+    }
+
     # if online and the cache exist, ensure it's ours
     if ($Online)
     {
@@ -655,7 +656,6 @@ function Test-TemplateSA
     }
 }
 
-
 function Test-TemplateVNet
 {
     param (
@@ -689,7 +689,6 @@ function Test-TemplateVNet
         }
     }
 }
-
 
 function Test-TemplateVPN
 {
@@ -797,7 +796,6 @@ function Test-TemplateVPN
     }
 }
 
-
 function Test-TemplateVM
 {
     param (
@@ -822,6 +820,7 @@ function Test-TemplateVM
 
     # get role
     $role = $Template.role.ToLowerInvariant()
+    $type = $Template.type.ToLowerInvariant()
     $basename = (Join-ValuesDashed @($FoggObject.Platform, $role))
 
     # ensure we don't have a vhd and an image
@@ -837,9 +836,9 @@ function Test-TemplateVM
     }
 
     # ensure that each VM object has a subnet map
-    if ($Online -and !$FoggObject.SubnetAddressMap.ContainsKey("$($basename)-vm"))
+    if ($Online -and !$FoggObject.SubnetAddressMap.ContainsKey("$($basename)-$($type)"))
     {
-        throw "No subnet address mapped for the $($role) VM object, expecting: $($basename)-vm"
+        throw "No subnet address mapped for the $($role) VM object, expecting: $($basename)-$($type)"
     }
 
     # ensure VM count is not negative/0
@@ -936,90 +935,110 @@ function Test-TemplateVM
     Test-FirewallRules -FirewallRules $Template.firewall
 
     # if the VM has extra drives, ensure the section is valid and add the provisioner
-    if (!(Test-ArrayEmpty $Template.drives))
-    {
-        # ensure other values are correct
-        $Template.drives | ForEach-Object {
-            # ensure sizes are greater than 0
-            if ($_.size -eq $null -or $_.size -le 0)
-            {
-                throw "Drive '$($_.name)' in the $($role) VM object must have a size greater than 0Gb"
-            }
-
-            # ensure LUNs are greater than 0
-            if ($_.lun -eq $null -or $_.lun -le 0)
-            {
-                throw "Drive '$($_.name)' in the $($role) VM object must have a LUN greater than 0"
-            }
-
-            # ensure drives and letters aren't empty
-            if (Test-Empty $_.name)
-            {
-                throw "Drive '$($_.letter)' in the $($role) VM object has no drive name supplied"
-            }
-
-            if (Test-Empty $_.letter)
-            {
-                throw "Drive '$($_.name)' in the $($role) VM object has no drive letter supplied"
-            }
-
-            # ensure the drive letter is not one of the reserved ones
-            $reservedDrives = @('A', 'B', 'C', 'D', 'E', 'Z')
-            if ($reservedDrives -icontains $_.letter)
-            {
-                throw "Drive '$($_.name)' in the $($role) VM object cannot use one of the following drive letters: $($reservedDrives -join ', ')"
-            }
-
-            if ($_.letter -inotmatch '^[a-z]{1}$')
-            {
-                throw "Drive '$($_.name)' in the $($role) VM object must have a valid alpha drive letter"
-            }
-
-            # ensure the name is alphanumeric
-            if ($_.name -inotmatch '^[a-z0-9 ]+$')
-            {
-                throw "Drive '$($_.name)' in the $($role) VM object must have a valid alphanumeric drive name"
-            }
-
-            # ensure caching value is correct
-            $cachings = @('ReadOnly', 'ReadWrite', 'None')
-            if (![string]::IsNullOrWhiteSpace($_.caching) -and $cachings -inotcontains $_.caching)
-            {
-                throw "Drive '$($_.name)' in the $($role) VM object has an invalid caching option '$($_.caching)', valid values: $($cachings -join ', ')"
-            }
-        }
-
-        # ensure the LUNs are unique
-        $dupe = Test-ArrayIsUnique $Template.drives.lun
-        if ($dupe -ne $null)
-        {
-            throw "Drive LUNs need to be unique, found two drives with LUN '$($dupe)' for the $($role) VM object"
-        }
-
-        # ensure the name are unique
-        $dupe = Test-ArrayIsUnique $Template.drives.name
-        if ($dupe -ne $null)
-        {
-            throw "Drive names need to be unique, found two drives with name '$($dupe)' for the $($role) VM object"
-        }
-
-        # ensure the letters are unique
-        $dupe = Test-ArrayIsUnique $Template.drives.letter
-        if ($dupe -ne $null)
-        {
-            throw "Drive letters need to be unique, found two drives with letter '$($dupe)' for the $($role) VM object"
-        }
-
-        # get the drive names
-        $drives = $Template.drives.name -join ','
-        $letters = $Template.drives.letter -join ','
-
-        # add provisioner
-        $scriptPath = Get-ProvisionerInternalPath -FoggObject $FoggObject -Type 'drives' -ScriptName 'attach-drives' -OS 'win'
-        Add-Provisioner -FoggObject $FoggObject -Key 'attach-drives' -Type 'drives' -ScriptPath $scriptPath -Arguments "$($letters) | $($drives)"
-    }
+    Test-VMDrives -FoggObject $FoggObject -Role $role -Drives $Template.drives
 }
 
+function Test-VMDrives
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        $FoggObject,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Role,
+
+        [Parameter()]
+        $Drives
+    )
+
+    # if there are no drives, just return
+    if (Test-ArrayEmpty $Drives)
+    {
+        return
+    }
+
+    # ensure other values are correct
+    $Drives | ForEach-Object {
+        # ensure sizes are greater than 0
+        if ($_.size -eq $null -or $_.size -le 0)
+        {
+            throw "Drive '$($_.name)' in the $($Role) VM object must have a size greater than 0Gb"
+        }
+
+        # ensure LUNs are greater than 0
+        if ($_.lun -eq $null -or $_.lun -le 0)
+        {
+            throw "Drive '$($_.name)' in the $($Role) VM object must have a LUN greater than 0"
+        }
+
+        # ensure drives and letters aren't empty
+        if (Test-Empty $_.name)
+        {
+            throw "Drive '$($_.letter)' in the $($Role) VM object has no drive name supplied"
+        }
+
+        if (Test-Empty $_.letter)
+        {
+            throw "Drive '$($_.name)' in the $($Role) VM object has no drive letter supplied"
+        }
+
+        # ensure the drive letter is not one of the reserved ones
+        $reservedDrives = @('A', 'B', 'C', 'D', 'E', 'Z')
+        if ($reservedDrives -icontains $_.letter)
+        {
+            throw "Drive '$($_.name)' in the $($Role) VM object cannot use one of the following drive letters: $($reservedDrives -join ', ')"
+        }
+
+        if ($_.letter -inotmatch '^[a-z]{1}$')
+        {
+            throw "Drive '$($_.name)' in the $($Role) VM object must have a valid alpha drive letter"
+        }
+
+        # ensure the name is alphanumeric
+        if ($_.name -inotmatch '^[a-z0-9 ]+$')
+        {
+            throw "Drive '$($_.name)' in the $($Role) VM object must have a valid alphanumeric drive name"
+        }
+
+        # ensure caching value is correct
+        $cachings = @('ReadOnly', 'ReadWrite', 'None')
+        if (![string]::IsNullOrWhiteSpace($_.caching) -and $cachings -inotcontains $_.caching)
+        {
+            throw "Drive '$($_.name)' in the $($Role) VM object has an invalid caching option '$($_.caching)', valid values: $($cachings -join ', ')"
+        }
+    }
+
+    # ensure the LUNs are unique
+    $dupe = Test-ArrayIsUnique $Drives.lun
+    if ($dupe -ne $null)
+    {
+        throw "Drive LUNs need to be unique, found two drives with LUN '$($dupe)' for the $($Role) VM object"
+    }
+
+    # ensure the name are unique
+    $dupe = Test-ArrayIsUnique $Drives.name
+    if ($dupe -ne $null)
+    {
+        throw "Drive names need to be unique, found two drives with name '$($dupe)' for the $($Role) VM object"
+    }
+
+    # ensure the letters are unique
+    $dupe = Test-ArrayIsUnique $Drives.letter
+    if ($dupe -ne $null)
+    {
+        throw "Drive letters need to be unique, found two drives with letter '$($dupe)' for the $($Role) VM object"
+    }
+
+    # get the drive names
+    $names = $Drives.name -join ','
+    $letters = $Drives.letter -join ','
+
+    # add provisioner
+    $scriptPath = Get-ProvisionerInternalPath -FoggObject $FoggObject -Type 'drives' -ScriptName 'attach-drives' -OS 'win'
+    Add-Provisioner -FoggObject $FoggObject -Key 'attach-drives' -Type 'drives' -ScriptPath $scriptPath -Arguments "$($letters) | $($names)"
+}
 
 function Test-FirewallRules
 {
@@ -1309,7 +1328,6 @@ function Test-TemplateVMOS
     }
 }
 
-
 function Test-ProvisionerExists
 {
     param (
@@ -1334,7 +1352,6 @@ function Test-ProvisionerExists
 
     return ($dsc -or $custom -or $choco)
 }
-
 
 function Test-Provisioners
 {
@@ -1428,7 +1445,6 @@ function Test-Provisioners
     }
 }
 
-
 function Get-ProvisionerInternalPath
 {
     param (
@@ -1482,7 +1498,6 @@ function Get-ProvisionerInternalPath
 
     return $scriptPath
 }
-
 
 function Add-Provisioner
 {
@@ -1542,6 +1557,32 @@ function Add-Provisioner
     }
 }
 
+
+function Get-FirewallPortMap
+{
+    return @{
+        'ftp' = '20-21';
+        'ssh' = '22';
+        'smtp' = '25';
+        'http' = '80';
+        'sftp' = '115';
+        'https' = '443';
+        'smb' = '445';
+        'ftps' = '989-990';
+        'sql' = '1433-1434';
+        'mysql' = '3306';
+        'rdp' = '3389';
+        'svn' = '3690';
+        'sql-mirror' = '5022-5023';
+        'postgresql' = '5432';
+        'winrm' = '5985-5986';
+        'redis' = '6379';
+        'puppet' = '8139-8140';
+        'git' = '9418';
+        'octopus' = '10933';
+        'redis-sentinel' ='26379';
+    }
+}
 
 function Get-JSONContent
 {
@@ -1623,7 +1664,6 @@ function ConvertFrom-JsonObjectToMap
     return $map
 }
 
-
 function Get-ReplaceSubnet
 {
     param (
@@ -1660,7 +1700,6 @@ function Get-ReplaceSubnet
     return $Value
 }
 
-
 function Get-SubnetPort
 {
     param (
@@ -1677,7 +1716,6 @@ function Get-SubnetPort
     return '*'
 }
 
-
 function Get-NameFromAzureId
 {
     param (
@@ -1690,6 +1728,104 @@ function Get-NameFromAzureId
     return (Split-Path -Leaf -Path $Id).ToLowerInvariant()
 }
 
+function Get-SubnetRange
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $SubnetMask
+    )
+
+    # split for ip and number of 1 bits
+    $split = $SubnetMask -split '/'
+    if ($split.Length -le 1)
+    {
+        return $null
+    }
+
+    $ip_parts = $split[0] -isplit '\.'
+    $bits = [int]$split[1]
+
+    # generate the netmask
+    $network = @("", "", "", "")
+    $count = 0
+
+    foreach ($i in 0..3)
+    {
+        foreach ($b in 1..8)
+        {
+            $count++
+
+            if ($count -le $bits)
+            {
+                $network[$i] += "1"
+            }
+            else
+            {
+                $network[$i] += "0"
+            }
+        }
+    }
+
+    # covert netmask to bytes
+    0..3 | ForEach-Object {
+        $network[$_] = [Convert]::ToByte($network[$_], 2)
+    }
+
+    # calculate the bottom range
+    $bottom = @(0..3 | ForEach-Object { [byte]([byte]$network[$_] -band [byte]$ip_parts[$_]) })
+
+    # calculate the range
+    $range = @(0..3 | ForEach-Object { 256 + (-bnot [byte]$network[$_]) })
+
+    # calculate the top range
+    $top = @(0..3 | ForEach-Object { [byte]([byte]$ip_parts[$_] + [byte]$range[$_]) })
+
+    return @{
+        'lowest' = ($bottom -join '.');
+        'highest' = ($top -join '.');
+        'range' = ($range -join '.');
+        'netmask' = ($network -join '.');
+        'ip' = ($ip_parts -join '.');
+    }
+}
+
+function Get-SubnetMask
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Low,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $High
+    )
+
+    # split low and high
+    $low_parts = $Low -split '\.'
+    $high_parts = $High -split '\.'
+
+    # subtract and bitwise not to get network
+    $network = @(0..3 | ForEach-Object { 256 + (-bnot ([byte]$high_parts[$_] - [byte]$low_parts[$_])) })
+
+    # convert the network to binary
+    $binary = ((($network | ForEach-Object { [Convert]::ToString($_, 2) }) -join '') -split '0')[0] -join ''
+    $binary = $binary + (New-Object String -ArgumentList "0", (32 - $binary.Length))
+
+    # re-calc the network and low address
+    $network = @(0..3 | ForEach-Object { [Convert]::ToByte(($binary[($_ * 8)..(($_ * 8) + 7)] -join ''), 2) })
+    $Low = @(0..3 | ForEach-Object { [byte]([byte]$network[$_] -band [byte]$low_parts[$_]) }) -join '.'
+
+    # count the 1 bits of the network
+    $bits = ($binary.ToCharArray() | ForEach-Object { Invoke-Expression $_ } | Measure-Object -Sum).Sum
+
+    # return the mask
+    return "$($Low)/$($bits)"
+}
 
 function New-FoggObject
 {
@@ -2100,7 +2236,7 @@ function New-DeployTemplateRedis
     param (
         [Parameter(Mandatory=$true)]
         [ValidateNotNull()]
-        $RedisTemplate,
+        $Template,
 
         [Parameter(Mandatory=$true)]
         [ValidateNotNull()]
@@ -2111,18 +2247,19 @@ function New-DeployTemplateRedis
     )
 
     $startTime = [DateTime]::UtcNow
-    $role = $RedisTemplate.role.ToLowerInvariant()
+    $role = $Template.role.ToLowerInvariant()
+    $type = $Template.type.ToLowerInvariant()
     $basename = (Join-ValuesDashed @($FoggObject.Platform, $role))
 
     # template variables
-    $nonSsl = [bool]$RedisTemplate.nonSsl
-    $useSubnet = [bool]$RedisTemplate.subnet
-    $shards = (Get-FoggDefaultInt -Value $RedisTemplate.shards -Default 1)
+    $nonSsl = [bool]$Template.nonSsl
+    $useSubnet = [bool]$Template.subnet
+    $shards = (Get-FoggDefaultInt -Value $Template.shards -Default 1)
 
     # subnet info
     if ($useSubnet)
     {
-        $subnetPrefix = $FoggObject.SubnetAddressMap["$($basename)-redis"]
+        $subnetPrefix = $FoggObject.SubnetAddressMap["$($basename)-$($type)"]
         $subnetName = (Get-FoggSubnetName $basename)
         $subnetId = ($VNet.Subnets | Where-Object { $_.Name -ieq $subnetName -or $_.AddressPrefix -ieq $subnetPrefix }).Id
     }
@@ -2135,20 +2272,20 @@ function New-DeployTemplateRedis
 
     # default variables
     $config = @{}
-    if ($RedisTemplate.config -ne $null)
+    if ($Template.config -ne $null)
     {
-        $config = ConvertFrom-JsonObjectToMap -JsonObject $RedisTemplate.config
+        $config = ConvertFrom-JsonObjectToMap -JsonObject $Template.config
     }
 
-    $firewall = $null
-    if ($RedisTemplate.firewall -ne $null)
+    $whitelist = $null
+    if ($Template.whitelist -ne $null)
     {
-        $firewall = ConvertFrom-JsonObjectToMap -JsonObject $RedisTemplate.firewall
+        $whitelist = ConvertFrom-JsonObjectToMap -JsonObject $Template.whitelist
     }
 
     # create the redis cache
-    $redis = New-FoggRedisCache -FoggObject $FoggObject -Role $role -Size $RedisTemplate.size -Sku $RedisTemplate.sku `
-        -ShardCount $shards -SubnetId $subnetId -Configuration $config -FirewallRules $firewall -EnableNonSslPort:$nonSsl
+    $redis = New-FoggRedisCache -FoggObject $FoggObject -Role $role -Size $Template.size -Sku $Template.sku `
+        -ShardCount $shards -SubnetId $subnetId -Configuration $config -Whitelist $whitelist -EnableNonSslPort:$nonSsl
 
     # basic redis info
     $redisInfo.Add('Name', $redis.Name)
@@ -2176,7 +2313,7 @@ function New-DeployTemplateSA
     param (
         [Parameter(Mandatory=$true)]
         [ValidateNotNull()]
-        $SATemplate,
+        $Template,
 
         [Parameter(Mandatory=$true)]
         [ValidateNotNull()]
@@ -2184,7 +2321,7 @@ function New-DeployTemplateSA
     )
 
     $startTime = [DateTime]::UtcNow
-    $role = $SATemplate.role.ToLowerInvariant()
+    $role = $Template.role.ToLowerInvariant()
 
     # Storage Account information
     $FoggObject.StorageAccountInfo.Add($role, @{})
@@ -2193,7 +2330,7 @@ function New-DeployTemplateSA
     Write-Information "Deploying Storage Account for the '$($role)' template"
 
     # create the storage account
-    $premium = [bool]$SATemplate.premium
+    $premium = [bool]$Template.premium
     $sa = New-FoggStorageAccount -FoggObject $FoggObject -Role $role -Premium:$premium
 
     $saInfo.Add('Name', $sa.StorageAccountName)
@@ -2209,7 +2346,7 @@ function New-DeployTemplateVNet
     param (
         [Parameter(Mandatory=$true)]
         [ValidateNotNull()]
-        $VNetTemplate,
+        $Template,
 
         [Parameter(Mandatory=$true)]
         [ValidateNotNull()]
@@ -2217,25 +2354,25 @@ function New-DeployTemplateVNet
     )
 
     $startTime = [DateTime]::UtcNow
-    $role = $VNetTemplate.role.ToLowerInvariant()
+    $role = $Template.role.ToLowerInvariant()
     $basename = (Join-ValuesDashed @($FoggObject.Platform, $role))
 
     # VNet information
     $FoggObject.VirtualNetworkInfo.Add($role, @{})
     $vnetInfo = $FoggObject.VirtualNetworkInfo[$role]
-    $vnetInfo.Add('Address', $VNetTemplate.address)
+    $vnetInfo.Add('Address', $Template.address)
     $vnetInfo.Add('Subnets', @())
 
     Write-Information "Deploying VNet for the '$($role)' template"
 
     # create the virtual network
     $vnet = New-FoggVirtualNetwork -ResourceGroupName $FoggObject.ResourceGroupName -Name $basename `
-        -Location $FoggObject.Location -Address $VNetTemplate.address
+        -Location $FoggObject.Location -Address $Template.address
 
     $vnetInfo.Add('Name', $vnet.Name)
 
     # add the subnets to the vnet
-    $subnets = ConvertFrom-JsonObjectToMap $VNetTemplate.subnets
+    $subnets = ConvertFrom-JsonObjectToMap $Template.subnets
 
     $subnets.Keys | ForEach-Object {
         $snetName = (Get-FoggSubnetName $_)
@@ -2259,11 +2396,11 @@ function New-DeployTemplateVM
     param (
         [Parameter(Mandatory=$true)]
         [ValidateNotNull()]
-        $Template,
+        $FullTemplate,
 
         [Parameter(Mandatory=$true)]
         [ValidateNotNull()]
-        $VMTemplate,
+        $Template,
 
         [Parameter(Mandatory=$true)]
         [ValidateNotNull()]
@@ -2283,11 +2420,12 @@ function New-DeployTemplateVM
         $VMCredentials
     )
 
-    $role = $VMTemplate.role.ToLowerInvariant()
+    $role = $Template.role.ToLowerInvariant()
+    $type = $Template.type.ToLowerInvariant()
     $basename = (Join-ValuesDashed @($FoggObject.Platform, $role))
-    $usePublicIP = [bool]$VMTemplate.publicIp
-    $useManagedDisks = [bool]$VMTemplate.managed
-    $subnetPrefix = $FoggObject.SubnetAddressMap["$($basename)-vm"]
+    $usePublicIP = [bool]$Template.publicIp
+    $useManagedDisks = [bool]$Template.managed
+    $subnetPrefix = $FoggObject.SubnetAddressMap["$($basename)-$($type)"]
     $subnetName = (Get-FoggSubnetName $basename)
     $subnet = ($VNet.Subnets | Where-Object { $_.Name -ieq $subnetName -or $_.AddressPrefix -ieq $subnetPrefix })
 
@@ -2305,15 +2443,15 @@ function New-DeployTemplateVM
 
     # are we using a load balancer and availability set?
     $useLoadBalancer = $true
-    if (!(Test-Empty $VMTemplate.loadBalance))
+    if (!(Test-Empty $Template.loadBalance))
     {
-        $useLoadBalancer = [bool]$VMTemplate.loadBalance
+        $useLoadBalancer = [bool]$Template.loadBalance
     }
 
     $useAvailabilitySet = $true
-    if (!(Test-Empty $VMTemplate.availabilitySet))
+    if (!(Test-Empty $Template.availabilitySet))
     {
-        $useAvailabilitySet = [bool]$VMTemplate.availabilitySet
+        $useAvailabilitySet = [bool]$Template.availabilitySet
     }
 
     # if useAvailabilitySet is false, then by default set loadBalance to false
@@ -2322,7 +2460,7 @@ function New-DeployTemplateVM
         $useLoadBalancer = $false
     }
 
-    $_count = (Get-FoggDefaultInt -Value $VMTemplate.count -Default 1)
+    $_count = (Get-FoggDefaultInt -Value $Template.count -Default 1)
     Write-Information "Deploying $($_count) VM(s) for the '$($role)' template"
 
     # create an availability set and, if VM count > 1, a load balancer
@@ -2337,18 +2475,18 @@ function New-DeployTemplateVM
     {
         $lbName = (Get-FoggLoadBalancerName $basename)
         $lb = New-FoggLoadBalancer -FoggObject $FoggObject -Name $lbName -SubnetId $subnet.Id `
-            -Port $VMTemplate.port -PublicIP:$usePublicIP
+            -Port $Template.port -PublicIP:$usePublicIP
 
         $vmInfo.LoadBalancer.Add('Name', $lbName)
         $vmInfo.LoadBalancer.Add('PublicIP', $lb.FrontendIpConfigurations[0].PublicIpAddress)
         $vmInfo.LoadBalancer.Add('PrivateIP', $lb.FrontendIpConfigurations[0].PrivateIpAddress)
-        $vmInfo.LoadBalancer.Add('Port', $VMTemplate.port)
+        $vmInfo.LoadBalancer.Add('Port', $Template.port)
     }
 
     # work out the base index of the VM, if we're appending instead of creating
     $baseIndex = 0
 
-    if ($VMTemplate.append)
+    if ($Template.append)
     {
         # get list of all VMs
         $rg_vms = Get-FoggVMs -ResourceGroupName $FoggObject.ResourceGroupName
@@ -2367,21 +2505,20 @@ function New-DeployTemplateVM
         }
     }
 
+    # does the VM have OS settings, or use global?
+    $os = $FullTemplate.os
+    if ($Template.os -ne $null)
+    {
+        $os = $Template.os
+    }
+
     # create each of the VMs
     $_vms = @()
 
     1..($_count) | ForEach-Object {
-        # does the VM have OS settings, or use global?
-        $os = $Template.os
-        if ($VMTemplate.os -ne $null)
-        {
-            $os = $VMTemplate.os
-        }
-
-        # create the VM
         $_vms += (New-FoggVM -FoggObject $FoggObject -Name $basename -Index ($_ + $baseIndex) -VMCredentials $VMCredentials `
-            -StorageAccount $StorageAccount -SubnetId $subnet.Id -OS $os -Vhd $VMTemplate.vhd -Image $VMTemplate.image `
-            -AvailabilitySet $avset -Drives $VMTemplate.drives -PublicIP:$usePublicIP -Managed:$useManagedDisks)
+            -StorageAccount $StorageAccount -SubnetId $subnet.Id -OS $os -Vhd $Template.vhd -Image $Template.image `
+            -AvailabilitySet $avset -Drives $Template.drives -PublicIP:$usePublicIP -Managed:$useManagedDisks)
     }
 
     # loop through each VM and deploy it
@@ -2400,22 +2537,22 @@ function New-DeployTemplateVM
         # see if we need to provision the machine
         if ($FoggObject.HasProvisionScripts)
         {
-            $provs = $VMTemplate.provisioners
+            $provs = $Template.provisioners
             if (Test-ArrayEmpty $provs)
             {
                 $provs = @()
             }
-            
-            if (!(Test-ArrayEmpty $VMTemplate.drives))
+
+            if (!(Test-ArrayEmpty $Template.drives))
             {
                 $provs = @('attach-drives') + $provs
             }
 
-            Set-ProvisionVM -FoggObject $FoggObject -Provisioners $provs -VMName $_vm.Name -StorageAccount $StorageAccount
+            Set-ProvisionVM -FoggObject $FoggObject -Provisioners $provs -VMName $_vm.Name -StorageAccount $StorageAccount -OSType $os.type
         }
 
         # due to a bug with the CustomScriptExtension, if we have any uninstall the extension
-        Remove-FoggCustomScriptExtension -FoggObject $FoggObject -VMName $_vm.Name
+        Remove-FoggCustomScriptExtension -FoggObject $FoggObject -VMName $_vm.Name -OSType $os.type
 
         # get VM's NIC
         $nicId = Get-NameFromAzureId $_vm.NetworkProfile.NetworkInterfaces[0].Id
@@ -2441,10 +2578,10 @@ function New-DeployTemplateVM
     }
 
     # turn off some of the VMs if needed
-    if ($VMTemplate.off -gt 0)
+    if ($Template.off -gt 0)
     {
         $count = ($_vms | Measure-Object).Count
-        $base = ($count - $VMTemplate.off) + 1
+        $base = ($count - $Template.off) + 1
 
         $count..$base | ForEach-Object {
             $_vm = Get-FoggVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $basename -Index $_ 
@@ -2458,7 +2595,7 @@ function New-DeployTemplateVPN
     param (
         [Parameter(Mandatory=$true)]
         [ValidateNotNull()]
-        $VPNTemplate,
+        $Template,
 
         [Parameter(Mandatory=$true)]
         [ValidateNotNull()]
@@ -2470,7 +2607,7 @@ function New-DeployTemplateVPN
     )
 
     $startTime = [DateTime]::UtcNow
-    $role = $VPNTemplate.role.ToLowerInvariant()
+    $role = $Template.role.ToLowerInvariant()
     $basename = (Join-ValuesDashed @($FoggObject.Platform, $role))
 
     # VPN information
@@ -2478,7 +2615,7 @@ function New-DeployTemplateVPN
 
     Write-Information "Deploying VPN for '$($role)' template"
 
-    switch ($VPNTemplate.configType.ToLowerInvariant())
+    switch ($Template.configType.ToLowerInvariant())
     {
         's2s'
             {
@@ -2492,11 +2629,11 @@ function New-DeployTemplateVPN
 
                 # create public vnet gateway
                 $gw = New-FoggVirtualNetworkGateway -FoggObject $FoggObject -Name $basename -VNet $VNet `
-                    -VpnType $VPNTemplate.vpnType -GatewaySku $VPNTemplate.gatewaySku
+                    -VpnType $Template.vpnType -GatewaySku $Template.gatewaySku
 
                 # create VPN connection
                 New-FoggVirtualNetworkGatewayConnection -FoggObject $FoggObject -Name $basename `
-                    -LocalNetworkGateway $lng -VirtualNetworkGateway $gw -SharedKey $VPNTemplate.sharedKey | Out-Null
+                    -LocalNetworkGateway $lng -VirtualNetworkGateway $gw -SharedKey $Template.sharedKey | Out-Null
             }
 
         'p2s'
@@ -2505,11 +2642,11 @@ function New-DeployTemplateVPN
                 $clientPool = $FoggObject.SubnetAddressMap["$($basename)-cap"]
 
                 # resolve the cert path
-                $certPath = Resolve-Path -Path $VPNTemplate.certPath -ErrorAction Ignore
+                $certPath = Resolve-Path -Path $Template.certPath -ErrorAction Ignore
 
                 # create public vnet gateway
                 New-FoggVirtualNetworkGateway -FoggObject $FoggObject -Name $basename -VNet $VNet `
-                    -VpnType $VPNTemplate.vpnType -GatewaySku $VPNTemplate.gatewaySku -ClientAddressPool $clientPool `
+                    -VpnType $Template.vpnType -GatewaySku $Template.gatewaySku -ClientAddressPool $clientPool `
                     -PublicCertificatePath $certPath | Out-Null
             }
     }
