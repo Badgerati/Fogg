@@ -8,7 +8,7 @@
             "Stamp": "vhd1337",
             "VNetAddress": "10.16.0.0/16",
             "SubnetAddresses": {
-                "web": "10.16.0.0/24"
+                "web-vm": "10.16.0.0/24"
             }
         }
     ]

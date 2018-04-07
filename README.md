@@ -46,6 +46,7 @@ choco install fogg
 * Ability to append new VMs rather than always creating and updating the same ones
 * Add additional data drives to VMs and add them as new partitions
 * Add tags onto all resources
+* Create and update Redis Caches
 
 ## Description
 
@@ -90,7 +91,7 @@ The `role` and `type` values for template objects are mandatory. the `role` can 
 To use Fogg and the template file above, you will need an Azure Subscription. In general, the call to Fogg would look as follows:
 
 ```powershell
-fogg -sub "AzureSubName" -rg "basic-rg" -loc "westeurope" -vnetaddr "10.1.0.0/16" -snets @{"vm"="10.1.0.0/24"} -tp "<path_to_above_template>"
+fogg -sub "AzureSubName" -rg "basic-rg" -loc "westeurope" -vnetaddr "10.1.0.0/16" -snets @{"test-vm"="10.1.0.0/24"} -tp "<path_to_above_template>"
 ```
 
 This will tell Fogg to use the above template against your Subscription in Azure. Fogg will then:
@@ -117,7 +118,7 @@ To create a Foggfile of the above, stored at the root of the repo (can be else w
             "TemplatePath": "<path_to_above_template>",
             "VNetAddress": "10.1.0.0/16",
             "SubnetAddresses": {
-                "test": "10.1.0.0/24"
+                "test-vm": "10.1.0.0/24"
             }
         }
     ]
@@ -153,7 +154,7 @@ This will contain the names of resources like the VNETs, Subnets and VMs; to the
     'VirtualMachineInfo' = @{
         'test' = @{
             'Subnet' = @{ 
-                'Name' = 'test-snet';
+                'Name' = 'test-vm-snet';
                 'Address' = '10.1.0.0/24';
             };
             'AvailabilitySet' = 'test-as';

@@ -7,7 +7,7 @@
             "TemplatePath": ".\\jump-template.json",
             "VNetAddress": "10.3.0.0/16",
             "SubnetAddresses": {
-                "jump": "10.3.0.0/24"
+                "jump-vm": "10.3.0.0/24"
             }
         },
         {
@@ -17,8 +17,8 @@
             "VNetResourceGroupName": "multi1-rg",
             "VNetName": "multi1-vnet",
             "SubnetAddresses": {
-                "jump": "10.3.0.0/24",
-                "web": "10.3.1.0/24"
+                "jump-vm": "10.3.0.0/24",
+                "web-vm": "10.3.1.0/24"
             }
         }
     ]

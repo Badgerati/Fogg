@@ -7,9 +7,9 @@
             "TemplatePath": ".\\template.json",
             "VNetAddress": "10.4.0.0/16",
             "SubnetAddresses": {
-                "vpn": "10.4.0.0/27",
-                "vpn-gip": "23.99.221.164",
-                "vpn-opm": "11.4.0.0/24"
+                "s2s-vpn": "10.4.0.0/27",
+                "s2s-vpn-gip": "23.99.221.164",
+                "s2s-vpn-opm": "11.4.0.0/24"
             }
         }
     ]

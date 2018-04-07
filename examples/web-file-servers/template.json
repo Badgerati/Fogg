@@ -27,7 +27,7 @@
                     {
                         "name": "AnyPort",
                         "priority": 101,
-                        "source": "@{subnet|web}:*",
+                        "source": "@{subnet|web-vm}:*",
                         "destination": "@{subnet}:*",
                         "access": "Allow"
                     }

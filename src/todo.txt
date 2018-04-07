@@ -60,7 +60,7 @@ Run "Remove-AzureRmAccount" on completion
 [-] -----
 Add Redis Cache step
     [x] - subnets have now changed to be "<platform>-<role>-<type>-snet"
-    [ ] - update readme/wiki and examples for new subnet format
+    [-] - update readme/wiki and examples for new subnet format
     [x] - subnets now don't have to be supplied when using existing vnets
 
     [x] - if using a subnet - make sure firewall updates redis whitelist and nsg

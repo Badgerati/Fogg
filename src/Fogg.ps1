@@ -35,7 +35,7 @@
         The subnet name is the role of the VM, and there must be a subnet for each VM section in you template
 
         You can pass more subnets than you have VMs (for linking/firewalling to existing ones), as these can
-        be referenced in firewalls as "@{subnet|jump}" for example if you pass "@{'jump'='10.1.99.0/24'}"
+        be referenced in firewalls as "@{subnet|jump-vm}" for example if you pass "@{'jump-vm'='10.1.99.0/24'}"
 
     .PARAMETER VNetAddress
         Used when creating a new Virtual Network, this is the address prefix (ie, 10.1.0.0/16)

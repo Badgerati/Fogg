@@ -29,7 +29,7 @@
             {
                 "name": "RDP",
                 "priority": 4095,
-                "source": "@{subnet|jump}:*",
+                "source": "@{subnet|jump-vm}:*",
                 "destination": "@{subnet}:3389",
                 "access": "Allow"
             }

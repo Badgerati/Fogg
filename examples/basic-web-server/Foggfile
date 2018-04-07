@@ -7,7 +7,7 @@
             "TemplatePath": ".\\template.json",
             "VNetAddress": "10.1.0.0/16",
             "SubnetAddresses": {
-                "web": "10.1.0.0/24"
+                "web-vm": "10.1.0.0/24"
             }
         }
     ]

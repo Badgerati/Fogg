@@ -7,8 +7,8 @@
             "TemplatePath": ".\\template.json",
             "VNetAddress": "10.8.0.0/16",
             "SubnetAddresses": {
-                "vpn": "10.8.0.0/27",
-                "vpn-cap": "172.16.201.0/24"
+                "p2p-vpn": "10.8.0.0/27",
+                "p2p-vpn-cap": "172.16.201.0/24"
             }
         }
     ]
