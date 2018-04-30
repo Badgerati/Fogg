@@ -5,7 +5,7 @@
 [![Chocolatey](https://img.shields.io/chocolatey/v/fogg.svg?colorB=a1301c)](https://chocolatey.org/packages/fogg)
 [![Chocolatey](https://img.shields.io/chocolatey/dt/fogg.svg?label=downloads&colorB=a1301c)](https://chocolatey.org/packages/fogg)
 
-Fogg is a PowerShell tool to simplify the creation, deployment and provisioning of infrastructure (IaaS) in Azure using Azure Resource Manager (does not support Classic).
+Fogg is a PowerShell tool to simplify the creation, deployment and provisioning of resources in Azure using Azure Resource Manager (does not support Classic).
 
 ## Installing
 
@@ -74,7 +74,7 @@ This simple example will just spin-up one VM. The first thing you will need is a
                 "offer": "WindowsServer",
                 "skus": "2016-Datacenter"
             },
-            "publicIp": true
+            "publicIp": "dynamic"
         }
     ]
 }
@@ -105,7 +105,7 @@ This will tell Fogg to use the above template against your Subscription in Azure
 * Create a Subnet under the Virtual Network called `test-snet` for address `10.1.0.0/24`
 * Create a Network Security Group called `test-nsg`
 * Create an Availability Set called `test-as`
-* A Virtual Machine called `test-vm1` will then be deployed under the `test-snet` Subnet
+* A Virtual Machine called `test-vm1` will then be deployed under the `test-snet` Subnet with a dynamic public IP address
 
 To create a Foggfile of the above, stored at the root of the repo (can be else where as a `-FoggfilePath` can be supplied on cli), would look like the following:
 

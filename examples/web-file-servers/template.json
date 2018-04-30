@@ -8,7 +8,7 @@
                 "remoting",
                 "web"
             ],
-            "publicIp": true,
+            "publicIp": "dynamic",
             "loadBalance": true,
             "port": 80,
             "firewall": {
@@ -21,7 +21,7 @@
             "provisioners": [
                 "remoting"
             ],
-            "publicIp": true,
+            "publicIp": "dynamic",
             "firewall": {
                 "inbound": [
                     {

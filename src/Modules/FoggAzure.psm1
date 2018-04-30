@@ -1,4 +1,3 @@
-
 $ErrorActionPreference = 'Stop'
 $WarningPreference = 'Ignore'
 
@@ -12,24 +11,29 @@ function Add-FoggAccount
 
     Write-Information "Attempting to login to Azure Subscription: $($FoggObject.SubscriptionName)"
 
+    # do we need to request for user credentials?
     if ($FoggObject.SubscriptionCredentials -ne $null)
     {
-        Add-AzureRmAccount -Credential $FoggObject.SubscriptionCredentials -SubscriptionName $FoggObject.SubscriptionName | Out-Null
+        # connect using a service principal or a user account?
+        if (Test-Empty $FoggObject.TenantId) {
+            Add-AzureRmAccount -Credential $FoggObject.SubscriptionCredentials -SubscriptionName $FoggObject.SubscriptionName | Out-Null
+        }
+        else {
+            Write-Information 'Using Service Principal account for login'
+            Add-AzureRmAccount -Credential $FoggObject.SubscriptionCredentials -SubscriptionName $FoggObject.SubscriptionName -TenantId $FoggObject.TenantId -ServicePrincipal | Out-Null
+        }
     }
-    else
-    {
+    else {
         Add-AzureRmAccount -SubscriptionName $FoggObject.SubscriptionName | Out-Null
     }
 
-    if (!$?)
-    {
+    if (!$?) {
         throw "Failed to login into Azure Subscription: $($FoggObject.SubscriptionName)"
     }
 
     $FoggObject.LoggedIn = $true
     Write-Success "Logged into Azure Subscription: $($FoggObject.SubscriptionName)`n"
 }
-
 
 function Remove-FoggAccount
 {
@@ -39,13 +43,11 @@ function Remove-FoggAccount
         $FoggObject
     )
 
-    if ($FoggObject.LoggedIn)
-    {
+    if ($FoggObject.LoggedIn) {
         Write-Information "Attempting to logout of Azure Subscription: $($FoggObject.SubscriptionName)"
 
         Remove-AzureRmAccount | Out-Null
-        if (!$?)
-        {
+        if (!$?) {
             throw 'Failed to logout of Azure'
         }
 
@@ -65,21 +67,17 @@ function Add-FoggAdminAccount
     $attempts = 0
     $success = $false
 
-    while ($attempts -lt 3 -and !$success)
-    {
-        try
-        {
+    while ($attempts -lt 3 -and !$success) {
+        try {
             # increment the number of attempts
             $attempts++
 
             # only request for admin creds if they weren't supplied from the CLI
-            if ($FoggObject.VMCredentials -eq $null)
-            {
+            if ($FoggObject.VMCredentials -eq $null) {
                 Write-Information "Setting up VM admin credentials"
 
                 $FoggObject.VMCredentials = Get-Credential -Message 'Supply the Admininstrator username and password for the VMs in Azure'
-                if ($FoggObject.VMCredentials -eq $null)
-                {
+                if ($FoggObject.VMCredentials -eq $null) {
                     throw 'No Azure VM Administrator credentials passed'
                 }
 
@@ -95,16 +93,14 @@ function Add-FoggAdminAccount
             # mark as successful
             $success = $true
         }
-        catch [exception]
-        {
+        catch [exception] {
             Write-Host "$($_.Exception.Message)" -ForegroundColor Red
             $FoggObject.VMCredentials = $null
         }
     }
 
     # if we get here and attempts is 3+, fail
-    if ($attempts -ge 3 -and !$success)
-    {
+    if ($attempts -ge 3 -and !$success) {
         throw 'You have failed to enter valid admin credentials 3 times, exitting'
     }
 }
@@ -1579,7 +1575,6 @@ function Get-FoggNetworkSecurityGroupRule
     return $rule
 }
 
-
 function New-FoggNetworkSecurityGroupRule
 {
     param (
@@ -2491,11 +2486,13 @@ function New-FoggLoadBalancer
         [string]
         $SubnetId,
 
-        [switch]
-        $PublicIP
+        [ValidateSet('None', 'Static', 'Dynamic')]
+        [string]
+        $PublicIpType
     )
 
     $Name = (Get-FoggLoadBalancerName $Name)
+    $usePublicIp = ($PublicIpType -ine 'None')
 
     Write-Information "Creating load balancer $($Name) in $($FoggObject.ResourceGroupName)"
 
@@ -2508,9 +2505,9 @@ function New-FoggLoadBalancer
     }
 
     # create public IP address
-    if ($PublicIP)
+    if ($usePublicIp)
     {
-        $pipId = (New-FoggPublicIpAddress -FoggObject $FoggObject -Name $Name -AllocationMethod 'Static').Id
+        $pipId = (New-FoggPublicIpAddress -FoggObject $FoggObject -Name $Name -AllocationMethod $PublicIpType).Id
     }
     else
     {
@@ -2523,7 +2520,7 @@ function New-FoggLoadBalancer
 
     # create frontend config
     $frontendName = Get-FoggLoadBalancerFrontendName $Name
-    if ($PublicIP)
+    if ($usePublicIp)
     {
         $front = New-AzureRmLoadBalancerFrontendIpConfig -Name $frontendName -PublicIpAddressId $pipId
     }
@@ -2714,8 +2711,9 @@ function New-FoggVM
         [Parameter()]
         $Drives,
 
-        [switch]
-        $PublicIP,
+        [ValidateSet('None', 'Static', 'Dynamic')]
+        [string]
+        $PublicIpType,
 
         [switch]
         $Managed
@@ -2723,6 +2721,7 @@ function New-FoggVM
 
     $Name = $Name.ToLowerInvariant()
     $VMName = (Get-FoggVMName $Name $Index)
+    $usePublicIp = ($PublicIpType -ine 'None')
 
     Write-Information "Creating VM $($VMName) in $($FoggObject.ResourceGroupName)"
 
@@ -2732,7 +2731,7 @@ function New-FoggVM
     {
         Write-Notice "Updating existing VM for $($VMName)`n"
         $vm = Update-FoggVM -FoggObject $FoggObject -Name $Name -Index $Index -SubnetId $SubnetId `
-            -OS $OS -Drives $Drives -StorageAccount $StorageAccount -PublicIP:$PublicIP -Managed:$Managed
+            -OS $OS -Drives $Drives -StorageAccount $StorageAccount -PublicIpType $PublicIpType -Managed:$Managed
         return $vm
     }
 
@@ -2761,9 +2760,9 @@ function New-FoggVM
     }
 
     # create public IP address
-    if ($PublicIP)
+    if ($usePublicIp)
     {
-        $pipId = (New-FoggPublicIpAddress -FoggObject $FoggObject -Name $VMName -AllocationMethod 'Static').Id
+        $pipId = (New-FoggPublicIpAddress -FoggObject $FoggObject -Name $VMName -AllocationMethod $PublicIpType).Id
     }
 
     # create the NIC
@@ -2912,8 +2911,9 @@ function Update-FoggVM
         [Parameter()]
         $Drives,
 
-        [switch]
-        $PublicIP,
+        [ValidateSet('None', 'Static', 'Dynamic')]
+        [string]
+        $PublicIpType,
 
         [switch]
         $Managed
@@ -2921,14 +2921,15 @@ function Update-FoggVM
 
     $Name = $Name.ToLowerInvariant()
     $VMName = (Get-FoggVMName $Name $Index)
+    $usePublicIp = ($PublicIpType -ine 'None')
 
     # variables
     $nicName = (Get-FoggNetworkInterfaceName $VMName)
 
     # create public IP address if one doesn't already exist
-    if ($PublicIP)
+    if ($usePublicIp)
     {
-        $pipId = (New-FoggPublicIpAddress -FoggObject $FoggObject -Name $VMName -AllocationMethod 'Static').Id
+        $pipId = (New-FoggPublicIpAddress -FoggObject $FoggObject -Name $VMName -AllocationMethod $PublicIpType).Id
     }
 
     # update the NIC, assigning the Public IP and NSG if we have one
@@ -3870,4 +3871,16 @@ function Wait-FoggProvisionState
         Start-Sleep -Seconds 15
         $state = (Get-AzureRmResource -ResourceId $ResourceId).Properties.ProvisioningState
     }
+}
+
+function Get-FoggLocation
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Location
+    )
+
+    return (Get-AzureRmLocation | Where-Object { $_.Location -ieq $Location } | Select-Object -First 1)
 }

@@ -4,7 +4,7 @@
             "role": "web",
             "type": "vm",
             "managed": true,
-            "publicIp": true,
+            "publicIp": "dynamic",
             "os": {
                 "size": "Standard_DS1_v2",
                 "type": "Windows",

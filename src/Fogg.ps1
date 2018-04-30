@@ -24,7 +24,14 @@
 
     .PARAMETER SubscriptionCredentials
         This is your Azure Subscription credentials, to allow Fogg to create and deploy in Azure
-        These credentials will only work for Organisational/Work accounts - NOT Personal ones
+        These credentials will only work for Organisational/Work accounts - NOT Personal ones.
+
+        Furthermore, if you're using a Service Principal account and TenantId, then these credentials
+        should be the Service Principal AppId for the username and the Principal password
+
+    .PARAMETER TenantId
+        This is your Service Principal TenantId; if supplied, the SubscriptionCredentials should be the
+        Service Principal AppId for the username and the Principal password
 
     .PARAMETER VMCredentials
         This is the administrator credentials that will be used to create each box. They are the credentials
@@ -108,6 +115,10 @@ param (
     [Alias('screds')]
     $SubscriptionCredentials,
 
+    [string]
+    [Alias('tid')]
+    $TenantId,
+
     [pscredential]
     [Alias('vmcreds')]
     $VMCredentials,
@@ -157,13 +168,11 @@ $WarningPreference = 'Ignore'
 
 function Restore-FoggModule([string]$Path, [string]$Name, [switch]$Remove)
 {
-    if ((Get-Module -Name $Name) -ne $null)
-    {
+    if ((Get-Module -Name $Name) -ne $null) {
         Remove-Module -Name $Name -Force | Out-Null
     }
 
-    if (!$Remove)
-    {
+    if (!$Remove) {
         Import-Module "$($Root)\Modules\$($Name).psm1" -Force -ErrorAction Stop
     }
 }
@@ -211,14 +220,12 @@ $ver = 'v$version$'
 Write-Details "Fogg $($ver)`n"
 
 # if we were only after the version, just return
-if ($Version)
-{
+if ($Version) {
     return
 }
 
 # Test version of POSH, needs to be 4+
-if (!(Test-PowerShellVersion 4))
-{
+if (!(Test-PowerShellVersion 4)) {
     throw 'Fogg requires PowerShell v4.0 or greater'
 }
 
@@ -227,19 +234,17 @@ if (!(Test-PowerShellVersion 4))
 $FoggObjects = New-FoggObject -FoggRootPath $root -ResourceGroupName $ResourceGroupName -Location $Location -SubscriptionName $SubscriptionName `
     -SubnetAddresses $SubnetAddresses -TemplatePath $TemplatePath -FoggfilePath $FoggfilePath -SubscriptionCredentials $SubscriptionCredentials `
     -VMCredentials $VMCredentials -VNetAddress $VNetAddress -VNetResourceGroupName $VNetResourceGroupName -VNetName $VNetName -Tags $Tags `
-    -Platform $Platform -Stamp $Stamp
+    -Platform $Platform -Stamp $Stamp -TenantId $TenantId
 
 # Start timer
 $timer = [DateTime]::UtcNow
 
 
-try
-{
+try {
     # validate the template files and sections
     Write-Information "Verifying template files"
 
-    foreach ($FoggObject in $FoggObjects.Groups)
-    {
+    foreach ($FoggObject in $FoggObjects.Groups) {
         Write-Host "> Verifying: $($FoggObject.TemplatePath)"
         Test-Files -FoggObject $FoggObject | Out-Null
     }
@@ -248,8 +253,7 @@ try
 
 
     # if we're only validating, return
-    if ($Validate)
-    {
+    if ($Validate) {
         return
     }
 
@@ -260,14 +264,11 @@ try
 
     # Before we attempt anything, ensure that all the VMs we're about to deploy don't exceed the Max Core limit
     # This cannot be done during normal validation, as we require the user to be logged in first
-    if (Test-VMCoresExceedMax -Groups $FoggObjects.Groups)
-    {
-        if ($IgnoreCores)
-        {
+    if (Test-VMCoresExceedMax -Groups $FoggObjects.Groups) {
+        if ($IgnoreCores) {
             Write-Notice 'Deployment exceeds a regional limit, but IgnoreCores has been specified'
         }
-        else
-        {
+        else {
             return
         }
     }
@@ -276,15 +277,12 @@ try
     # ensure that each of the locations specified are valid, and set location short codes
     $locs = @()
 
-    foreach ($FoggObject in $FoggObjects.Groups)
-    {
-        if ($locs -icontains $FoggObject.Location)
-        {
+    foreach ($FoggObject in $FoggObjects.Groups) {
+        if ($locs -icontains $FoggObject.Location) {
             continue
         }
 
-        if (!(Test-FoggLocation -Location $FoggObject.Location))
-        {
+        if (!(Test-FoggLocation -Location $FoggObject.Location)) {
             throw "Location supplied is invalid: $($FoggObject.Location)"
         }
 
@@ -296,11 +294,10 @@ try
     # and if we're using an existing vnet, set the subnet addresses from that vnet
     foreach ($FoggObject in $FoggObjects.Groups)
     {
-        if ($FoggObject.UseGlobalVNet -and $FoggObject.UseExistingVNet)
-        {
+        # set subnets from existing vnet
+        if ($FoggObject.UseGlobalVNet -and $FoggObject.UseExistingVNet) {
             $vnet = (Get-FoggVirtualNetwork -ResourceGroupName $FoggObject.ResourceGroupName -Name $FoggObject.VNetName)
-            if ($vnet -eq $null)
-            {
+            if ($vnet -eq $null) {
                 throw "Virtual network $($FoggObject.VNetName) in resource group $($FoggObject.VNetResourceGroupName) does not exist"
             }
 
@@ -308,13 +305,13 @@ try
                 $n = $_.Name -ireplace '-snet', ''
                 $n = $n -ireplace "$($FoggObject.Platform)-", ''
 
-                if (!$FoggObject.SubnetAddressMap.ContainsKey($n))
-                {
+                if (!$FoggObject.SubnetAddressMap.ContainsKey($n)) {
                     $FoggObject.SubnetAddressMap.Add($n, $_.AddressPrefix)
                 }
             }
         }
 
+        # re-test files online
         Test-Files -FoggObject $FoggObject -Online | Out-Null
     }
 
@@ -330,23 +327,20 @@ try
         $template = Test-Files -FoggObject $FoggObject
 
         # Set the VM admin credentials, but only if we have VMs to create
-        if (!$VMCredentialsSet -and (Test-TemplateHasType $template.template 'vm'))
-        {
+        if (!$VMCredentialsSet -and (Test-TemplateHasType $template.template 'vm')) {
             Add-FoggAdminAccount -FoggObject $FoggObjects
             $VMCredentialsSet = $true
         }
 
 
-        try
-        {
+        try {
             # Create the resource group
             New-FoggResourceGroup -FoggObject $FoggObject | Out-Null
 
 
             # only create global storage account if we have VMs
             # even if managed, still need one for diags and provision scripts
-            if (Test-TemplateHasType $template.template 'vm')
-            {
+            if (Test-TemplateHasType $template.template 'vm') {
                 # Create the storage account
                 $usePremiumStorage = [bool]$template.usePremiumStorage
                 $sa = New-FoggStorageAccount -FoggObject $FoggObject -Role 'gbl' -Premium:$usePremiumStorage
@@ -358,15 +352,12 @@ try
 
 
             # create vnet/snet if we're using a global one
-            if ($FoggObject.UseGlobalVNet)
-            {
+            if ($FoggObject.UseGlobalVNet) {
                 # create the virtual network, or use existing one (by name and resource group)
-                if ($FoggObject.UseExistingVNet)
-                {
+                if ($FoggObject.UseExistingVNet) {
                     $vnet = Get-FoggVirtualNetwork -ResourceGroupName $FoggObject.VNetResourceGroupName -Name $FoggObject.VNetName
                 }
-                else
-                {
+                else {
                     $vnet = New-FoggVirtualNetwork -ResourceGroupName $FoggObject.ResourceGroupName -Name (Remove-RGTag $FoggObject.ResourceGroupName) `
                         -Location $FoggObject.Location -Address $FoggObject.VNetAddress
                 }
@@ -380,8 +371,7 @@ try
 
             # Create subnets and security groups for VM objects in template
             $vms = ($template.template | Where-Object { $_.type -ieq 'vm' })
-            foreach ($vm in $vms)
-            {
+            foreach ($vm in $vms) {
                 $role = $vm.role.ToLowerInvariant()
                 $type = $vm.type.ToLowerInvariant()
                 $basename = (Join-ValuesDashed @($FoggObject.Platform, $role, $type))
@@ -402,8 +392,7 @@ try
 
             # create subnet for redis - if we have redis objects in template that require subnets
             $redis = ($template.template | Where-Object { $_.type -ieq 'redis' -and $_.subnet -eq $true })
-            foreach ($r in $redis)
-            {
+            foreach ($r in $redis) {
                 $role = $r.role.ToLowerInvariant()
                 $type = $r.type.ToLowerInvariant()
                 $basename = (Join-ValuesDashed @($FoggObject.Platform, $role, $type))
@@ -419,13 +408,11 @@ try
                 # assign subnet to vnet
                 $vnet = Add-FoggSubnetToVNet -ResourceGroupName $vnet.ResourceGroupName -VNetName $vnet.Name -SubnetName $basename -Address $subnet -NetworkSecurityGroup $nsg
             }
-            return
 
 
             # Create Gateway subnet for VPN objects in template
             $vpn = ($template.template | Where-Object { $_.type -ieq 'vpn' } | Select-Object -First 1)
-            if ($vpn -ne $null)
-            {
+            if ($vpn -ne $null) {
                 $role = $vpn.role.ToLowerInvariant()
                 $type = $vm.type.ToLowerInvariant()
                 $basename = (Join-ValuesDashed @($FoggObject.Platform, $role, $type))
@@ -439,39 +426,33 @@ try
             {
                 switch ($obj.type.ToLowerInvariant())
                 {
-                    'vm'
-                        {
-                            New-DeployTemplateVM -FullTemplate $template -Template $obj -FoggObject $FoggObject `
-                                -VNet $vnet -StorageAccount $sa -VMCredentials $FoggObjects.VMCredentials
-                        }
+                    'vm' {
+                        New-DeployTemplateVM -FullTemplate $template -Template $obj -FoggObject $FoggObject `
+                            -VNet $vnet -StorageAccount $sa -VMCredentials $FoggObjects.VMCredentials
+                    }
 
-                    'vpn'
-                        {
-                            New-DeployTemplateVPN -Template $obj -FoggObject $FoggObject -VNet $vnet
-                        }
+                    'vpn' {
+                        New-DeployTemplateVPN -Template $obj -FoggObject $FoggObject -VNet $vnet
+                    }
 
-                    'vnet'
-                        {
-                            New-DeployTemplateVNet -Template $obj -FoggObject $FoggObject
-                        }
+                    'vnet' {
+                        New-DeployTemplateVNet -Template $obj -FoggObject $FoggObject
+                    }
 
-                    'sa'
-                        {
-                            New-DeployTemplateSA -Template $obj -FoggObject $FoggObject
-                        }
+                    'sa' {
+                        New-DeployTemplateSA -Template $obj -FoggObject $FoggObject
+                    }
 
-                    'redis'
-                        {
-                            New-DeployTemplateRedis -Template $obj -FoggObject $FoggObject -VNet $vnet
-                        }
+                    'redis' {
+                        New-DeployTemplateRedis -Template $obj -FoggObject $FoggObject -VNet $vnet
+                    }
                 }
             }
 
             # set/update all tags within the group
             Update-FoggResourceTags -ResourceGroupName $FoggObject.ResourceGroupName -Tags $FoggObjects.Tags
         }
-        catch [exception]
-        {
+        catch [exception] {
             Write-Fail "`nFogg failed to deploy to Azure:"
             Write-Fail $_.Exception.Message
             throw
@@ -481,20 +462,17 @@ try
     # attempt to output any public IP addresses
     Write-Information "`nPublic IP Addresses:"
 
-    foreach ($FoggObject in $FoggObjects.Groups)
-    {
+    foreach ($FoggObject in $FoggObjects.Groups) {
         $ips = Get-FoggPublicIpAddresses $FoggObject.ResourceGroupName
 
-        if (!(Test-ArrayEmpty $ips))
-        {
+        if (!(Test-ArrayEmpty $ips)) {
             $ips | ForEach-Object {
                 Write-Host "> $($_.Name): $($_.IpAddress)"
             }
         }
     }
 }
-finally
-{
+finally {
     # logout of azure
     Remove-FoggAccount -FoggObject $FoggObjects
 
@@ -509,8 +487,7 @@ finally
 
 
 # if we don't care about the resultant object, just return
-if ($NoOutput)
-{
+if ($NoOutput) {
     return
 }
 
@@ -518,11 +495,9 @@ if ($NoOutput)
 # re-loop through each group, constructing result object to return
 $result = @{}
 
-foreach ($FoggObject in $FoggObjects.Groups)
-{
+foreach ($FoggObject in $FoggObjects.Groups) {
     # check if resource group already exists in result
-    if (!$result.ContainsKey($FoggObject.ResourceGroupName))
-    {
+    if (!$result.ContainsKey($FoggObject.ResourceGroupName)) {
         $result.Add($FoggObject.ResourceGroupName, @{})
     }
 
@@ -544,8 +519,7 @@ foreach ($FoggObject in $FoggObjects.Groups)
     }
 
     # set vm info
-    if ($rg.VirtualMachineInfo -eq $null)
-    {
+    if ($rg.VirtualMachineInfo -eq $null) {
         $rg.VirtualMachineInfo = @{}
     }
 
@@ -557,8 +531,7 @@ foreach ($FoggObject in $FoggObjects.Groups)
     $rg.VirtualMachineInfo += $info
 
     # set vpn info
-    if ($rg.VPNInfo -eq $null)
-    {
+    if ($rg.VPNInfo -eq $null) {
         $rg.VPNInfo = @{}
     }
 
@@ -570,8 +543,7 @@ foreach ($FoggObject in $FoggObjects.Groups)
     $rg.VPNInfo += $info
 
     # set vnet info
-    if ($rg.VirtualNetworkInfo -eq $null)
-    {
+    if ($rg.VirtualNetworkInfo -eq $null) {
         $rg.VirtualNetworkInfo = @{}
     }
 
@@ -583,8 +555,7 @@ foreach ($FoggObject in $FoggObjects.Groups)
     $rg.VirtualNetworkInfo += $info
 
     # set storage account info
-    if ($rg.StorageAccountInfo -eq $null)
-    {
+    if ($rg.StorageAccountInfo -eq $null) {
         $rg.StorageAccountInfo = @{}
     }
 
@@ -596,8 +567,7 @@ foreach ($FoggObject in $FoggObjects.Groups)
     $rg.StorageAccountInfo += $info
 
     # set redis cache info
-    if ($rg.RedisCacheInfo -eq $null)
-    {
+    if ($rg.RedisCacheInfo -eq $null) {
         $rg.RedisCacheInfo = @{}
     }
 

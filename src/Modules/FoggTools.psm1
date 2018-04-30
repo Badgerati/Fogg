@@ -171,6 +171,7 @@ function Test-IsArray
 function Test-Empty
 {
     param (
+        [Parameter()]
         $Value
     )
 
@@ -182,6 +183,11 @@ function Test-Empty
     if ($Value.GetType().Name -ieq 'string')
     {
         return [string]::IsNullOrWhiteSpace($Value)
+    }
+
+    if ($Value.GetType().Name -ieq 'hashtable')
+    {
+        return $Value.Count -eq 0
     }
 
     $type = $Value.GetType().BaseType.Name.ToLowerInvariant()
@@ -859,6 +865,13 @@ function Test-TemplateVM
     if ($Template.off -ne $null -and ($Template.off -le 0 -or $Template.off -gt $_count))
     {
         throw "VMs to turn off cannot be negative or greater than VM count for $($role): $($Template.off)"
+    }
+
+    # ensure the publicIp value is valid
+    $publicIps = @('none', 'static', 'dynamic')
+    if (!(Test-Empty $publicIps) -and $publicIps -inotcontains $Template.publicIp)
+    {
+        throw "VM publicIp value for $($role) is invalid, should be: $($publicIps -join ', ')"
     }
 
     # if there's more than one VM (load balanced) a port is required
@@ -1873,7 +1886,10 @@ function New-FoggObject
         $Platform,
 
         [string]
-        $Stamp
+        $Stamp,
+
+        [string]
+        $TenantId
     )
 
     $useFoggfile = $false
@@ -1931,6 +1947,7 @@ function New-FoggObject
     $props.Groups = @()
     $props.SubscriptionName = $SubscriptionName
     $props.SubscriptionCredentials = $SubscriptionCredentials
+    $props.TenantId = $TenantId
     $props.VMCredentials = $VMCredentials
     $props.LoggedIn = $false
     $props.Tags = $Tags
@@ -2219,18 +2236,6 @@ function Test-FoggLocation
     return ((Get-FoggLocation -Location $Location) -ne $null)
 }
 
-function Get-FoggLocation
-{
-    param (
-        [Parameter(Mandatory=$true)]
-        [ValidateNotNullOrEmpty()]
-        [string]
-        $Location
-    )
-
-    return (Get-AzureRmLocation | Where-Object { $_.Location -ieq $Location } | Select-Object -First 1)
-}
-
 function New-DeployTemplateRedis
 {
     param (
@@ -2423,11 +2428,16 @@ function New-DeployTemplateVM
     $role = $Template.role.ToLowerInvariant()
     $type = $Template.type.ToLowerInvariant()
     $basename = (Join-ValuesDashed @($FoggObject.Platform, $role))
-    $usePublicIP = [bool]$Template.publicIp
+    $publicIpType = $Template.publicIp
     $useManagedDisks = [bool]$Template.managed
     $subnetPrefix = $FoggObject.SubnetAddressMap["$($basename)-$($type)"]
     $subnetName = (Get-FoggSubnetName $basename)
     $subnet = ($VNet.Subnets | Where-Object { $_.Name -ieq $subnetName -or $_.AddressPrefix -ieq $subnetPrefix })
+
+    if (Test-Empty $publicIpType)
+    {
+        $publicIpType = 'none'
+    }
 
     # VM information
     $FoggObject.VirtualMachineInfo.Add($role, @{})
@@ -2475,7 +2485,7 @@ function New-DeployTemplateVM
     {
         $lbName = (Get-FoggLoadBalancerName $basename)
         $lb = New-FoggLoadBalancer -FoggObject $FoggObject -Name $lbName -SubnetId $subnet.Id `
-            -Port $Template.port -PublicIP:$usePublicIP
+            -Port $Template.port -PublicIpType $publicIpType
 
         $vmInfo.LoadBalancer.Add('Name', $lbName)
         $vmInfo.LoadBalancer.Add('PublicIP', $lb.FrontendIpConfigurations[0].PublicIpAddress)
@@ -2518,7 +2528,7 @@ function New-DeployTemplateVM
     1..($_count) | ForEach-Object {
         $_vms += (New-FoggVM -FoggObject $FoggObject -Name $basename -Index ($_ + $baseIndex) -VMCredentials $VMCredentials `
             -StorageAccount $StorageAccount -SubnetId $subnet.Id -OS $os -Vhd $Template.vhd -Image $Template.image `
-            -AvailabilitySet $avset -Drives $Template.drives -PublicIP:$usePublicIP -Managed:$useManagedDisks)
+            -AvailabilitySet $avset -Drives $Template.drives -PublicIpType $publicIpType -Managed:$useManagedDisks)
     }
 
     # loop through each VM and deploy it

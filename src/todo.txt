@@ -98,3 +98,87 @@ move creation of global vnet (unless re-using one) to be a defined step
     [x] - vm image example
     [x] - vm vhd example
     [ ] - redis example
+
+
+
+
+
+
+
+
+{
+    "template": [
+        {
+            "type": "vnet",
+            "role": "reg",
+            "address": "10.2.0.0/16",
+            "subnets": {
+                "web": "10.2.0.0/24",
+                "file": "10.2.1.0/24"
+            }
+        }
+    ]
+}
+
+
+{
+    "template": [
+        {
+            "role": "web",
+            "type": "vm",
+            "managed": true,
+            "os": {
+                "size": "Standard_DS1_v2",
+                "type": "Windows"
+            },
+            "vhd": {
+                "name": "some-fixed-name.vhd",
+                "sa": {
+                    "name": "storage-account-name"
+                }
+            },
+            "image": {
+                "name": "",
+                "rg": ""
+            }
+        },
+
+        {
+            "role": "data", // "<loc><stamp><platform><role><type(srd|prm)>sa" = "euw1701datastdsa"
+            "type": "sa",
+            "premium": false // default: false
+        }
+    ]
+}
+
+
+// https://docs.microsoft.com/en-us/azure/redis-cache/cache-howto-manage-redis-cache-powershell
+{
+    "template": [
+        {
+            "type": "redis",
+            "role": "reg",
+            "sku": "Standard",
+            "size": "1GB",
+            "nonSsl": false,
+            "shards": 1,
+            "subnet": true, // reg-redis-snet
+            "config": {
+                "maxmemory-policy": "allkeys-random"
+            },
+            "whitelist": {
+                "<name>": "<start>-<end>", // or just "<start>"
+                "web": "@{subnet|web}" // subnet is 10.0.1.0/24, so is replaced with 10.0.1.0 - 10.0.1.255
+            }
+        }
+    ]
+}
+
+// if using a subnet - make sure firewall updates redis whitelist and nsg
+// redis info obj should include: port (ssl or non-ssl), static IP, access key, url/name
+// attempt to put validation checks in for premium on config settings?
+
+// when updating, check what is being updated (does not affect creating new caches)
+// --> size (or sku+size for premium)
+// --> sku (unless like above was premium)
+// --> all other properties
