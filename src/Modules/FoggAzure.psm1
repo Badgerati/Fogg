@@ -2732,9 +2732,14 @@ function New-FoggVM
         [Parameter()]
         $Drives,
 
+        [Parameter()]
         [ValidateSet('None', 'Static', 'Dynamic')]
         [string]
         $PublicIpType,
+
+        [Parameter()]
+        [string]
+        $Zone = $null,
 
         [switch]
         $Managed
@@ -2744,14 +2749,14 @@ function New-FoggVM
     $VMName = (Get-FoggVMName $Name $Index)
     $usePublicIp = ($PublicIpType -ine 'None')
 
-    Write-Information "Creating VM $($VMName) in $($FoggObject.ResourceGroupName)"
+    Write-Information "Creating VM $($VMName) in $($FoggObject.ResourceGroupName)$(if ($Zone -ne $null) { ", in Zone $($Zone)" })"
 
     # check to see if the VM already exists
     $vm = Get-FoggVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Index $Index
     if ($vm -ne $null)
     {
         Write-Notice "Updating existing VM for $($VMName)`n"
-        $vm = Update-FoggVM -FoggObject $FoggObject -Name $Name -Index $Index -SubnetId $SubnetId `
+        $vm = Update-FoggVM -FoggObject $FoggObject -Name $Name -Index $Index -SubnetId $SubnetId -Zone $Zone `
             -OS $OS -Drives $Drives -StorageAccount $StorageAccount -PublicIpType $PublicIpType -Managed:$Managed
         return $vm
     }
@@ -2783,7 +2788,7 @@ function New-FoggVM
     # create public IP address
     if ($usePublicIp)
     {
-        $pipId = (New-FoggPublicIpAddress -FoggObject $FoggObject -Name $VMName -AllocationMethod $PublicIpType).Id
+        $pipId = (New-FoggPublicIpAddress -FoggObject $FoggObject -Name $VMName -AllocationMethod $PublicIpType -Zone $Zone).Id
     }
 
     # create the NIC
@@ -2793,11 +2798,11 @@ function New-FoggVM
     # setup initial VM config
     if ($AvailabilitySet -eq $null)
     {
-        $VM = New-AzureRmVMConfig -VMName $VMName -VMSize $OS.size
+        $VM = New-AzureRmVMConfig -VMName $VMName -VMSize $OS.size -Zone $Zone
     }
     else
     {
-        $VM = New-AzureRmVMConfig -VMName $VMName -VMSize $OS.size -AvailabilitySetId $AvailabilitySet.Id
+        $VM = New-AzureRmVMConfig -VMName $VMName -VMSize $OS.size -Zone $Zone -AvailabilitySetId $AvailabilitySet.Id
     }
 
     if (!$?)
@@ -2893,7 +2898,7 @@ function New-FoggVM
     }
 
     # create any additional drives
-    $VM = Add-FoggDataDisk -FoggObject $FoggObject -VMName $VMName -VM $VM -StorageAccount $StorageAccount -Drives $Drives -Managed:$Managed
+    $VM = Add-FoggDataDisk -FoggObject $FoggObject -VMName $VMName -VM $VM -StorageAccount $StorageAccount -Drives $Drives -Zone $Zone -Managed:$Managed
 
     Write-Success "VM $($VMName) prepared`n"
     return $VM
@@ -2932,9 +2937,14 @@ function Update-FoggVM
         [Parameter()]
         $Drives,
 
+        [Parameter()]
         [ValidateSet('None', 'Static', 'Dynamic')]
         [string]
         $PublicIpType,
+
+        [Parameter()]
+        [string]
+        $Zone = $null,
 
         [switch]
         $Managed
@@ -2950,7 +2960,7 @@ function Update-FoggVM
     # create public IP address if one doesn't already exist
     if ($usePublicIp)
     {
-        $pipId = (New-FoggPublicIpAddress -FoggObject $FoggObject -Name $VMName -AllocationMethod $PublicIpType).Id
+        $pipId = (New-FoggPublicIpAddress -FoggObject $FoggObject -Name $VMName -AllocationMethod $PublicIpType -Zone $Zone).Id
     }
 
     # update the NIC, assigning the Public IP and NSG if we have one
@@ -2974,7 +2984,7 @@ function Update-FoggVM
     $vm = Get-FoggVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $VMName -Index $Index -RealName
 
     # update the VM with any additional drives not yet assigned
-    $vm = Add-FoggDataDisk -FoggObject $FoggObject -VMName $VMName -VM $vm -StorageAccount $StorageAccount -Drives $Drives -Managed:$Managed
+    $vm = Add-FoggDataDisk -FoggObject $FoggObject -VMName $VMName -VM $vm -StorageAccount $StorageAccount -Drives $Drives -Zone $Zone -Managed:$Managed
 
     # return the updated VM
     return $vm
@@ -3164,7 +3174,12 @@ function Add-FoggDataDisk
         [Parameter()]
         $StorageAccount,
 
+        [Parameter()]
         $Drives,
+
+        [Parameter()]
+        [string]
+        $Zone = $null,
 
         [switch]
         $Managed
@@ -3216,11 +3231,11 @@ function Add-FoggDataDisk
             }
 
             # create new disk
-            Write-Details "`nCreating new disk: $($diskName), for drive $($_.name) ($($_.letter):)"
+            Write-Details "`nCreating new disk: $($diskName), for drive $($_.name) ($($_.letter):)$(if ($Zone -ne $null) { ", in Zone $($Zone)" })"
 
             if ($Managed)
             {
-                $dc = New-AzureRmDiskConfig -Location $FoggObject.Location -DiskSizeGB $_.size -CreateOption Empty
+                $dc = New-AzureRmDiskConfig -Location $FoggObject.Location -DiskSizeGB $_.size -CreateOption Empty -Zone $Zone
                 $d = New-AzureRmDisk -ResourceGroupName $FoggObject.ResourceGroupName -DiskName $diskName -Disk $dc
                 $VM = Add-AzureRmVMDataDisk -VM $VM -Name $diskName -Lun $_.Lun -Caching ReadOnly -CreateOption Attach `
                     -DiskSizeInGB $_.size -ManagedDiskId $d.Id
@@ -3532,12 +3547,16 @@ function New-FoggPublicIpAddress
         [Parameter(Mandatory=$true)]
         [ValidateSet('Static', 'Dynamic')]
         [string]
-        $AllocationMethod
+        $AllocationMethod,
+
+        [Parameter()]
+        [string]
+        $Zone = $null
     )
 
     $Name = (Get-FoggPublicIpName $Name)
 
-    Write-Information "Creating $($AllocationMethod) Public IP Address $($Name)"
+    Write-Information "Creating $($AllocationMethod) Public IP Address $($Name)$(if ($Zone -ne $null) { ", in Zone $($Zone)" })"
 
     # check to see if the IP already exists
     $pip = Get-FoggPublicIpAddress -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name
@@ -3548,7 +3567,7 @@ function New-FoggPublicIpAddress
     }
 
     $pip = New-AzureRmPublicIpAddress -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Location $FoggObject.Location `
-        -AllocationMethod $AllocationMethod -Force
+        -AllocationMethod $AllocationMethod -Zone $Zone -Force
 
     if (!$?)
     {
@@ -3904,4 +3923,35 @@ function Get-FoggLocation
     )
 
     return (Get-AzureRmLocation | Where-Object { $_.Location -ieq $Location } | Select-Object -First 1)
+}
+
+function Get-FoggLocationZones
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Location,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateSet('VirtualMachines')]
+        [string]
+        $ResourceType,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Name
+    )
+
+    $resource = (Get-AzureRmComputeResourceSku | Where-Object {
+        $_.LocationInfo.Location -ieq $Location -and $_.Name -ieq $Name -and $_.ResourceType -ieq $ResourceType
+    } | Select-Object -First 1)
+
+    if ((Test-Empty $resource) -or $resource.Restrictions.ReasonCode -ieq 'NotAvailableForSubscription')
+    {
+        return @()
+    }
+
+    return (@($resource.LocationInfo.Zones) | Sort-Object)
 }

@@ -4,6 +4,11 @@ function _coalesce($a, $b) {
 
 New-Alias '??' _coalesce -Force
 
+function Get-Count($a) {
+    return ($a | Measure-Object).Count
+}
+
+
 function Write-Success
 {
     param (
@@ -929,6 +934,23 @@ function Test-TemplateVM
     # ensure the VM name is valid
     $vmName = Get-FoggVMName -Name (Join-ValuesDashed @($FoggObject.Platform, $role)) -Index $_count
     Test-FoggVMName -OSType $osType -Name $vmName
+
+    # ensure supplied zones are numeric, and location supports them
+    if (!(Test-Empty $Template.zones))
+    {
+        # ensure they're all numeric
+        if (($Template.zones | Where-Object { $_ -match '\D+' } | Measure-Object).Count -ne 0)
+        {
+            throw "The $($role) VM zones should all be numeric"
+        }
+
+        # does the location/size support the supplied zones?
+        if ($Online -and !(Test-FoggLocationZones -Location $FoggObject.Location -ResourceType 'VirtualMachines' -Name $mainOS.size -Zones $Template.zones))
+        {
+            $zs = Get-FoggLocationZones -Location $FoggObject.Location -ResourceType 'VirtualMachines' -Name $mainOS.size
+            throw "The $($role) VM zones are invalid for the size $($mainOS.size) in $($FoggObject.Location), valid zones are: $($zs -join ', ')"
+        }
+    }
 
     # ensure that the provisioner keys exist
     if (!$FoggObject.HasProvisionScripts -and !(Test-ArrayEmpty $Template.provisioners))
@@ -2240,6 +2262,34 @@ function Test-FoggLocation
     return ((Get-FoggLocation -Location $Location) -ne $null)
 }
 
+function Test-FoggLocationZones
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Location,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateSet('VirtualMachines')]
+        [string]
+        $ResourceType,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Name,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        [string[]]
+        $Zones
+    )
+
+    $zs = (Get-FoggLocationZones -Location $Location -ResourceType $ResourceType -Name $Name)
+    return (($Zones | Where-Object { $zs -notcontains $_ } | Measure-Object).Count -eq 0)
+}
+
 function New-DeployTemplateRedis
 {
     param (
@@ -2528,11 +2578,19 @@ function New-DeployTemplateVM
 
     # create each of the VMs
     $_vms = @()
+    $_zonesCount = Get-Count $Template.zones
 
     1..($_count) | ForEach-Object {
-        $_vms += (New-FoggVM -FoggObject $FoggObject -Name $basename -Index ($_ + $baseIndex) -VMCredentials $VMCredentials `
+        $index = ($_ + $baseIndex)
+
+        $zone = $null
+        if ($_zonesCount -ne 0) {
+            $zone = $Template.zones[($index % $_zonesCount)]
+        }
+
+        $_vms += (New-FoggVM -FoggObject $FoggObject -Name $basename -Index $index -VMCredentials $VMCredentials `
             -StorageAccount $StorageAccount -SubnetId $subnetObj.Id -OS $os -Vhd $Template.vhd -Image $Template.image `
-            -AvailabilitySet $avset -Drives $Template.drives -PublicIpType $publicIpType -Managed:$useManagedDisks)
+            -AvailabilitySet $avset -Drives $Template.drives -PublicIpType $publicIpType -Zone $zone -Managed:$useManagedDisks)
     }
 
     # loop through each VM and deploy it

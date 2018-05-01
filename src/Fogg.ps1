@@ -277,7 +277,8 @@ try {
     # ensure that each of the locations specified are valid, and set location short codes
     $locs = @()
 
-    foreach ($FoggObject in $FoggObjects.Groups) {
+    foreach ($FoggObject in $FoggObjects.Groups)
+    {
         if ($locs -icontains $FoggObject.Location) {
             continue
         }
