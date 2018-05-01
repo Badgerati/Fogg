@@ -303,7 +303,6 @@ try {
 
             $vnet.Subnets | ForEach-Object {
                 $n = $_.Name -ireplace '-snet', ''
-                $n = $n -ireplace "$($FoggObject.Platform)-", ''
 
                 if (!$FoggObject.SubnetAddressMap.ContainsKey($n)) {
                     $FoggObject.SubnetAddressMap.Add($n, $_.AddressPrefix)
@@ -375,18 +374,19 @@ try {
                 $role = $vm.role.ToLowerInvariant()
                 $type = $vm.type.ToLowerInvariant()
                 $basename = (Join-ValuesDashed @($FoggObject.Platform, $role, $type))
-                $subnet = $FoggObject.SubnetAddressMap[$basename]
+                $subnetName = (?? $vm.subnet $basename)
+                $subnet = $FoggObject.SubnetAddressMap[$subnetName]
 
                 # Create network security group inbound/outbound rules
-                $rules = Add-FirewallRules -Firewall $vm.firewall -Subnets $FoggObject.SubnetAddressMap -CurrentRole $basename
-                $rules = Add-FirewallRules -Firewall $template.firewall -Subnets $FoggObject.SubnetAddressMap -CurrentRole $basename -Rules $rules
+                $rules = Add-FirewallRules -Firewall $vm.firewall -Subnets $FoggObject.SubnetAddressMap -CurrentRole $subnetName
+                $rules = Add-FirewallRules -Firewall $template.firewall -Subnets $FoggObject.SubnetAddressMap -CurrentRole $subnetName -Rules $rules
 
                 # Create network security group rules, and bind to VM
                 $nsg = New-FoggNetworkSecurityGroup -FoggObject $FoggObject -Name $basename -Rules $rules
                 $FoggObject.NsgMap.Add($basename, $nsg.Id)
 
                 # assign subnet to vnet
-                $vnet = Add-FoggSubnetToVNet -ResourceGroupName $vnet.ResourceGroupName -VNetName $vnet.Name -SubnetName $basename -Address $subnet -NetworkSecurityGroup $nsg
+                $vnet = Add-FoggSubnetToVNet -ResourceGroupName $vnet.ResourceGroupName -VNetName $vnet.Name -SubnetName $subnetName -Address $subnet -NetworkSecurityGroup $nsg
             }
 
 
@@ -396,17 +396,18 @@ try {
                 $role = $r.role.ToLowerInvariant()
                 $type = $r.type.ToLowerInvariant()
                 $basename = (Join-ValuesDashed @($FoggObject.Platform, $role, $type))
-                $subnet = $FoggObject.SubnetAddressMap[$basename]
+                $subnetName = (?? $r.subnet $basename)
+                $subnet = $FoggObject.SubnetAddressMap[$subnetName]
 
                 # Create network security group inbound whitelist rules
-                $rules = Add-FirewallWhitelistRules -Whitelist $r.whitelist -Subnets $FoggObject.SubnetAddressMap -CurrentRole $basename
+                $rules = Add-FirewallWhitelistRules -Whitelist $r.whitelist -Subnets $FoggObject.SubnetAddressMap -CurrentRole $subnetName
 
                 # Create network security group rules, and bind to the redis cache
                 $nsg = New-FoggNetworkSecurityGroup -FoggObject $FoggObject -Name $basename -Rules $rules
                 $FoggObject.NsgMap.Add($basename, $nsg.Id)
 
                 # assign subnet to vnet
-                $vnet = Add-FoggSubnetToVNet -ResourceGroupName $vnet.ResourceGroupName -VNetName $vnet.Name -SubnetName $basename -Address $subnet -NetworkSecurityGroup $nsg
+                $vnet = Add-FoggSubnetToVNet -ResourceGroupName $vnet.ResourceGroupName -VNetName $vnet.Name -SubnetName $subnetName -Address $subnet -NetworkSecurityGroup $nsg
             }
 
 
@@ -416,7 +417,8 @@ try {
                 $role = $vpn.role.ToLowerInvariant()
                 $type = $vm.type.ToLowerInvariant()
                 $basename = (Join-ValuesDashed @($FoggObject.Platform, $role, $type))
-                $subnet = $FoggObject.SubnetAddressMap[$basename]
+                $subnetName = (?? $vpn.subnet $basename)
+                $subnet = $FoggObject.SubnetAddressMap[$subnetName]
                 $vnet = Add-FoggGatewaySubnetToVNet -ResourceGroupName $vnet.ResourceGroupName -VNetName $vnet.Name -Address $subnet
             }
 

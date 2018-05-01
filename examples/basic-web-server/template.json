@@ -9,6 +9,7 @@
                 "logs"
             ],
             "publicIp": "dynamic",
+            "subnet": "web",
             "os": {
                 "size": "Standard_DS1_v2",
                 "type": "Windows",

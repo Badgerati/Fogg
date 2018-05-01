@@ -483,6 +483,9 @@ function Update-FoggRedisCache
         $ShardCount,
 
         [Parameter()]
+        $Subnet,
+
+        [Parameter()]
         $Configuration,
 
         [Parameter()]
@@ -561,7 +564,13 @@ function Update-FoggRedisCache
     # update any firewall rules on the cache
     if (!(Test-Empty $Whitelist))
     {
-        $crole = (Join-ValuesDashed @($FoggObject.Platform, $Role, 'redis'))
+        $subnetName = $null
+        if (!(Test-Empty $Subnet))
+        {
+            $subnetName = $Subnet.Name -ireplace '-snet', ''
+        }
+
+        $crole = ?? $subnetName (Join-ValuesDashed @($FoggObject.Platform, $Role, 'redis'))
         New-FoggRedisCacheWhitelist -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Whitelist $Whitelist -Subnets $FoggObject.SubnetAddressMap -CurrentRole $crole
     }
 
@@ -596,8 +605,7 @@ function New-FoggRedisCache
         $ShardCount,
 
         [Parameter()]
-        [string]
-        $SubnetId,
+        $Subnet,
 
         [Parameter()]
         $Configuration,
@@ -627,21 +635,28 @@ function New-FoggRedisCache
         $redis = Get-FoggRedisCache -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name
 
         $redis = Update-FoggRedisCache -FoggObject $FoggObject -Role $Role -Size $Size -Sku $Sku -ShardCount $ShardCount `
-            -Configuration $Configuration -Whitelist $Whitelist -EnableNonSslPort:$EnableNonSslPort
+            -Configuration $Configuration -Whitelist $Whitelist -Subnet $Subnet -EnableNonSslPort:$EnableNonSslPort
 
         return $redis
+    }
+
+    # get subnetId from subnet
+    $subnetId = $null
+    if (!(Test-Empty $Subnet))
+    {
+        $subnetId = $Subnet.Id
     }
 
     # create a new redis cache (only pass subnet if premium)
     if ($Sku -ieq 'premium')
     {
         $redis = New-AzureRmRedisCache -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Location $FoggObject.Location `
-            -Size $Size -Sku $Sku -RedisConfiguration $Configuration -ShardCount $ShardCount -SubnetId $SubnetId -EnableNonSslPort $EnableNonSslPort.IsPresent
+            -Size $Size -Sku $Sku -RedisConfiguration $Configuration -ShardCount $ShardCount -SubnetId $subnetId -EnableNonSslPort $EnableNonSslPort.IsPresent
     }
     else
     {
         $redis = New-AzureRmRedisCache -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Location $FoggObject.Location `
-            -Size $Size -Sku $Sku -RedisConfiguration $Configuration -SubnetId $SubnetId -EnableNonSslPort $EnableNonSslPort.IsPresent
+            -Size $Size -Sku $Sku -RedisConfiguration $Configuration -SubnetId $subnetId -EnableNonSslPort $EnableNonSslPort.IsPresent
     }
 
     if (!$?)
@@ -655,7 +670,13 @@ function New-FoggRedisCache
     # add any firewall rules to the cache
     if (!(Test-Empty $Whitelist))
     {
-        $crole = (Join-ValuesDashed @($FoggObject.Platform, $Role, 'redis'))
+        $subnetName = $null
+        if (!(Test-Empty $Subnet))
+        {
+            $subnetName = $Subnet.Name -ireplace '-snet', ''
+        }
+
+        $crole = ?? $subnetName (Join-ValuesDashed @($FoggObject.Platform, $Role, 'redis'))
         New-FoggRedisCacheWhitelist -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Whitelist $Whitelist -Subnets $FoggObject.SubnetAddressMap -CurrentRole $crole
     }
 
