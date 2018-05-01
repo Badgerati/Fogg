@@ -849,7 +849,7 @@ function Test-TemplateVM
     }
 
     # ensure that each VM object has a subnet map
-    $subnet = ?? $Template.subnet "$($basename)-$($type)"
+    $subnet = (?? $Template.subnet "$($basename)-$($type)")
 
     if ($Online -and !$FoggObject.SubnetAddressMap.ContainsKey($subnet))
     {
@@ -878,7 +878,7 @@ function Test-TemplateVM
 
     # ensure the publicIp value is valid
     $publicIps = @('none', 'static', 'dynamic')
-    if (!(Test-Empty $publicIps) -and $publicIps -inotcontains $Template.publicIp)
+    if (!(Test-Empty $Template.publicIp) -and $publicIps -inotcontains $Template.publicIp)
     {
         throw "VM publicIp value for $($role) is invalid, should be: $($publicIps -join ', ')"
     }
@@ -1940,13 +1940,8 @@ function New-FoggObject
         $Stamp
     )
 
-    if (!$useFoggfile -and (Test-ArrayEmpty $foggParams))
+    if (!$useFoggfile -and (Test-ArrayEmpty $foggParams) -and (Test-PathExists 'Foggfile'))
     {
-        if (!(Test-PathExists 'Foggfile'))
-        {
-            throw 'No Foggfile found in current directory'
-        }
-
         $FoggfilePath = (Resolve-Path '.\Foggfile' -ErrorAction Ignore)
         $useFoggfile = $true
     }
