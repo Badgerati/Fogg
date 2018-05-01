@@ -296,7 +296,7 @@ try {
     {
         # set subnets from existing vnet
         if ($FoggObject.UseGlobalVNet -and $FoggObject.UseExistingVNet) {
-            $vnet = (Get-FoggVirtualNetwork -ResourceGroupName $FoggObject.ResourceGroupName -Name $FoggObject.VNetName)
+            $vnet = (Get-FoggVirtualNetwork -ResourceGroupName $FoggObject.VNetResourceGroupName -Name $FoggObject.VNetName)
             if ($vnet -eq $null) {
                 throw "Virtual network $($FoggObject.VNetName) in resource group $($FoggObject.VNetResourceGroupName) does not exist"
             }
