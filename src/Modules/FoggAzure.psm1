@@ -3509,14 +3509,14 @@ function New-FoggPublicIpAddress
         $Name,
 
         [Parameter(Mandatory=$true)]
-        [ValidateNotNullOrEmpty()]
+        [ValidateSet('Static', 'Dynamic')]
         [string]
         $AllocationMethod
     )
 
     $Name = (Get-FoggPublicIpName $Name)
 
-    Write-Information "Creating Public IP Address $($Name)"
+    Write-Information "Creating $($AllocationMethod) Public IP Address $($Name)"
 
     # check to see if the IP already exists
     $pip = Get-FoggPublicIpAddress -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name
