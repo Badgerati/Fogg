@@ -1779,8 +1779,14 @@ function New-FoggNetworkSecurityGroup
 {
     param (
         [Parameter(Mandatory=$true)]
-        [ValidateNotNull()]
-        $FoggObject,
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $ResourceGroupName,
+    
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Location,
 
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
@@ -1792,10 +1798,10 @@ function New-FoggNetworkSecurityGroup
 
     $Name = (Get-FoggNetworkSecurityGroupName $Name)
 
-    Write-Information "Creating Network Security Group $($Name) in $($FoggObject.ResourceGroupName)"
+    Write-Information "Creating Network Security Group $($Name) in $($ResourceGroupName)"
 
     # check to see if the NSG already exists, if so use that one
-    $nsg = Get-FoggNetworkSecurityGroup -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name
+    $nsg = Get-FoggNetworkSecurityGroup -ResourceGroupName $ResourceGroupName -Name $Name
     if ($nsg -ne $null)
     {
         Write-Notice "Using existing network security group for $($Name)`n"
@@ -1814,15 +1820,15 @@ function New-FoggNetworkSecurityGroup
         return $nsg
     }
 
-    $nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name `
-        -Location $FoggObject.Location -SecurityRules $Rules -Force
+    $nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $ResourceGroupName -Name $Name `
+        -Location $Location -SecurityRules $Rules -Force
 
     if (!$?)
     {
-        throw "Failed to create Network Security Group $($Name) in $($FoggObject.ResourceGroupName)"
+        throw "Failed to create Network Security Group $($Name) in $($ResourceGroupName)"
     }
 
-    Write-Success "Network security group $($Name) created in $($FoggObject.ResourceGroupName)`n"
+    Write-Success "Network security group $($Name) created in $($ResourceGroupName)`n"
     return $nsg
 }
 
@@ -2579,7 +2585,7 @@ function New-FoggLoadBalancer
 
     # create the load balancer
     $lb = New-AzureRmLoadBalancer -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Location $FoggObject.Location `
-        -FrontendIpConfiguration $front -BackendAddressPool $back -LoadBalancingRule $rule -Probe $health
+        -FrontendIpConfiguration $front -BackendAddressPool $back -LoadBalancingRule $rule -Probe $health -Sku Standard
     if (!$?)
     {
         throw "Failed to create $($Name) load balancer"

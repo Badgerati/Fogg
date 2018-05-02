@@ -383,7 +383,9 @@ try {
                 $rules = Add-FirewallRules -Firewall $template.firewall -Subnets $FoggObject.SubnetAddressMap -CurrentRole $subnetName -Rules $rules
 
                 # Create network security group rules, and bind to VM
-                $nsg = New-FoggNetworkSecurityGroup -FoggObject $FoggObject -Name $basename -Rules $rules
+                $nsg = New-FoggNetworkSecurityGroup -ResourceGroupName $vnet.ResourceGroupName -Location $vnet.Location `
+                    -Name $subnetName -Rules $rules
+
                 $FoggObject.NsgMap.Add($basename, $nsg.Id)
 
                 # assign subnet to vnet
@@ -404,7 +406,9 @@ try {
                 $rules = Add-FirewallWhitelistRules -Whitelist $r.whitelist -Subnets $FoggObject.SubnetAddressMap -CurrentRole $subnetName
 
                 # Create network security group rules, and bind to the redis cache
-                $nsg = New-FoggNetworkSecurityGroup -FoggObject $FoggObject -Name $basename -Rules $rules
+                $nsg = New-FoggNetworkSecurityGroup -ResourceGroupName $vnet.ResourceGroupName -Location $vnet.Location `
+                    -Name $subnetName -Rules $rules
+
                 $FoggObject.NsgMap.Add($basename, $nsg.Id)
 
                 # assign subnet to vnet
