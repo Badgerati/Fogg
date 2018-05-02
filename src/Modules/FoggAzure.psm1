@@ -3249,7 +3249,13 @@ function Add-FoggDataDisk
 
             if ($Managed)
             {
-                $dc = New-AzureRmDiskConfig -Location $FoggObject.Location -DiskSizeGB $_.size -CreateOption Empty -Zone $Zone
+                if (!(Test-Empty $Zone)) {
+                    $dc = New-AzureRmDiskConfig -Location $FoggObject.Location -DiskSizeGB $_.size -CreateOption Empty -Zone $Zone
+                }
+                else {
+                    $dc = New-AzureRmDiskConfig -Location $FoggObject.Location -DiskSizeGB $_.size -CreateOption Empty
+                }
+
                 $d = New-AzureRmDisk -ResourceGroupName $FoggObject.ResourceGroupName -DiskName $diskName -Disk $dc
                 $VM = Add-AzureRmVMDataDisk -VM $VM -Name $diskName -Lun $_.Lun -Caching ReadOnly -CreateOption Attach `
                     -DiskSizeInGB $_.size -ManagedDiskId $d.Id
@@ -3574,17 +3580,21 @@ function New-FoggPublicIpAddress
 
     # check to see if the IP already exists
     $pip = Get-FoggPublicIpAddress -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name
-    if ($pip -ne $null)
-    {
+    if ($pip -ne $null) {
         Write-Notice "Using existing Public IP Address for $($Name)`n"
         return $pip
     }
 
-    $pip = New-AzureRmPublicIpAddress -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Location $FoggObject.Location `
-        -AllocationMethod $AllocationMethod -Zone $Zone -Force
+    if (!(Test-Empty $Zone)) {
+        $pip = New-AzureRmPublicIpAddress -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Location $FoggObject.Location `
+            -AllocationMethod $AllocationMethod -Zone $Zone -Force
+    }
+    else {
+        $pip = New-AzureRmPublicIpAddress -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Location $FoggObject.Location `
+            -AllocationMethod $AllocationMethod -Force
+    }
 
-    if (!$?)
-    {
+    if (!$?) {
         throw "Failed to create Public IP Address $($Name)"
     }
 
