@@ -3587,11 +3587,11 @@ function New-FoggPublicIpAddress
 
     if (!(Test-Empty $Zone)) {
         $pip = New-AzureRmPublicIpAddress -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Location $FoggObject.Location `
-            -AllocationMethod $AllocationMethod -Zone $Zone -Force
+            -AllocationMethod $AllocationMethod -Zone $Zone -Force -Sku Standard
     }
     else {
         $pip = New-AzureRmPublicIpAddress -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Location $FoggObject.Location `
-            -AllocationMethod $AllocationMethod -Force
+            -AllocationMethod $AllocationMethod -Force -Sku Standard
     }
 
     if (!$?) {
