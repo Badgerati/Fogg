@@ -3413,7 +3413,6 @@ function New-FoggNetworkInterface
     return $nic
 }
 
-
 function Update-FoggNetworkInterface
 {
     param (
@@ -3443,13 +3442,15 @@ function Update-FoggNetworkInterface
         return
     }
 
+    Write-Information "Updating Network Interface $($Name) in resource group $($FoggObject.ResourceGroupName)"
+
     # assign Public IP if one doesn't already exist
     if (!(Test-Empty $PublicIpId) -and $nic.IpConfigurations[0].PublicIpAddress -eq $null)
     {
         $pipName = Get-NameFromAzureId $PublicIpId
         $pip = Get-FoggPublicIpAddress -ResourceGroupName $FoggObject.ResourceGroupName -Name $pipName
 
-        Write-Information "Updating $($Name) with Public IP $($pipName)"
+        Write-Information "> Updating $($Name) with Public IP $($pipName)"
         $nic.IpConfigurations[0].PublicIpAddress = $pip
         $changes = $true
     }
@@ -3460,7 +3461,7 @@ function Update-FoggNetworkInterface
         $nsgName = Get-NameFromAzureId $NetworkSecurityGroupId
         $nsg = Get-FoggNetworkSecurityGroup -ResourceGroupName $FoggObject.ResourceGroupName -Name $nsgName
 
-        Write-Information "Updating $($Name) with NSG $($nsg)"
+        Write-Information "> Updating $($Name) with NSG $($nsg)"
         $nic.NetworkSecurityGroup = $nsg
         $changes = $true
     }
@@ -3469,6 +3470,7 @@ function Update-FoggNetworkInterface
     if ($changes)
     {
         Set-AzureRmNetworkInterface -NetworkInterface $nic | Out-Null
+        Write-Success "Network Interface $($Name) updated"
     }
 
     # return the updated NIC
@@ -3510,7 +3512,6 @@ function Get-FoggPublicIpAddresses
     return $pips
 }
 
-
 function Get-FoggPublicIpAddress
 {
     param (
@@ -3551,7 +3552,6 @@ function Get-FoggPublicIpAddress
     return $pip
 }
 
-
 function New-FoggPublicIpAddress
 {
     param (
@@ -3582,6 +3582,7 @@ function New-FoggPublicIpAddress
     $pip = Get-FoggPublicIpAddress -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name
     if ($pip -ne $null) {
         Write-Notice "Using existing Public IP Address for $($Name)`n"
+        $pip = Update-FoggPublicIpAddress -FoggObject $FoggObject -Name $Name -AllocationMethod $AllocationMethod
         return $pip
     }
 
@@ -3602,6 +3603,58 @@ function New-FoggPublicIpAddress
     return $pip
 }
 
+function Update-FoggPublicIpAddress
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        $FoggObject,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Name,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateSet('Static', 'Dynamic')]
+        [string]
+        $AllocationMethod
+    )
+
+    $Name = (Get-FoggPublicIpName $Name)
+    $changes = $false
+
+    # get the existing public ip
+    $pip = Get-FoggPublicIpAddress -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name
+    if ($pip -eq $null) {
+        return
+    }
+
+    Write-Information "Updating Public IP $($Name) in resource group $($FoggObject.ResourceGroupName)"
+
+    # update the sku to Standard
+    if ($pip.Sku.Name -ine 'Standard') {
+        Write-Information "Updating $($Name) to Standard sku"
+        $pip.Sku.Name = 'Standard'
+        $changes = $true
+    }
+
+    # update the allocation method
+    if ($pip.PublicIpAllocationMethod -ine $AllocationMethod) {
+        Write-Information "Updating $($Name) to $($AllocationMethod) allocation"
+        $pip.PublicIpAllocationMethod = $AllocationMethod
+        $changes = $true
+    }
+
+    # save changes
+    if ($changes) {
+        Set-AzureRmPublicIpAddress -PublicIpAddress $pip | Out-Null
+        Write-Success "Public IP $($Name) updated"
+    }
+
+    # return the updated ip
+    return (Get-FoggPublicIpAddress -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name)
+}
 
 function Get-FoggVMSizes
 {
