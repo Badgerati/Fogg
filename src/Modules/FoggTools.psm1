@@ -2495,6 +2495,7 @@ function New-DeployTemplateVM
     $vmInfo = $FoggObject.VirtualMachineInfo[$role]
     $vmInfo.Add('Subnet', @{})
     $vmInfo.Add('AvailabilitySet', $null)
+    $vmInfo.Add('AvailabilityZones', @())
     $vmInfo.Add('LoadBalancer', @{})
     $vmInfo.Add('VirtualMachines', @())
 
@@ -2502,22 +2503,25 @@ function New-DeployTemplateVM
     $vmInfo.Subnet.Add('Name', $subnetObj.Name)
     $vmInfo.Subnet.Add('Address', $subnetPrefix)
 
-    # are we using a load balancer and availability set?
+    # are we using availability zones
+    $zonesCount = Get-Count $Template.zones
+    $useAvailabilityZones = ($zonesCount -ne 0)
+
+    # are we using a load balancer and availability set/zones?
     $useLoadBalancer = $true
     if (!(Test-Empty $Template.loadBalance))
     {
         $useLoadBalancer = [bool]$Template.loadBalance
     }
 
-    $useAvailabilitySet = $true
-    if (!(Test-Empty $Template.availabilitySet))
-    {
+    # if zones have been supplied, availability set should be false!
+    $useAvailabilitySet = (!$useAvailabilityZones)
+    if ($useAvailabilitySet -and !(Test-Empty $Template.availabilitySet)) {
         $useAvailabilitySet = [bool]$Template.availabilitySet
     }
 
-    # if useAvailabilitySet is false, then by default set loadBalance to false
-    if (!$useAvailabilitySet)
-    {
+    # if useAvailabilitySet is false and we have no zones being used, then set loadBalance to false
+    if (!$useAvailabilitySet -and !$useAvailabilityZones) {
         $useLoadBalancer = $false
     }
 
@@ -2525,15 +2529,17 @@ function New-DeployTemplateVM
     Write-Information "Deploying $($_count) VM(s) for the '$($role)' template"
 
     # create an availability set and, if VM count > 1, a load balancer
-    if ($useAvailabilitySet)
-    {
+    if ($useAvailabilitySet) {
         $avsetName = (Get-FoggAvailabilitySetName $basename)
         $avset = New-FoggAvailabilitySet -FoggObject $FoggObject -Name $avsetName -Managed:$useManagedDisks
         $vmInfo.AvailabilitySet = $avsetName
     }
 
-    if ($useLoadBalancer -and $_count -gt 1)
-    {
+    if ($useAvailabilityZones) {
+        $vmInfo.AvailabilityZones = $Templates.zones
+    }
+
+    if ($useLoadBalancer -and $_count -gt 1) {
         $lbName = (Get-FoggLoadBalancerName $basename)
         $lb = New-FoggLoadBalancer -FoggObject $FoggObject -Name $lbName -SubnetId $subnetObj.Id `
             -Port $Template.port -PublicIpType $publicIpType
@@ -2550,20 +2556,17 @@ function New-DeployTemplateVM
     # work out the base index of the VM, if we're appending instead of creating
     $baseIndex = 0
 
-    if ($Template.append)
-    {
+    if ($Template.append) {
         # get list of all VMs
         $rg_vms = Get-FoggVMs -ResourceGroupName $FoggObject.ResourceGroupName
 
         # if no VMs returned, keep default base index as 0
-        if (!(Test-ArrayEmpty $rg_vms))
-        {
+        if (!(Test-ArrayEmpty $rg_vms)) {
             # filter on base VM name to get last VM deployed
             $name = ($rg_vms | Where-Object { $_.Name -ilike "$($basename)*" } | Select-Object -Last 1 -ExpandProperty Name)
 
             # if name has a value at the end, take it as the base index
-            if ($name -imatch "^$($basename)(\d+)")
-            {
+            if ($name -imatch "^$($basename)(\d+)") {
                 $baseIndex = ([int]$Matches[1])
             }
         }
@@ -2571,21 +2574,19 @@ function New-DeployTemplateVM
 
     # does the VM have OS settings, or use global?
     $os = $FullTemplate.os
-    if ($Template.os -ne $null)
-    {
+    if ($Template.os -ne $null) {
         $os = $Template.os
     }
 
     # create each of the VMs
     $_vms = @()
-    $_zonesCount = Get-Count $Template.zones
 
     1..($_count) | ForEach-Object {
         $index = ($_ + $baseIndex)
 
         $zone = $null
-        if ($_zonesCount -ne 0) {
-            $zone = $Template.zones[($index % $_zonesCount)]
+        if ($useAvailabilityZones) {
+            $zone = $Template.zones[($index % $zonesCount)]
         }
 
         $_vms += (New-FoggVM -FoggObject $FoggObject -Name $basename -Index $index -VMCredentials $VMCredentials `
@@ -2594,10 +2595,8 @@ function New-DeployTemplateVM
     }
 
     # loop through each VM and deploy it
-    foreach ($_vm in $_vms)
-    {
-        if ($_vm -eq $null)
-        {
+    foreach ($_vm in $_vms) {
+        if ($_vm -eq $null) {
             continue
         }
 
@@ -2607,16 +2606,14 @@ function New-DeployTemplateVM
         Save-FoggVM -FoggObject $FoggObject -VM $_vm -LoadBalancer $lb
 
         # see if we need to provision the machine
-        if ($FoggObject.HasProvisionScripts)
-        {
+        if ($FoggObject.HasProvisionScripts) {
+            # check if we have an provisioners defined
             $provs = $Template.provisioners
-            if (Test-ArrayEmpty $provs)
-            {
+            if (Test-ArrayEmpty $provs) {
                 $provs = @()
             }
 
-            if (!(Test-ArrayEmpty $Template.drives))
-            {
+            if (!(Test-ArrayEmpty $Template.drives)) {
                 $provs = @('attach-drives') + $provs
             }
 
@@ -2631,8 +2628,7 @@ function New-DeployTemplateVM
         $nicIPs = (Get-FoggNetworkInterface -ResourceGroupName $FoggObject.ResourceGroupName -Name $nicId).IpConfigurations[0]
 
         # get VM's public IP
-        if (!(Test-Empty $nicIPs.PublicIpAddress))
-        {
+        if (!(Test-Empty $nicIPs.PublicIpAddress)) {
             $pipId = Get-NameFromAzureId $nicIPs.PublicIpAddress[0].Id
             $pipIP = (Get-FoggPublicIpAddress -ResourceGroupName $FoggObject.ResourceGroupName -Name $pipId).IpAddress
         }
@@ -2642,6 +2638,7 @@ function New-DeployTemplateVM
             'Name' = $_vm.Name;
             'PrivateIP' = $nicIPs.PrivateIpAddress;
             'PublicIP' = $pipIP;
+            'Zone' = ($_vm.Zones | Select-Object -First 1)
         }
 
         # output the time taken to create VM
@@ -2650,8 +2647,7 @@ function New-DeployTemplateVM
     }
 
     # turn off some of the VMs if needed
-    if ($Template.off -gt 0)
-    {
+    if ($Template.off -gt 0) {
         $count = ($_vms | Measure-Object).Count
         $base = ($count - $Template.off) + 1
 

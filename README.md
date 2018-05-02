@@ -30,7 +30,7 @@ choco install fogg
 * Inbuilt firewall ports for quicker allow/deny of in/outbound rules
 * Provision using:
   * PowerShell Desired State Configuration (DSC)
-  * Custom Scripts (ps1/bat)
+  * Custom Scripts (ps1/bat/sh)
   * Chocolatey to install software
 * Deploy:
   * Resource Groups
@@ -38,7 +38,7 @@ choco install fogg
   * Virtual Networks
   * Subnets
   * Network Security Groups with firewall rules
-  * Availability Sets and Load Balancers
+  * Availability Sets/Zones and Load Balancers
   * Public IP addresses for your VMs/Load Balancers
   * VPN Gateways for site-to-site and point-to-site connections
 * Immediate feedback if your template is about to exceed the core limit in a location
@@ -50,9 +50,9 @@ choco install fogg
 
 ## Description
 
-Fogg is a PowerShell tool to simplify the creation, deployment and provisioning of infrastructure (IaaS) in Azure.
+Fogg is a PowerShell tool to simplify the creation, deployment and provisioning of resources in Azure.
 
-Fogg uses a JSON template file to determine what needs to be created and deployed (but don't worry, the JSON file is far, far smaller than Azure's ARM template files!). Furthermore, Fogg also accepts a few parameters for things like `Resource Group Name`, `Subscription Name`, `VM Credentials` and others. While these are to be passed in via command line, I'd recommend using a `Foggfile` to version control your deployments (more later).
+Fogg uses a JSON template file to determine what needs to be deployed (but don't worry, the JSON file is far, far smaller than Azure's ARM template files!). Furthermore, Fogg also accepts a few parameters for things like `Resource Group Name`, `Subscription Name`, `VM Credentials` and others. While these are to be passed in via command line, I'd recommend using a `Foggfile` to version control your deployments (more later).
 
 ## Example
 
@@ -67,24 +67,24 @@ This simple example will just spin-up one VM. The first thing you will need is a
             "type": "vm",
             "role": "test",
             "count": 1,
+            "publicIp": "dynamic",
             "os": {
                 "type": "Windows",
                 "size": "Standard_DS1_v2",
                 "publisher": "MicrosoftWindowsServer",
                 "offer": "WindowsServer",
                 "skus": "2016-Datacenter"
-            },
-            "publicIp": "dynamic"
+            }
         }
     ]
 }
 ```
 
-The above template will be used by Fogg to deploy one public Windows 2016 VM. You will notice the `count` value, changing this to 2, 3 or more will deploy 2, 3 or more of this VM type. If you don't supply the `count` value then just 1 VM will be deployed
+The above template will be used by Fogg to deploy one public Windows 2016 VM. You will notice the `count` value, changing this to 2, 3 or more will deploy 2, 3 or more of this VM type. If you don't supply a `count` then just 1 VM will be deployed
 
-> Note: if you deploy a VM type with a `count > 1`, Fogg will automatically load balance your VMs for you, this can be disabled via: `"loadBalancer": false`, though you will still get an availability set
+> Note: if you deploy a VM type with a `count > 1`, Fogg will automatically load balance your VMs for you, this can be disabled via: `"loadBalance": false`, though you will still get an availability set
 
-The `role` and `type` values for template objects are mandatory. the `role` can be any unique alphanumeric string, and the `type` value can only be one of either `vm`, `vpn`, `vnet` or `sa`.
+The `role` and `type` values for template objects are mandatory. the `role` can be any unique alphanumeric string, and the `type` value can only be one of either `vm`, `vpn`, `vnet`, `redis` or `sa`.
 
 > Note, try and keep the `role` value short for Azure naming restrictions - roles like web, file, or data are good
 
@@ -102,12 +102,14 @@ This will tell Fogg to use the above template against your Subscription in Azure
 * Create a Resource Group called `basic-rg` in Location `westeurope`
 * Create a Storage Account called `euwbasicgblsa` (or `eu-w-basic-gbl-sa` for for the globally used storage account for Fogg)
 * Create a Virtual Network called `basic-vnet` for address `10.1.0.0/16`
-* Create a Subnet under the Virtual Network called `test-snet` for address `10.1.0.0/24`
+* Create a Subnet under the Virtual Network called `test-vm-snet` for address `10.1.0.0/24`
 * Create a Network Security Group called `test-nsg`
 * Create an Availability Set called `test-as`
-* A Virtual Machine called `test-vm1` will then be deployed under the `test-snet` Subnet with a dynamic public IP address
+* A Virtual Machine called `test-vm1` will then be deployed under the `test-vm-snet` Subnet with a dynamic public IP address
 
-To create a Foggfile of the above, stored at the root of the repo (can be else where as a `-FoggfilePath` can be supplied on cli), would look like the following:
+> Fogg typically names the created VMs using the following format: `<platform>-<role>-vm<index>`. Above we didn't specify a platform value, but we were deploying 1 VM for the test role, hence the name `test-vm1`, if we supplied a count of 2, we would have also gotten a `test-vm2`
+
+To create a Foggfile of the above, stored at the root of the repo (can be else where as `-fp` lets you specify a path to a Foggfile on cli), would look like the following:
 
 ```json
 {
@@ -170,6 +172,8 @@ This will contain the names of resources like the VNETs, Subnets and VMs; to the
     };
     'VPNInfo' = @{};
     'VirtualNetworkInfo' = @{};
+    'StorageAccountInfo' = @{};
+    'RedisCacheInfo' = @{};
 }
 ```
 
@@ -178,7 +182,6 @@ This will contain the names of resources like the VNETs, Subnets and VMs; to the
 * SQL always-on clusters
 * Web Apps?
 * Possibility of Chef as a provisioner
-* Documentation
 
 ## Bugs and Feature Requests
 

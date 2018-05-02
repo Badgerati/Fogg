@@ -2727,7 +2727,7 @@ function New-FoggVM
         $Image,
 
         [Parameter()]
-        $AvailabilitySet,
+        $AvailabilitySet = $null,
 
         [Parameter()]
         $Drives,
@@ -2749,7 +2749,7 @@ function New-FoggVM
     $VMName = (Get-FoggVMName $Name $Index)
     $usePublicIp = ($PublicIpType -ine 'None')
 
-    Write-Information "Creating VM $($VMName) in $($FoggObject.ResourceGroupName)$(if ($Zone -ne $null) { ", in Zone $($Zone)" })"
+    Write-Information "Creating VM $($VMName) in $($FoggObject.ResourceGroupName)$(if (!(Test-Empty $Zone)) { ", in Zone $($Zone)" })"
 
     # check to see if the VM already exists
     $vm = Get-FoggVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Index $Index
@@ -2796,13 +2796,16 @@ function New-FoggVM
         -PublicIpId $pipId -NetworkSecurityGroupId $FoggObject.NsgMap[$Name]
 
     # setup initial VM config
-    if ($AvailabilitySet -eq $null)
-    {
-        $VM = New-AzureRmVMConfig -VMName $VMName -VMSize $OS.size -Zone $Zone
+    if ($AvailabilitySet -eq $null) {
+        if (!(Test-Empty $Zone)) {
+            $VM = New-AzureRmVMConfig -VMName $VMName -VMSize $OS.size -Zone $Zone
+        }
+        else {
+            $VM = New-AzureRmVMConfig -VMName $VMName -VMSize $OS.size
+        }
     }
-    else
-    {
-        $VM = New-AzureRmVMConfig -VMName $VMName -VMSize $OS.size -Zone $Zone -AvailabilitySetId $AvailabilitySet.Id
+    else {
+        $VM = New-AzureRmVMConfig -VMName $VMName -VMSize $OS.size -AvailabilitySetId $AvailabilitySet.Id
     }
 
     if (!$?)
@@ -2999,20 +3002,29 @@ function Save-FoggVM
         $FoggObject,
 
         [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
         $VM,
 
         $LoadBalancer
     )
 
+    # do we have a zone?
+    $zone = [string]($VM.Zones | Select-Object -First 1)
+
     # first, ensure this VM doesn't alredy exist in Azure (avoiding re-redeploying)
     if ((Get-FoggVM -ResourceGroupName $FoggObject.ResourceGroupName -Name $VM.Name -Index 0 -RealName) -eq $null)
     {
-        Write-Information "`nDeploying new VM '$($VM.Name)'"
+        Write-Information "`nDeploying new VM '$($VM.Name)'$(if (!(Test-Empty $zone)) { ", in Zone $($zone)" })"
 
         # create VM as it doesn't exist
-        $output = New-AzureRmVM -ResourceGroupName $FoggObject.ResourceGroupName -Location $FoggObject.Location -VM $VM
-        if (!$?)
-        {
+        if (!(Test-Empty $zone)) {
+            $output = New-AzureRmVM -ResourceGroupName $FoggObject.ResourceGroupName -Location $FoggObject.Location -VM $VM -Zone $zone
+        }
+        else {
+            $output = New-AzureRmVM -ResourceGroupName $FoggObject.ResourceGroupName -Location $FoggObject.Location -VM $VM
+        }
+
+        if (!$?) {
             throw "Failed to create VM $($VM.Name): $($output)"
         }
     }
@@ -3021,8 +3033,7 @@ function Save-FoggVM
         Write-Information "`nUpdating existing VM '$($VM.Name)'"
 
         $output = Update-AzureRmVM -ResourceGroupName $FoggObject.ResourceGroupName -VM $VM
-        if (!$?)
-        {
+        if (!$?) {
             throw "Failed to update VM $($VM.Name): $($output)"
         }
 
@@ -3037,22 +3048,19 @@ function Save-FoggVM
         Write-Information "Assigning VM $($VM.Name) to Load Balancer $($LoadBalancer.Name)"
 
         $nic = Get-FoggNetworkInterface -ResourceGroupName $FoggObject.ResourceGroupName -Name $VM.Name
-        if (!$? -or $nic -eq $null)
-        {
+        if (!$? -or $nic -eq $null) {
             throw "Failed to retrieve Network Interface for the VM $($VM.Name)"
         }
 
         $back = Get-AzureRmLoadBalancerBackendAddressPoolConfig -Name (Get-FoggLoadBalancerBackendName $LoadBalancer.Name) -LoadBalancer $LoadBalancer
-        if (!$? -or $back -eq $null)
-        {
+        if (!$? -or $back -eq $null) {
             throw "Failed to retrieve back end pool for Load Balancer: $($LoadBalancer.Name)"
         }
 
         $nic.IpConfigurations[0].LoadBalancerBackendAddressPools = $back
         $output = Set-AzureRmNetworkInterface -NetworkInterface $nic
 
-        if (!$?)
-        {
+        if (!$?) {
             throw "Failed to save $($nic.Name) against Load Balancer $($LoadBalancer.Name): $output"
         }
 
@@ -3231,7 +3239,7 @@ function Add-FoggDataDisk
             }
 
             # create new disk
-            Write-Details "`nCreating new disk: $($diskName), for drive $($_.name) ($($_.letter):)$(if ($Zone -ne $null) { ", in Zone $($Zone)" })"
+            Write-Details "`nCreating new disk: $($diskName), for drive $($_.name) ($($_.letter):)$(if (!(Test-Empty $Zone)) { ", in Zone $($Zone)" })"
 
             if ($Managed)
             {
@@ -3556,7 +3564,7 @@ function New-FoggPublicIpAddress
 
     $Name = (Get-FoggPublicIpName $Name)
 
-    Write-Information "Creating $($AllocationMethod) Public IP Address $($Name)$(if ($Zone -ne $null) { ", in Zone $($Zone)" })"
+    Write-Information "Creating $($AllocationMethod) Public IP Address $($Name)$(if (!(Test-Empty $Zone)) { ", in Zone $($Zone)" })"
 
     # check to see if the IP already exists
     $pip = Get-FoggPublicIpAddress -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name

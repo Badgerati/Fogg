@@ -1,0 +1,22 @@
+{
+    "template": [
+        {
+            "type": "vm",
+            "role": "web",
+            "publicIp": "dynamic",
+            "count": 3,
+            "subnet": "web",
+            "zones": [ 1, 2 ],
+            "os": {
+                "size": "Standard_DS1_v2",
+                "type": "Windows",
+                "publisher": "MicrosoftWindowsServer",
+                "offer": "WindowsServer",
+                "skus": "2016-Datacenter"
+            }
+        }
+    ],
+    "firewall": {
+        "rdp": true
+    }
+}

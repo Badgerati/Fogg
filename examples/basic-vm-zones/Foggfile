@@ -1,0 +1,15 @@
+{
+    "SubscriptionName": "<SUB_NAME_HERE>",
+    "Platform": "basic",
+    "Groups": [
+        {
+            "ResourceGroupName": "basic-zones-rg",
+            "Location": "westeurope",
+            "TemplatePath": ".\\template.json",
+            "VNetAddress": "10.19.0.0/16",
+            "SubnetAddresses": {
+                "web": "10.19.0.0/24"
+            }
+        }
+    ]
+}
