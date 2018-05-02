@@ -3632,13 +3632,6 @@ function Update-FoggPublicIpAddress
 
     Write-Information "Updating Public IP $($Name) in resource group $($FoggObject.ResourceGroupName)"
 
-    # update the sku to Standard
-    if ($pip.Sku.Name -ine 'Standard') {
-        Write-Information "Updating $($Name) to Standard sku"
-        $pip.Sku.Name = 'Standard'
-        $changes = $true
-    }
-
     # update the allocation method
     if ($pip.PublicIpAllocationMethod -ine $AllocationMethod) {
         Write-Information "Updating $($Name) to $($AllocationMethod) allocation"
