@@ -1917,6 +1917,12 @@ function New-FoggObject
         $Platform,
 
         [string]
+        $Environment,
+
+        [string]
+        $Provider,
+
+        [string]
         $Stamp,
 
         [string]
@@ -1959,6 +1965,8 @@ function New-FoggObject
         $TemplatePath,
         $Tags,
         $Platform,
+        $Environment,
+        $Provider,
         $Stamp
     )
 
@@ -1994,7 +2002,7 @@ function New-FoggObject
         $group = New-FoggGroupObject -ResourceGroupName $ResourceGroupName -Location $Location `
             -SubnetAddresses $SubnetAddresses -TemplatePath $TemplatePath -FoggfilePath $FoggfilePath `
             -VNetAddress $VNetAddress -VNetResourceGroupName $VNetResourceGroupName -VNetName $VNetName `
-            -Platform $Platform -Stamp $Stamp
+            -Platform $Platform -Environment $Environment -Provider $Provider -Stamp $Stamp
 
         $group.ProvisionersPath = $provisionPath
         $foggObj.Groups += $group
@@ -2030,12 +2038,24 @@ function New-FoggObject
             $Platform = $file.Platform
         }
 
+        # check if we need to set the environment from the file
+        if (Test-Empty $Environment)
+        {
+            $Environment = $file.Environment
+        }
+
+        # check if we need to set the provider from the file
+        if (Test-Empty $Provider)
+        {
+            $Provider = $file.Provider
+        }
+
         # load the groups
         $file.Groups | ForEach-Object {
             $group = New-FoggGroupObject -ResourceGroupName $ResourceGroupName -Location $Location `
                 -SubnetAddresses $SubnetAddresses -TemplatePath $TemplatePath -FoggfilePath $FoggfilePath `
-                -VNetAddress $VNetAddress -VNetResourceGroupName $VNetResourceGroupName `
-                -VNetName $VNetName -Platform $Platform -Stamp $Stamp -FoggParameters $_
+                -VNetAddress $VNetAddress -VNetResourceGroupName $VNetResourceGroupName -VNetName $VNetName `
+                -Platform $Platform -Environment $Environment -Provider $Provider -Stamp $Stamp -FoggParameters $_
 
             $group.ProvisionersPath = $provisionPath
             $foggObj.Groups += $group
@@ -2084,6 +2104,12 @@ function New-FoggGroupObject
 
         [string]
         $Platform,
+
+        [string]
+        $Environment,
+
+        [string]
+        $Provider,
 
         [string]
         $Stamp,
@@ -2160,6 +2186,8 @@ function New-FoggGroupObject
     $group = @{}
     $group.ResourceGroupName = $ResourceGroupName
     $group.Platform = $Platform
+    $group.Environment = $Environment
+    $group.Provider = $Provider
     $group.Stamp = $Stamp
     $group.Location = $Location
     $group.LocationCode = (Get-FoggLocationName -Location $Location)

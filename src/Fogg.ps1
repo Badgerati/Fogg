@@ -54,7 +54,10 @@
         Paired with VNetResourceGroupName, if passed will use an existing Virtual Network in Azure
 
     .PARAMETER Platform
-        (Optional) The name of the platform that is being deployed
+        (Optional) The name of the platform that is being deployed (ie: web, sql, file)
+
+    .PARAMETER Environment
+        (Optional) The name of the environment that is being deployed (ie: dev, qa, prod)
 
     .PARAMETER Stamp
         (Optional) This is a unique value that is used for storage accounts
@@ -138,6 +141,10 @@ param (
     [string]
     [Alias('p')]
     $Platform,
+
+    [string]
+    [Alias('e')]
+    $Environment,
 
     [string]
     [Alias('s')]
@@ -234,7 +241,7 @@ if (!(Test-PowerShellVersion 4)) {
 $FoggObjects = New-FoggObject -FoggRootPath $root -ResourceGroupName $ResourceGroupName -Location $Location -SubscriptionName $SubscriptionName `
     -SubnetAddresses $SubnetAddresses -TemplatePath $TemplatePath -FoggfilePath $FoggfilePath -SubscriptionCredentials $SubscriptionCredentials `
     -VMCredentials $VMCredentials -VNetAddress $VNetAddress -VNetResourceGroupName $VNetResourceGroupName -VNetName $VNetName -Tags $Tags `
-    -Platform $Platform -Stamp $Stamp -TenantId $TenantId
+    -Platform $Platform -Environment $Environment -Provider 'Azure' -Stamp $Stamp -TenantId $TenantId
 
 # Start timer
 $timer = [DateTime]::UtcNow
@@ -275,8 +282,10 @@ try {
 
 
     # ensure that each of the locations specified are valid, and set location short codes
+    Write-Information "Verifying details against Azure"
     $locs = @()
 
+    Write-Host '> Verifying: locations and regions'
     foreach ($FoggObject in $FoggObjects.Groups)
     {
         if ($locs -icontains $FoggObject.Location) {
@@ -295,6 +304,8 @@ try {
     # and if we're using an existing vnet, set the subnet addresses from that vnet
     foreach ($FoggObject in $FoggObjects.Groups)
     {
+        Write-Host "> Verifying: $($FoggObject.TemplatePath)"
+
         # set subnets from existing vnet
         if ($FoggObject.UseGlobalVNet -and $FoggObject.UseExistingVNet) {
             $vnet = (Get-FoggVirtualNetwork -ResourceGroupName $FoggObject.VNetResourceGroupName -Name $FoggObject.VNetName)
@@ -314,6 +325,8 @@ try {
         # re-test files online
         Test-Files -FoggObject $FoggObject -Online | Out-Null
     }
+
+    Write-Success "Details verified`n"
 
 
     # have we set VM creds? but only if we have VMs to create
