@@ -6,7 +6,8 @@
         Fogg is a PowerShell tool to aide and simplify the creation, deployment and provisioning of infrastructure in Azure
 
     .PARAMETER ResourceGroupName
-        The name of the Resource Group you wish to create or use in Azure
+        (Optional) The name of the Resource Group you wish to create or use in Azure, if not supplied it will be generated
+            using the Location/Platform and Environment in the format: "<loc-code>-<platform>-<env>-rg"
 
     .PARAMETER Location
         The location of where the VMs, etc. will be deployed (ie, westeurope)

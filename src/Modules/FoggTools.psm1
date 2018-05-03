@@ -2172,6 +2172,23 @@ function New-FoggGroupObject
         }
     }
 
+    # location code from the supplied location
+    $locationCode = (Get-FoggLocationName -Location $Location)
+
+    # generate the resource group name if not supplied
+    if (Test-Empty $ResourceGroupName)
+    {
+        if (Test-Empty $Platform) {
+            throw 'No Resource Group Name has been supplied, which means a Platform value is mandatory'
+        }
+
+        if (Test-Empty $Environment) {
+            throw 'No Resource Group Name has been supplied, which means an Environment value is mandatory'
+        }
+
+        $ResourceGroupName = (Join-ValuesDashed @($locationCode, $Platform, $Environment))
+    }
+
     # standardise
     $ResourceGroupName = (Get-FoggResourceGroupName $ResourceGroupName)
     $VNetResourceGroupName = (Get-FoggResourceGroupName $VNetResourceGroupName)
@@ -2190,7 +2207,7 @@ function New-FoggGroupObject
     $group.Provider = $Provider
     $group.Stamp = $Stamp
     $group.Location = $Location
-    $group.LocationCode = (Get-FoggLocationName -Location $Location)
+    $group.LocationCode = $locationCode
     $group.VNetAddress = $VNetAddress
     $group.VNetResourceGroupName = $VNetResourceGroupName
     $group.VNetName = $VNetName
@@ -2239,13 +2256,13 @@ function Test-FoggObjectParameters
     # if no resource group name passed, fail
     if (Test-Empty $FoggObject.ResourceGroupName)
     {
-        throw 'No resource group name supplied'
+        throw 'No Resource Group Name has been supplied'
     }
 
     # if no location passed, fail
     if (Test-Empty $FoggObject.Location)
     {
-        throw 'No location to deploy VMs supplied'
+        throw 'No Location to deploy VMs into has been supplied'
     }
 
     # only validate vnet/snet if template has a vm/vpn/redis - and only if redis uses subnets
@@ -2263,13 +2280,13 @@ function Test-FoggObjectParameters
         # if no vnet address or vnet resource group/name for existing vnet, fail
         if (!$FoggObject.UseExistingVNet -and (Test-Empty $FoggObject.VNetAddress))
         {
-            throw 'No address prefix, or resource group and vnet name, supplied to create, or re-use, a virtual network'
+            throw 'No Address prefix, Resource Group or VNet name has been supplied to create, or re-use, a Virtual Network'
         }
 
         # subnets are required when creating a new global vnet
         if (!$FoggObject.UseExistingVNet -and (Test-Empty $FoggObject.SubnetAddressMap))
         {
-            throw 'No address prefixes for new subnets supplied'
+            throw 'No Address prefixes for new Subnets have been supplied'
         }
     }
 
