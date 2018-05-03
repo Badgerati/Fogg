@@ -55,9 +55,11 @@
 
     .PARAMETER Platform
         (Optional) The name of the platform that is being deployed (ie: web, sql, file)
+        (Mandatory) Only if no Resource Group Name is supplied
 
     .PARAMETER Environment
         (Optional) The name of the environment that is being deployed (ie: dev, qa, prod)
+        (Mandatory) Only if no Resource Group Name is supplied
 
     .PARAMETER Stamp
         (Optional) This is a unique value that is used for storage accounts
@@ -387,8 +389,9 @@ try {
             foreach ($vm in $vms) {
                 $role = $vm.role.ToLowerInvariant()
                 $type = $vm.type.ToLowerInvariant()
-                $basename = (Join-ValuesDashed @($FoggObject.Platform, $role, $type))
+                $basename = (Join-ValuesDashed @($role, $type))
                 $subnetName = (?? $vm.subnet $basename)
+                $vnetBasename = ($vnet.Name -ireplace '-vnet', '')
                 $subnet = $FoggObject.SubnetAddressMap[$subnetName]
 
                 # Create network security group inbound/outbound rules
@@ -397,12 +400,13 @@ try {
 
                 # Create network security group rules, and bind to VM
                 $nsg = New-FoggNetworkSecurityGroup -ResourceGroupName $vnet.ResourceGroupName -Location $vnet.Location `
-                    -Name $subnetName -Rules $rules
+                    -Name "$($vnetBasename)-$($subnetName)" -Rules $rules
 
                 $FoggObject.NsgMap.Add($basename, $nsg.Id)
 
                 # assign subnet to vnet
-                $vnet = Add-FoggSubnetToVNet -ResourceGroupName $vnet.ResourceGroupName -VNetName $vnet.Name -SubnetName $subnetName -Address $subnet -NetworkSecurityGroup $nsg
+                $vnet = Add-FoggSubnetToVNet -ResourceGroupName $vnet.ResourceGroupName -VNetName $vnet.Name -SubnetName $subnetName `
+                    -Address $subnet -NetworkSecurityGroup $nsg
             }
 
 
@@ -413,6 +417,7 @@ try {
                 $type = $r.type.ToLowerInvariant()
                 $basename = (Join-ValuesDashed @($FoggObject.Platform, $role, $type))
                 $subnetName = (?? $r.subnet $basename)
+                $vnetBasename = ($vnet.Name -ireplace '-vnet', '')
                 $subnet = $FoggObject.SubnetAddressMap[$subnetName]
 
                 # Create network security group inbound whitelist rules
@@ -420,12 +425,13 @@ try {
 
                 # Create network security group rules, and bind to the redis cache
                 $nsg = New-FoggNetworkSecurityGroup -ResourceGroupName $vnet.ResourceGroupName -Location $vnet.Location `
-                    -Name $subnetName -Rules $rules
+                    -Name "$($vnetBasename)-$($subnetName)" -Rules $rules
 
                 $FoggObject.NsgMap.Add($basename, $nsg.Id)
 
                 # assign subnet to vnet
-                $vnet = Add-FoggSubnetToVNet -ResourceGroupName $vnet.ResourceGroupName -VNetName $vnet.Name -SubnetName $subnetName -Address $subnet -NetworkSecurityGroup $nsg
+                $vnet = Add-FoggSubnetToVNet -ResourceGroupName $vnet.ResourceGroupName -VNetName $vnet.Name -SubnetName $subnetName `
+                    -Address $subnet -NetworkSecurityGroup $nsg
             }
 
 
@@ -434,7 +440,7 @@ try {
             if ($vpn -ne $null) {
                 $role = $vpn.role.ToLowerInvariant()
                 $type = $vm.type.ToLowerInvariant()
-                $basename = (Join-ValuesDashed @($FoggObject.Platform, $role, $type))
+                $basename = (Join-ValuesDashed @($role, $type))
                 $subnetName = (?? $vpn.subnet $basename)
                 $subnet = $FoggObject.SubnetAddressMap[$subnetName]
                 $vnet = Add-FoggGatewaySubnetToVNet -ResourceGroupName $vnet.ResourceGroupName -VNetName $vnet.Name -Address $subnet

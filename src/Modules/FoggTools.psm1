@@ -718,7 +718,7 @@ function Test-TemplateVPN
     # get role
     $role = $Template.role.ToLowerInvariant()
     $type = $Template.type.ToLowerInvariant()
-    $basename = (Join-ValuesDashed @($FoggObject.Platform, $role))
+    $basename = (Join-ValuesDashed @($role))
 
     # ensure that the VPN object has a subnet map
     $subnet = ?? $Template.subnet "$($basename)-$($type)"
@@ -839,7 +839,7 @@ function Test-TemplateVM
     # get role
     $role = $Template.role.ToLowerInvariant()
     $type = $Template.type.ToLowerInvariant()
-    $basename = (Join-ValuesDashed @($FoggObject.Platform, $role))
+    $basename = (Join-ValuesDashed @($role))
 
     # ensure we don't have a vhd and an image
     if ($hasVhd -and $hasImage)
@@ -932,7 +932,7 @@ function Test-TemplateVM
     $osType = $mainOS.type
 
     # ensure the VM name is valid
-    $vmName = Get-FoggVMName -Name (Join-ValuesDashed @($FoggObject.Platform, $role)) -Index $_count
+    $vmName = Get-FoggVMName -Name (Join-ValuesDashed @($role)) -Index $_count
     Test-FoggVMName -OSType $osType -Name $vmName
 
     # ensure supplied zones are numeric, and location supports them
@@ -2443,7 +2443,7 @@ function New-DeployTemplateVNet
 
     $startTime = [DateTime]::UtcNow
     $role = $Template.role.ToLowerInvariant()
-    $basename = (Join-ValuesDashed @($FoggObject.Platform, $role))
+    $basename = (Join-ValuesDashed @($role))
 
     # VNet information
     $FoggObject.VirtualNetworkInfo.Add($role, @{})
@@ -2470,7 +2470,7 @@ function New-DeployTemplateVNet
 
         $vnetInfo.Subnets += @{
             'Name' = $snetName;
-            'Address' = $subnets[$_]
+            'Address' = $subnets[$_];
         }
     }
 
@@ -2510,7 +2510,7 @@ function New-DeployTemplateVM
 
     $role = $Template.role.ToLowerInvariant()
     $type = $Template.type.ToLowerInvariant()
-    $basename = (Join-ValuesDashed @($FoggObject.Platform, $role))
+    $basename = (Join-ValuesDashed @($role))
     $publicIpType = (?? $Template.publicIp 'none')
     $useManagedDisks = [bool]$Template.managed
     $subnet = (?? $Template.subnet "$($basename)-$($type)")
@@ -2704,7 +2704,7 @@ function New-DeployTemplateVPN
 
     $startTime = [DateTime]::UtcNow
     $role = $Template.role.ToLowerInvariant()
-    $basename = (Join-ValuesDashed @($FoggObject.Platform, $role))
+    $basename = (Join-ValuesDashed @($role))
 
     # VPN information
     $FoggObject.VPNInfo.Add($role, @{})

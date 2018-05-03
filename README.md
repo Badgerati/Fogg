@@ -103,11 +103,11 @@ This will tell Fogg to use the above template against your Subscription in Azure
 * Create a Storage Account called `euwbasicgblsa` (or `eu-w-basic-gbl-sa` for for the globally used storage account for Fogg)
 * Create a Virtual Network called `basic-vnet` for address `10.1.0.0/16`
 * Create a Subnet under the Virtual Network called `test-vm-snet` for address `10.1.0.0/24`
-* Create a Network Security Group called `test-nsg`
+* Create a Network Security Group called `basic-test-vm-nsg`
 * Create an Availability Set called `test-as`
 * A Virtual Machine called `test-vm1` will then be deployed under the `test-vm-snet` Subnet with a dynamic public IP address
 
-> Fogg typically names the created VMs using the following format: `<platform>-<role>-vm<index>`. Above we didn't specify a platform value, but we were deploying 1 VM for the test role, hence the name `test-vm1`, if we supplied a count of 2, we would have also gotten a `test-vm2`
+> Fogg typically names the created VMs using the following format: `<role>-vm<index>`. Above we're deploying 1 VM for the test role, hence the name `test-vm1`, if we supplied a count of 2, we would have also gotten a `test-vm2`
 
 To create a Foggfile of the above, stored at the root of the repo (can be else where as `-fp` lets you specify a path to a Foggfile on cli), would look like the following:
 
@@ -155,7 +155,7 @@ This will contain the names of resources like the VNETs, Subnets and VMs; to the
     };
     'VirtualMachineInfo' = @{
         'test' = @{
-            'Subnet' = @{ 
+            'Subnet' = @{
                 'Name' = 'test-vm-snet';
                 'Address' = '10.1.0.0/24';
             };
