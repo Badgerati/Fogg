@@ -156,6 +156,10 @@ param (
     [Alias('t')]
     $Tags,
 
+    [hashtable]
+    [Alias('args')]
+    $Arguments,
+
     [switch]
     [Alias('v')]
     $Version,
@@ -244,7 +248,7 @@ if (!(Test-PowerShellVersion 4)) {
 $FoggObjects = New-FoggObject -FoggRootPath $root -ResourceGroupName $ResourceGroupName -Location $Location -SubscriptionName $SubscriptionName `
     -SubnetAddresses $SubnetAddresses -TemplatePath $TemplatePath -FoggfilePath $FoggfilePath -SubscriptionCredentials $SubscriptionCredentials `
     -VMCredentials $VMCredentials -VNetAddress $VNetAddress -VNetResourceGroupName $VNetResourceGroupName -VNetName $VNetName -Tags $Tags `
-    -Platform $Platform -Environment $Environment -Provider 'Azure' -Stamp $Stamp -TenantId $TenantId
+    -Platform $Platform -Environment $Environment -Provider 'Azure' -Stamp $Stamp -TenantId $TenantId -Arguments $Arguments
 
 # Start timer
 $timer = [DateTime]::UtcNow
@@ -341,6 +345,7 @@ try {
     {
         # Retrieve the template for the current Group
         $template = Test-Files -FoggObject $FoggObject
+        $_args = $FoggObject.Arguments
 
         # Set the VM admin credentials, but only if we have VMs to create
         if (!$VMCredentialsSet -and (Test-TemplateHasType $template.template 'vm')) {
@@ -391,13 +396,13 @@ try {
                 $role = $vm.role.ToLowerInvariant()
                 $type = $vm.type.ToLowerInvariant()
                 $basename = (Join-ValuesDashed @($role, $type))
-                $subnetName = (?? $vm.subnet $basename)
+                $subnetName = (?? (Get-Replace $vm.subnet $role $_args) $basename)
                 $vnetBasename = ($vnet.Name -ireplace '-vnet', '')
                 $subnet = $FoggObject.SubnetAddressMap[$subnetName]
 
                 # Create network security group inbound/outbound rules
-                $rules = Add-FirewallRules -Firewall $vm.firewall -Subnets $FoggObject.SubnetAddressMap -CurrentRole $subnetName
-                $rules = Add-FirewallRules -Firewall $template.firewall -Subnets $FoggObject.SubnetAddressMap -CurrentRole $subnetName -Rules $rules
+                $rules = Add-FirewallRules -Firewall $vm.firewall -Subnets $FoggObject.SubnetAddressMap -Arguments $FoggObject.Arguments -Role $subnetName
+                $rules = Add-FirewallRules -Firewall $template.firewall -Subnets $FoggObject.SubnetAddressMap -Arguments $FoggObject.Arguments -Role $subnetName -Rules $rules
 
                 # Create network security group rules, and bind to VM
                 $nsg = New-FoggNetworkSecurityGroup -ResourceGroupName $vnet.ResourceGroupName -Location $vnet.Location `
@@ -417,12 +422,12 @@ try {
                 $role = $r.role.ToLowerInvariant()
                 $type = $r.type.ToLowerInvariant()
                 $basename = (Join-ValuesDashed @($FoggObject.Platform, $role, $type))
-                $subnetName = (?? $r.subnet $basename)
+                $subnetName = (?? (Get-Replace $r.subnet $role $_args) $basename)
                 $vnetBasename = ($vnet.Name -ireplace '-vnet', '')
                 $subnet = $FoggObject.SubnetAddressMap[$subnetName]
 
                 # Create network security group inbound whitelist rules
-                $rules = Add-FirewallWhitelistRules -Whitelist $r.whitelist -Subnets $FoggObject.SubnetAddressMap -CurrentRole $subnetName
+                $rules = Add-FirewallWhitelistRules -Whitelist $r.whitelist -Subnets $FoggObject.SubnetAddressMap -Arguments $FoggObject.Arguments -Role $subnetName
 
                 # Create network security group rules, and bind to the redis cache
                 $nsg = New-FoggNetworkSecurityGroup -ResourceGroupName $vnet.ResourceGroupName -Location $vnet.Location `
@@ -442,7 +447,7 @@ try {
                 $role = $vpn.role.ToLowerInvariant()
                 $type = $vm.type.ToLowerInvariant()
                 $basename = (Join-ValuesDashed @($role, $type))
-                $subnetName = (?? $vpn.subnet $basename)
+                $subnetName = (?? (Get-Replace $vpn.subnet $role $_args) $basename)
                 $subnet = $FoggObject.SubnetAddressMap[$subnetName]
                 $vnet = Add-FoggGatewaySubnetToVNet -ResourceGroupName $vnet.ResourceGroupName -VNetName $vnet.Name -Address $subnet
             }

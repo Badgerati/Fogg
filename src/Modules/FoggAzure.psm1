@@ -377,12 +377,17 @@ function New-FoggRedisCacheWhitelist
         $Name,
 
         [Parameter(Mandatory=$true)]
+        [hashtable]
         $Subnets,
+
+        [Parameter(Mandatory=$true)]
+        [hashtable]
+        $Arguments,
 
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
         [string]
-        $CurrentRole,
+        $Role,
 
         [Parameter()]
         $Whitelist
@@ -414,7 +419,7 @@ function New-FoggRedisCacheWhitelist
 
         # get the current range
         $range = $Whitelist[$rule]
-        $range = Get-ReplaceSubnet -Value $range -Subnets $Subnets -CurrentRole $CurrentRole
+        $range = Get-Replace -Value $range -Subnets $Subnets -Arguments $Arguments -Role $Role
 
         # see if we need to get subnet range from placeholder
         $subnetRange = Get-SubnetRange -SubnetMask $range
@@ -571,7 +576,8 @@ function Update-FoggRedisCache
         }
 
         $crole = ?? $subnetName (Join-ValuesDashed @($FoggObject.Platform, $Role, 'redis'))
-        New-FoggRedisCacheWhitelist -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Whitelist $Whitelist -Subnets $FoggObject.SubnetAddressMap -CurrentRole $crole
+        New-FoggRedisCacheWhitelist -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Whitelist $Whitelist `
+            -Subnets $FoggObject.SubnetAddressMap -Arguments $FoggObject.Arguments -Role $crole
     }
 
     # refetch the cache
@@ -677,7 +683,8 @@ function New-FoggRedisCache
         }
 
         $crole = ?? $subnetName (Join-ValuesDashed @($FoggObject.Platform, $Role, 'redis'))
-        New-FoggRedisCacheWhitelist -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Whitelist $Whitelist -Subnets $FoggObject.SubnetAddressMap -CurrentRole $crole
+        New-FoggRedisCacheWhitelist -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Whitelist $Whitelist `
+            -Subnets $FoggObject.SubnetAddressMap -Arguments $FoggObject.Arguments -Role $crole
     }
 
     Write-Success "Redis Cache $($Name) created at $($FoggObject.Location)`n"
@@ -1396,12 +1403,17 @@ function Add-FirewallRules
 {
     param (
         [Parameter(Mandatory=$true)]
+        [hashtable]
         $Subnets,
+
+        [Parameter(Mandatory=$true)]
+        [hashtable]
+        $Arguments,
 
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
         [string]
-        $CurrentRole,
+        $Role,
 
         $Firewall = $null,
 
@@ -1468,22 +1480,22 @@ function Add-FirewallRules
             'in'
                 {
                     $Rules += (New-FoggNetworkSecurityGroupRule -Name "$($portname)_IN" -Priority $priority -Direction 'Inbound' `
-                        -Source '*:*' -Destination "@{subnet}:$($port)" -Subnets $Subnets -CurrentRole $CurrentRole -Access $access)
+                        -Source '*:*' -Destination "@{subnet}:$($port)" -Subnets $Subnets -Arguments $Arguments -Role $Role -Access $access)
                 }
 
             'out'
                 {
                     $Rules += (New-FoggNetworkSecurityGroupRule -Name "$($portname)_OUT" -Priority $priority -Direction 'Outbound' `
-                        -Source '@{subnet}:*' -Destination "*:$($port)" -Subnets $Subnets -CurrentRole $CurrentRole -Access $access)
+                        -Source '@{subnet}:*' -Destination "*:$($port)" -Subnets $Subnets -Arguments $Arguments -Role $Role -Access $access)
                 }
 
             'both'
                 {
                     $Rules += (New-FoggNetworkSecurityGroupRule -Name "$($portname)_IN" -Priority $priority -Direction 'Inbound' `
-                        -Source '*:*' -Destination "@{subnet}:$($port)" -Subnets $Subnets -CurrentRole $CurrentRole -Access $access)
+                        -Source '*:*' -Destination "@{subnet}:$($port)" -Subnets $Subnets -Arguments $Arguments -Role $Role -Access $access)
 
                     $Rules += (New-FoggNetworkSecurityGroupRule -Name "$($portname)_OUT" -Priority $priority -Direction 'Outbound' `
-                        -Source '@{subnet}:*' -Destination "*:$($port)" -Subnets $Subnets -CurrentRole $CurrentRole -Access $access)
+                        -Source '@{subnet}:*' -Destination "*:$($port)" -Subnets $Subnets -Arguments $Arguments -Role $Role -Access $access)
                 }
         }
 
@@ -1496,7 +1508,7 @@ function Add-FirewallRules
     {
         $Firewall.inbound | ForEach-Object {
             $Rules += (New-FoggNetworkSecurityGroupRule -Name $_.name -Priority $_.priority -Direction 'Inbound' `
-                -Source $_.source -Destination $_.destination -Subnets $Subnets -CurrentRole $CurrentRole -Access $_.access)
+                -Source $_.source -Destination $_.destination -Subnets $Subnets -Arguments $Arguments -Role $Role -Access $_.access)
         }
     }
 
@@ -1505,7 +1517,7 @@ function Add-FirewallRules
     {
         $Firewall.outbound | ForEach-Object {
             $Rules += (New-FoggNetworkSecurityGroupRule -Name $_.name -Priority $_.priority -Direction 'Outbound' `
-                -Source $_.source -Destination $_.destination -Subnets $Subnets -CurrentRole $CurrentRole -Access $_.access)
+                -Source $_.source -Destination $_.destination -Subnets $Subnets -Arguments $Arguments -Role $Role -Access $_.access)
         }
     }
 
@@ -1517,12 +1529,17 @@ function Add-FirewallWhitelistRules
 {
     param (
         [Parameter(Mandatory=$true)]
+        [hashtable]
         $Subnets,
+
+        [Parameter(Mandatory=$true)]
+        [hashtable]
+        $Arguments,
 
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
         [string]
-        $CurrentRole,
+        $Role,
 
         $Whitelist = $null,
 
@@ -1550,7 +1567,7 @@ function Add-FirewallWhitelistRules
             $_rule = $Whitelist.$_
 
             $Rules += (New-FoggNetworkSecurityGroupRule -Name $_ -Priority $priority -Direction 'Inbound' `
-                -Source "$($_rule):*" -Destination "@{subnet}:$($port)" -Subnets $Subnets -CurrentRole $CurrentRole -Access 'Allow')
+                -Source "$($_rule):*" -Destination "@{subnet}:$($port)" -Subnets $Subnets -Arguments $Arguments -Role $Role -Access 'Allow')
 
             $priority++
         }
@@ -1624,12 +1641,17 @@ function New-FoggNetworkSecurityGroupRule
         $Destination,
 
         [Parameter(Mandatory=$true)]
+        [hashtable]
         $Subnets,
+
+        [Parameter(Mandatory=$true)]
+        [hashtable]
+        $Arguments,
 
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
         [string]
-        $CurrentRole,
+        $Role,
 
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
@@ -1643,12 +1665,12 @@ function New-FoggNetworkSecurityGroupRule
 
     # split down the source for IP and Port
     $source_split = ($Source -split ':')
-    $sourcePrefix = (Get-ReplaceSubnet -Value $source_split[0] -Subnets $Subnets -CurrentRole $CurrentRole) -ireplace ' ', ''
+    $sourcePrefix = (Get-Replace -Value $source_split[0] -Subnets $Subnets -Arguments $Arguments -Role $Role) -ireplace ' ', ''
     $sourcePort = Get-SubnetPort $source_split
 
     # split down the destination for IP and Port
     $dest_split = ($Destination -split ':')
-    $destPrefix = (Get-ReplaceSubnet -Value $dest_split[0] -Subnets $Subnets -CurrentRole $CurrentRole) -ireplace ' ', ''
+    $destPrefix = (Get-Replace -Value $dest_split[0] -Subnets $Subnets -Arguments $Arguments -Role $Role) -ireplace ' ', ''
     $destPort = Get-SubnetPort $dest_split
 
     # if it's an ip-range, get the subnet

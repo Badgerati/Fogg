@@ -119,12 +119,11 @@ function Get-FoggDefaultInt
         $Default = 1
     )
 
-    if ($Value -ne $null)
-    {
-        return $Value
+    if (Test-Empty $Value) {
+        return $Default
     }
 
-    return $Default
+    return $Value
 }
 
 function Join-ValuesDashed
@@ -537,6 +536,8 @@ function Test-TemplateRedis
         $Online
     )
 
+    $_args = $FoggObject.Arguments
+
     # get role
     $role = $Template.role.ToLowerInvariant()
     $type = $Template.type.ToLowerInvariant()
@@ -549,13 +550,14 @@ function Test-TemplateRedis
 
     # ensure the sku is valid
     $skus = @('Basic', 'Standard', 'Premium')
-    if ($skus -inotcontains $Template.sku)
+    $sku = (Get-Replace $Template.sku $role $_args)
+    if ($skus -inotcontains $sku)
     {
         throw "The $($role) Redis Cache sku supplied is invalid, valid values are: $($skus -join ', ')"
     }
 
     # ensure the shard count is valid
-    $shards = [int]$Template.shards
+    $shards = [int](Get-Replace $Template.shards $role $_args)
     if (!(Test-Empty $Template.shards) -and ($shards -lt 1 -or $shards -gt 10))
     {
         throw "The $($role) Redis Cache shard count is invalid, should be between 1-10"
@@ -594,10 +596,12 @@ function Test-TemplateRedis
     }
 
     # check certain args when sku is premium
-    if ($Template.sku -ieq 'premium')
+    $size = (Get-Replace $Template.size $role $_args)
+
+    if ($sku -ieq 'premium')
     {
         $sizes = @('P1', 'P2', 'P3', 'P4')
-        if ($sizes -inotcontains $Template.size)
+        if ($sizes -inotcontains $size)
         {
             throw "The $($role) Redis Cache size supplied is invalid for Premium caches, valid values are: $($sizes -join ', ')"
         }
@@ -607,7 +611,7 @@ function Test-TemplateRedis
     else
     {
         $sizes = @('C0', 'C1', 'C2', 'C3', 'C4', 'C5', 'C6', '250MB', '1GB', '2.5GB', '6GB', '13GB', '26GB', '53GB')
-        if ($sizes -inotcontains $Template.size)
+        if ($sizes -inotcontains $size)
         {
             throw "The $($role) Redis Cache size supplied is invalid for Basic and Standard caches, valid values are: $($sizes -join ', ')"
         }
@@ -626,7 +630,7 @@ function Test-TemplateRedis
     # if subnet is true, check we have a subnet for this redis cache
     if ($isPrivate -and $Online)
     {
-        $subnet = ?? $Template.subnet "$($basename)-$($type)"
+        $subnet = ?? (Get-Replace $Template.subnet $role $_args) "$($basename)-$($type)"
 
         if (!$FoggObject.SubnetAddressMap.ContainsKey($subnet))
         {
@@ -829,6 +833,8 @@ function Test-TemplateVM
         $Online
     )
 
+    $_args = $FoggObject.Arguments
+
     # is there an OS section?
     $hasOS = ($OS -ne $null)
     $hasVhd = ($Template.vhd -ne $null)
@@ -854,7 +860,7 @@ function Test-TemplateVM
     }
 
     # ensure that each VM object has a subnet map
-    $subnet = (?? $Template.subnet "$($basename)-$($type)")
+    $subnet = (?? (Get-Replace $Template.subnet $role $_args) "$($basename)-$($type)")
 
     if ($Online -and !$FoggObject.SubnetAddressMap.ContainsKey($subnet))
     {
@@ -862,7 +868,7 @@ function Test-TemplateVM
     }
 
     # ensure VM count is not negative/0
-    $_count = (Get-FoggDefaultInt -Value $Template.count -Default 1)
+    $_count = (Get-FoggDefaultInt -Value (Get-Replace $Template.count $role $_args) -Default 1)
 
     if ($_count -le 0)
     {
@@ -883,7 +889,9 @@ function Test-TemplateVM
 
     # ensure the publicIp value is valid
     $publicIps = @('none', 'static', 'dynamic')
-    if (!(Test-Empty $Template.publicIp) -and $publicIps -inotcontains $Template.publicIp)
+    $publicIp = (Get-Replace $Template.publicIp $role $_args)
+
+    if (!(Test-Empty $publicIp) -and $publicIps -inotcontains $publicIp)
     {
         throw "VM publicIp value for $($role) is invalid, should be: $($publicIps -join ', ')"
     }
@@ -1708,37 +1716,57 @@ function ConvertFrom-JsonObjectToMap
     return $map
 }
 
-function Get-ReplaceSubnet
+function Get-Replace
 {
     param (
-        [Parameter(Mandatory=$true)]
+        [Parameter()]
         [string]
         $Value,
 
         [Parameter(Mandatory=$true)]
-        $Subnets,
-
-        [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
         [string]
-        $CurrentRole
+        $Role,
+
+        [Parameter()]
+        [hashtable]
+        $Arguments = $null,
+
+        [Parameter()]
+        [hashtable]
+        $Subnets = $null
     )
 
-    $regex = '^@\{(?<key>.+?)(\|(?<value>.*?)){0,1}\}$'
-    if ($Value -imatch $regex)
+    if (Test-Empty $Value) {
+        return $Value
+    }
+
+    # regex to match on placeholders
+    $regex = '@\{(?<key>.+?)(\|(?<value>.*?)){0,1}\}'
+
+    # keep looping until there's no match
+    while ($Value -imatch $regex)
     {
-        $v = $Matches['value']
-        if ([string]::IsNullOrWhiteSpace($v))
-        {
-            $v = $CurrentRole
-        }
+        # should the value be defaulted to the role (mostly for subnets)
+        $v = (?? $Matches['value'] $Role)
 
-        if ($Matches['key'] -ine 'subnet' -or !$Subnets.Contains($v))
-        {
-            return $Value
-        }
+        switch ($Matches['key'].ToLowerInvariant()) {
+            'subnet' {
+                if ($Subnets -ne $null -and $Subnets.ContainsKey($v)) {
+                    $Value = ($Value -ireplace [Regex]::Escape($Matches[0]), $Subnets[$v])
+                }
+            }
 
-        return ($Value -ireplace [Regex]::Escape($Matches[0]), $Subnets[$v])
+            'args' {
+                if ($Arguments -ne $null -and $Arguments.ContainsKey($v)) {
+                    $Value = ($Value -ireplace [Regex]::Escape($Matches[0]), $Arguments[$v])
+                }
+            }
+
+            'role' {
+                $Value = ($Value -ireplace [Regex]::Escape($Matches[0]), $Role)
+            }
+        }
     }
 
     return $Value
@@ -1926,7 +1954,10 @@ function New-FoggObject
         $Stamp,
 
         [string]
-        $TenantId
+        $TenantId,
+
+        [hashtable]
+        $Arguments
     )
 
     $useFoggfile = $false
@@ -2002,7 +2033,7 @@ function New-FoggObject
         $group = New-FoggGroupObject -ResourceGroupName $ResourceGroupName -Location $Location `
             -SubnetAddresses $SubnetAddresses -TemplatePath $TemplatePath -FoggfilePath $FoggfilePath `
             -VNetAddress $VNetAddress -VNetResourceGroupName $VNetResourceGroupName -VNetName $VNetName `
-            -Platform $Platform -Environment $Environment -Provider $Provider -Stamp $Stamp
+            -Platform $Platform -Environment $Environment -Provider $Provider -Stamp $Stamp -Arguments $Arguments
 
         $group.ProvisionersPath = $provisionPath
         $foggObj.Groups += $group
@@ -2015,39 +2046,38 @@ function New-FoggObject
         $file = Get-JSONContent $FoggfilePath
 
         # check to see if we have a Groups array
-        if (Test-ArrayEmpty $file.Groups)
-        {
+        if (Test-ArrayEmpty $file.Groups) {
             throw 'Missing Groups array in Foggfile'
         }
 
         # check if we need to set the SubscriptionName from the file
-        if (Test-Empty $SubscriptionName)
-        {
+        if (Test-Empty $SubscriptionName) {
             $foggObj.SubscriptionName = $file.SubscriptionName
         }
 
         # check if we need to set the tags from the file
-        if (Test-Empty $Tags)
-        {
+        if (Test-Empty $Tags) {
             $foggObj.Tags = $file.Tags
         }
 
         # check if we need to set the platform from the file
-        if (Test-Empty $Platform)
-        {
+        if (Test-Empty $Platform) {
             $Platform = $file.Platform
         }
 
         # check if we need to set the environment from the file
-        if (Test-Empty $Environment)
-        {
+        if (Test-Empty $Environment) {
             $Environment = $file.Environment
         }
 
         # check if we need to set the provider from the file
-        if (Test-Empty $Provider)
-        {
+        if (Test-Empty $Provider) {
             $Provider = $file.Provider
+        }
+
+        # check if we need to set arguments from file
+        if (Test-Empty $Arguments) {
+            $Arguments = ConvertFrom-JsonObjectToMap $file.Arguments
         }
 
         # load the groups
@@ -2055,7 +2085,8 @@ function New-FoggObject
             $group = New-FoggGroupObject -ResourceGroupName $ResourceGroupName -Location $Location `
                 -SubnetAddresses $SubnetAddresses -TemplatePath $TemplatePath -FoggfilePath $FoggfilePath `
                 -VNetAddress $VNetAddress -VNetResourceGroupName $VNetResourceGroupName -VNetName $VNetName `
-                -Platform $Platform -Environment $Environment -Provider $Provider -Stamp $Stamp -FoggParameters $_
+                -Platform $Platform -Environment $Environment -Provider $Provider -Stamp $Stamp -Arguments $Arguments `
+                -FoggParameters $_
 
             $group.ProvisionersPath = $provisionPath
             $foggObj.Groups += $group
@@ -2113,6 +2144,9 @@ function New-FoggGroupObject
 
         [string]
         $Stamp,
+
+        [hashtable]
+        $Arguments,
 
         $FoggParameters = $null
     )
@@ -2214,6 +2248,7 @@ function New-FoggGroupObject
     $group.UseExistingVNet = (!(Test-Empty $VNetResourceGroupName) -and !(Test-Empty $VNetName))
     $group.UseGlobalVNet = ($group.UseExistingVNet -or !(Test-Empty $VNetAddress))
     $group.SubnetAddressMap = $SubnetAddresses
+    $group.Arguments = $Arguments
     $group.TemplatePath = $TemplatePath
     $group.TemplateParent = (Split-Path -Parent -Path $TemplatePath)
     $group.HasProvisionScripts = $false
@@ -2350,6 +2385,8 @@ function New-DeployTemplateRedis
         $VNet
     )
 
+    $_args = $FoggObject.Arguments
+
     $startTime = [DateTime]::UtcNow
     $role = $Template.role.ToLowerInvariant()
     $type = $Template.type.ToLowerInvariant()
@@ -2358,12 +2395,12 @@ function New-DeployTemplateRedis
     # template variables
     $nonSsl = [bool]$Template.nonSsl
     $isPrivate = [bool]$Template.private
-    $shards = (Get-FoggDefaultInt -Value $Template.shards -Default 1)
+    $shards = (Get-FoggDefaultInt -Value (Get-Replace $Template.shards $role $_args) -Default 1)
 
     # subnet info
     if ($isPrivate)
     {
-        $subnet = (?? $Template.subnet "$($basename)-$($type)")
+        $subnet = (?? (Get-Replace $Template.subnet $role $_args) "$($basename)-$($type)")
         $subnetPrefix = $FoggObject.SubnetAddressMap[$subnet]
         $subnetName = (Get-FoggSubnetName $subnet)
         $subnetObj = ($VNet.Subnets | Where-Object { $_.Name -ieq $subnetName -or $_.AddressPrefix -ieq $subnetPrefix } | Select-Object -First 1)
@@ -2389,8 +2426,11 @@ function New-DeployTemplateRedis
     }
 
     # create the redis cache
-    $redis = New-FoggRedisCache -FoggObject $FoggObject -Role $role -Size $Template.size -Sku $Template.sku `
-        -ShardCount $shards -Subnet $subnetObj -Configuration $config -Whitelist $whitelist -EnableNonSslPort:$nonSsl
+    $size = (Get-Replace $Template.size $role $_args)
+    $sku = (Get-Replace $Template.sku $role $_args)
+
+    $redis = New-FoggRedisCache -FoggObject $FoggObject -Role $role -Size $size -Sku $sku -ShardCount $shards `
+        -Subnet $subnetObj -Configuration $config -Whitelist $whitelist -EnableNonSslPort:$nonSsl
 
     # basic redis info
     $redisInfo.Add('Name', $redis.Name)
@@ -2525,12 +2565,14 @@ function New-DeployTemplateVM
         $VMCredentials
     )
 
+    $_args = $FoggObject.Arguments
+
     $role = $Template.role.ToLowerInvariant()
     $type = $Template.type.ToLowerInvariant()
     $basename = (Join-ValuesDashed @($role))
-    $publicIpType = (?? $Template.publicIp 'none')
+    $publicIpType = (?? (Get-Replace $Template.publicIp $role $_args) 'none')
     $useManagedDisks = [bool]$Template.managed
-    $subnet = (?? $Template.subnet "$($basename)-$($type)")
+    $subnet = (?? (Get-Replace $Template.subnet $role $_args) "$($basename)-$($type)")
     $subnetPrefix = $FoggObject.SubnetAddressMap[$subnet]
     $subnetName = (Get-FoggSubnetName $subnet)
     $subnetObj = ($VNet.Subnets | Where-Object { $_.Name -ieq $subnetName -or $_.AddressPrefix -ieq $subnetPrefix })
@@ -2570,7 +2612,7 @@ function New-DeployTemplateVM
         $useLoadBalancer = $false
     }
 
-    $_count = (Get-FoggDefaultInt -Value $Template.count -Default 1)
+    $_count = (Get-FoggDefaultInt -Value (Get-Replace $Template.count $role $_args) -Default 1)
     Write-Information "Deploying $($_count) VM(s) for the '$($role)' template"
 
     # create an availability set and, if VM count > 1, a load balancer

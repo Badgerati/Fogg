@@ -127,6 +127,8 @@ To create a Foggfile of the above, stored at the root of the repo (can be else w
 }
 ```
 
+> You can also supply a `Platform` (ie: admin) and `Environment` (ie: prod) values to a Foggfile/CLI. If you do, you may omit the Resource Group Name as Fogg will auto-generate a name for you in the format: `<loc>-<plat>-<env>-rg`. For example, using west-europe: `eu-w-admin-prod-rg`
+
 Note that the above leaves out the `SubscriptionName`, this is because the Foggfile at the root of a repo will mostly be used by your devs/QAs/etc. to spin-up the infrastructure in their MSDN Azure subscriptions. If the subscription name is the same for all, then you could add in the `"SubscriptionName": "<name>"` to the Foggfile (as a part of the main JSON object, not within the Groups objects); if left out Fogg will request it when called.
 
 Also note that if the path used for the `TemplatePath` is relative, it must be relative to the Foggfile's location.
