@@ -2529,12 +2529,14 @@ function New-FoggLoadBalancer
         $Name,
 
         [Parameter(Mandatory=$true)]
-        [int]
-        $Port,
+        [hashtable]
+        $Rules,
 
+        [Parameter()]
         [string]
         $SubnetId,
 
+        [Parameter()]
         [ValidateSet('None', 'Static', 'Dynamic')]
         [string]
         $PublicIpType
@@ -2545,71 +2547,105 @@ function New-FoggLoadBalancer
 
     Write-Information "Creating load balancer $($Name) in $($FoggObject.ResourceGroupName)"
 
+    # check public ip and subnet config
+    if (!$usePublicIp -and (Test-Empty $SubnetId)) {
+        throw "SubnetId required when creating a private internal load balancer: $($Name)"
+    }
+
     # check to see if the load balancer already exists
     $lb = Get-FoggLoadBalancer -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name
-    if ($lb -ne $null)
-    {
+    if ($lb -ne $null) {
         Write-Notice "Using existing load balancer for $($Name)`n"
         return $lb
     }
 
-    # create public IP address
-    if ($usePublicIp)
-    {
-        $pipId = (New-FoggPublicIpAddress -FoggObject $FoggObject -Name $Name -AllocationMethod $PublicIpType).Id
-    }
-    else
-    {
-        # if not subnetId, fail
-        if (Test-Empty $SubnetId)
-        {
-            throw "SubnetId required when create private internal load balancer: $($Name)"
-        }
-    }
-
-    # create frontend config
-    $frontendName = Get-FoggLoadBalancerFrontendName $Name
-    if ($usePublicIp)
-    {
-        $front = New-AzureRmLoadBalancerFrontendIpConfig -Name $frontendName -PublicIpAddressId $pipId
-    }
-    else
-    {
-        $front = New-AzureRmLoadBalancerFrontendIpConfig -Name $frontendName -SubnetId $SubnetId
-    }
-
-    if (!$?)
-    {
-        throw "Failed to create frontend IP config for $($Name)"
-    }
-
     # create backend config
     $back = New-AzureRmLoadBalancerBackendAddressPoolConfig -Name (Get-FoggLoadBalancerBackendName $Name)
-    if (!$?)
-    {
+    if (!$?) {
         throw "Failed to create backend IP config for $($Name)"
     }
 
-    # create health probe
-    $health = New-AzureRmLoadBalancerProbeConfig -Name (Get-FoggLoadBalancerProbeName $Name) -Protocol Tcp -Port $Port -IntervalInSeconds 5 -ProbeCount 2
-    if (!$?)
-    {
-        throw "Failed to create frontend Health Probe for $($Name)"
+    # create the frontend configs for each frontend rule defined
+    $_frontends = @{}
+
+    foreach ($k in $Rules.Keys) {
+        $_subname = "$($Name)-$($Rules[$k].Frontend.Name)"
+        $_name = Get-FoggLoadBalancerFrontendName $_subname
+
+        # only need to create frontend once
+        if ($_frontends.ContainsKey($Rules[$k].Frontend.Name)) {
+            continue
+        }
+
+        # create public address and front end
+        Write-Information "> Creating Frontend: $($_name)"
+
+        if ($usePublicIp) {
+            $pip = New-FoggPublicIpAddress -FoggObject $FoggObject -Name $_subname -AllocationMethod $PublicIpType
+            $front = New-AzureRmLoadBalancerFrontendIpConfig -Name $_name -PublicIpAddressId $pip.Id
+            $Rules[$k].Frontend.PublicIP = $pip.IpAddress
+        }
+        else {
+            $front = New-AzureRmLoadBalancerFrontendIpConfig -Name $_name -SubnetId $SubnetId
+        }
+
+        if (!$?) {
+            throw "Failed to create frontend IP config for $($Name)"
+        }
+
+        # add to list
+        $Rules[$k].Frontend.PrivateIP = $front.PrivateIpAddress
+        $_frontends.Add($Rules[$k].Frontend.Name, $front)
     }
 
-    # create balancer rules
-    $rule = New-AzureRmLoadBalancerRuleConfig -Name (Get-FoggLoadBalancerRuleName $Name) -FrontendIpConfiguration $front `
-        -BackendAddressPool $back -Probe $health -Protocol Tcp -FrontendPort $Port -BackendPort $Port
-    if (!$?)
-    {
-        throw "Failed to create front end Rule for $($Name)"
+    # create rules and probes
+    $_rules = @()
+    $_probes = @()
+
+    foreach ($k in $Rules.Keys) {
+        # do we need a default probe?
+        if ($Rules[$k].Probe -eq $null) {
+            $Rules[$k].Probe = @{
+                'Port' = $Rules[$k].Port;
+                'Interval' = 5;
+                'Threshold' = 2;
+            }
+        }
+
+        # create probe
+        $_probeName = (Get-FoggLoadBalancerProbeName "$($Name)-$($k)")
+        Write-Information "> Creating Probe: $($_probeName)"
+
+        $_probe = New-AzureRmLoadBalancerProbeConfig -Name $_probeName -Protocol Tcp -Port $Rules[$k].Probe.Port `
+            -IntervalInSeconds $Rules[$k].Probe.Interval -ProbeCount $Rules[$k].Probe.Threshold
+
+        if (!$?) {
+            throw "Failed to create frontend Health Probe for $($Name) on Rule $($k)"
+        }
+
+        # create rule
+        $_ruleName = (Get-FoggLoadBalancerRuleName "$($Name)-$($k)")
+        $_float = [bool]($Rules[$k].Floating)
+        Write-Information "> Creating Rule: $($_ruleName)"
+
+        $_rule = New-AzureRmLoadBalancerRuleConfig -Name $_ruleName -FrontendIpConfiguration $_frontends[$Rules[$k].Frontend.Name] `
+            -BackendAddressPool $back -Probe $_probe -Protocol Tcp -FrontendPort $Rules[$k].Port -BackendPort $Rules[$k].Port `
+            -IdleTimeoutInMinutes $Rules[$k].Timeout -EnableFloatingIP:$_float
+
+        if (!$?) {
+            throw "Failed to create Rule for $($Name)"
+        }
+
+        # add to rule/probe collections
+        $_probes += $_probe
+        $_rules += $_rule
     }
 
     # create the load balancer
     $lb = New-AzureRmLoadBalancer -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Location $FoggObject.Location `
-        -FrontendIpConfiguration $front -BackendAddressPool $back -LoadBalancingRule $rule -Probe $health -Sku Standard
-    if (!$?)
-    {
+        -FrontendIpConfiguration @($_frontends.Values) -BackendAddressPool $back -LoadBalancingRule $_rules -Probe $_probes -Sku Standard
+
+    if (!$?) {
         throw "Failed to create $($Name) load balancer"
     }
 
@@ -3608,13 +3644,18 @@ function New-FoggPublicIpAddress
         return $pip
     }
 
+    $sku = 'Standard'
+    if ($AllocationMethod -ieq 'dynamic') {
+        $sku = 'Basic'
+    }
+
     if (!(Test-Empty $Zone)) {
         $pip = New-AzureRmPublicIpAddress -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Location $FoggObject.Location `
-            -AllocationMethod $AllocationMethod -Zone $Zone -Force -Sku Standard
+            -AllocationMethod $AllocationMethod -Zone $Zone -Force -Sku $sku
     }
     else {
         $pip = New-AzureRmPublicIpAddress -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Location $FoggObject.Location `
-            -AllocationMethod $AllocationMethod -Force -Sku Standard
+            -AllocationMethod $AllocationMethod -Force -Sku $sku
     }
 
     if (!$?) {

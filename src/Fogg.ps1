@@ -69,6 +69,11 @@
         (Optional) This is a map of tags to set/update against each resource within the created resource group. The tags
         against the resource group are also set/updated.
 
+    .PARAMETER Arguments
+        (Optional) Hashtable of arguments that can be used on some parameters in a template file, these are usually
+        defined by using: `"count": "@{args|web-vm-count}"`, which lets you pass in the number of web VMs to create
+        from the CLI.
+
     .PARAMETER Version
         Switch parameter, if passed will display the current version of Fogg and end execution
 

@@ -82,7 +82,7 @@ This simple example will just spin-up one VM. The first thing you will need is a
 
 The above template will be used by Fogg to deploy one public Windows 2016 VM. You will notice the `count` value, changing this to 2, 3 or more will deploy 2, 3 or more of this VM type. If you don't supply a `count` then just 1 VM will be deployed
 
-> Note: if you deploy a VM type with a `count > 1`, Fogg will automatically load balance your VMs for you, this can be disabled via: `"loadBalance": false`, though you will still get an availability set
+> Fogg will always put VMs into Availability Sets, or Zones if you supply Availability Zones. This can be disabled via `"availabilitySet": false`, and not suppling any zones
 
 The `role` and `type` values for template objects are mandatory. the `role` can be any unique alphanumeric string, and the `type` value can only be one of either `vm`, `vpn`, `vnet`, `redis` or `sa`.
 
