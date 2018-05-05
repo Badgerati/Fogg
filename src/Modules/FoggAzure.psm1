@@ -381,13 +381,13 @@ function New-FoggRedisCacheWhitelist
         $Subnets,
 
         [Parameter(Mandatory=$true)]
-        [hashtable]
-        $Arguments,
-
-        [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
         [string]
         $Role,
+
+        [Parameter()]
+        [hashtable]
+        $Arguments,
 
         [Parameter()]
         $Whitelist
@@ -1407,16 +1407,18 @@ function Add-FirewallRules
         $Subnets,
 
         [Parameter(Mandatory=$true)]
-        [hashtable]
-        $Arguments,
-
-        [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
         [string]
         $Role,
 
+        [Parameter()]
+        [hashtable]
+        $Arguments,
+
+        [Parameter()]
         $Firewall = $null,
 
+        [Parameter()]
         [array]
         $Rules = @()
     )
@@ -1533,16 +1535,18 @@ function Add-FirewallWhitelistRules
         $Subnets,
 
         [Parameter(Mandatory=$true)]
-        [hashtable]
-        $Arguments,
-
-        [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
         [string]
         $Role,
 
+        [Parameter()]
+        [hashtable]
+        $Arguments,
+
+        [Parameter()]
         $Whitelist = $null,
 
+        [Parameter()]
         [array]
         $Rules = @()
     )
@@ -1645,10 +1649,6 @@ function New-FoggNetworkSecurityGroupRule
         $Subnets,
 
         [Parameter(Mandatory=$true)]
-        [hashtable]
-        $Arguments,
-
-        [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
         [string]
         $Role,
@@ -1658,6 +1658,11 @@ function New-FoggNetworkSecurityGroupRule
         [string]
         $Access,
 
+        [Parameter()]
+        [hashtable]
+        $Arguments,
+
+        [Parameter()]
         [ValidateNotNullOrEmpty()]
         [string]
         $Protocol = 'Tcp'
