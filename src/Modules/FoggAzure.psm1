@@ -1424,8 +1424,7 @@ function Add-FirewallRules
     )
 
     # if there are no firewall rules, return
-    if ($Firewall -eq $null)
-    {
+    if ($Firewall -eq $null) {
         return $Rules
     }
 
@@ -1434,34 +1433,30 @@ function Add-FirewallRules
     $keys = $Firewall.psobject.properties.name
     $regex = '^(?<name>.+?)(\|(?<direction>in|out|both)){0,1}$'
 
-    if (Test-Empty $Rules)
-    {
+    if (Test-Empty $Rules) {
         $priority = 3500
     }
-    else
-    {
+    else {
         $priority = 3750
     }
 
     foreach ($key in $keys)
     {
         # if key doesnt match regex, continue to next
-        if ($key -inotmatch $regex)
-        {
+        if ($key -inotmatch $regex) {
             continue
         }
 
         # set port name and direction (default to inbound)
         $portname = $Matches['name'].ToLowerInvariant()
         $direction = 'in'
-        if (!(Test-Empty $Matches['direction']))
-        {
+
+        if (!(Test-Empty $Matches['direction'])) {
             $direction = $Matches['direction'].ToLowerInvariant()
         }
 
         # if custom in/outbound, or port doesnt exist, continue
-        if ($portname -ieq 'inbound' -or $portname -ieq 'outbound' -or !$portMap.ContainsKey($portname))
-        {
+        if ($portname -ieq 'inbound' -or $portname -ieq 'outbound' -or !$portMap.ContainsKey($portname)) {
             continue
         }
 
@@ -1471,34 +1466,30 @@ function Add-FirewallRules
 
         # are we allowing or denying?
         $access = 'Allow'
-        if ([bool]($Firewall.$key) -eq $false)
-        {
+        if ([bool]($Firewall.$key) -eq $false) {
             $access = 'Deny'
         }
 
         # add rule(s) for desired direction
         switch ($direction)
         {
-            'in'
-                {
-                    $Rules += (New-FoggNetworkSecurityGroupRule -Name "$($portname)_IN" -Priority $priority -Direction 'Inbound' `
-                        -Source '*:*' -Destination "@{subnet}:$($port)" -Subnets $Subnets -Arguments $Arguments -Role $Role -Access $access)
-                }
+            'in' {
+                $Rules += (New-FoggNetworkSecurityGroupRule -Name "$($portname)_IN" -Priority $priority -Direction 'Inbound' `
+                    -Source '*:*' -Destination "@{subnet}:$($port)" -Subnets $Subnets -Arguments $Arguments -Role $Role -Access $access)
+            }
 
-            'out'
-                {
-                    $Rules += (New-FoggNetworkSecurityGroupRule -Name "$($portname)_OUT" -Priority $priority -Direction 'Outbound' `
-                        -Source '@{subnet}:*' -Destination "*:$($port)" -Subnets $Subnets -Arguments $Arguments -Role $Role -Access $access)
-                }
+            'out' {
+                $Rules += (New-FoggNetworkSecurityGroupRule -Name "$($portname)_OUT" -Priority $priority -Direction 'Outbound' `
+                    -Source '@{subnet}:*' -Destination "*:$($port)" -Subnets $Subnets -Arguments $Arguments -Role $Role -Access $access)
+            }
 
-            'both'
-                {
-                    $Rules += (New-FoggNetworkSecurityGroupRule -Name "$($portname)_IN" -Priority $priority -Direction 'Inbound' `
-                        -Source '*:*' -Destination "@{subnet}:$($port)" -Subnets $Subnets -Arguments $Arguments -Role $Role -Access $access)
+            'both' {
+                $Rules += (New-FoggNetworkSecurityGroupRule -Name "$($portname)_IN" -Priority $priority -Direction 'Inbound' `
+                    -Source '*:*' -Destination "@{subnet}:$($port)" -Subnets $Subnets -Arguments $Arguments -Role $Role -Access $access)
 
-                    $Rules += (New-FoggNetworkSecurityGroupRule -Name "$($portname)_OUT" -Priority $priority -Direction 'Outbound' `
-                        -Source '@{subnet}:*' -Destination "*:$($port)" -Subnets $Subnets -Arguments $Arguments -Role $Role -Access $access)
-                }
+                $Rules += (New-FoggNetworkSecurityGroupRule -Name "$($portname)_OUT" -Priority $priority -Direction 'Outbound' `
+                    -Source '@{subnet}:*' -Destination "*:$($port)" -Subnets $Subnets -Arguments $Arguments -Role $Role -Access $access)
+            }
         }
 
         # increment priority
@@ -1975,6 +1966,106 @@ function Add-FoggGatewaySubnetToVNet
     return $vnet
 }
 
+function Update-FoggSubnetOnVNet
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $ResourceGroupName,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $VNetName,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $SubnetName,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Address,
+
+        [Parameter()]
+        $NetworkSecurityGroup = $null
+    )
+
+    $ResourceGroupName = (Get-FoggResourceGroupName $ResourceGroupName)
+    $VNetName = (Get-FoggVirtualNetworkName $VNetName)
+    $SubnetName = (Get-FoggSubnetName $SubnetName)
+    $changes = $false
+
+    # get the existing vnet and subnet
+    $vnet = Get-FoggVirtualNetwork -ResourceGroupName $ResourceGroupName -Name $VNetName
+    if ($vnet -eq $null)
+    {
+        return
+    }
+
+    $snet = ($vnet.Subnets | Where-Object { $_.Name -ieq $SubnetName -or $_.AddressPrefix -ieq $Address } | Select-Object -First 1)
+
+    Write-Information "Updating Subnet $($SubnetName) on Virtual Network $($VNetName)"
+
+    # has the address changed?
+    if ($snet.AddressPrefix -ine $Address)  {
+        Write-Information "> Updating address to $($Address)"
+        $changes = $true
+    }
+
+    # has the NSG changed?
+    $_nsgId = $null
+    if ($snet.NetworkSecurityGroup -ne $null) {
+        $_nsgId = $snet.NetworkSecurityGroup.Id
+    }
+
+    $_newNsgId = $null
+    if ($NetworkSecurityGroup -ne $null) {
+        $_newNsgId = $NetworkSecurityGroup.Id
+    }
+
+    if ($_nsgId -ine $_newNsgId) {
+        if (Test-Empty $_newNsgId) {
+            Write-Information "> Removing Network Security Group"
+        }
+        else {
+            $nsgName = Get-NameFromAzureId $_newNsgId
+            Write-Information "> Updating Network Security Group to $($nsgName)"
+        }
+
+        $changes = $true
+    }
+
+    # save possible changes
+    if ($changes) {
+        Set-AzureRmVirtualNetworkSubnetConfig -Name $SubnetName -VirtualNetwork $vnet -AddressPrefix $Address `
+            -NetworkSecurityGroup $NetworkSecurityGroup | Out-Null
+
+        if (!$?) {
+            throw "Failed to update the subnet $($SubnetName)"
+        }
+    }
+
+    # attempt to save the vnet
+    $output = Set-AzureRmVirtualNetwork -VirtualNetwork $VNet
+    if (!$?)
+    {
+        throw "Failed to update the virtual network with updated subnet: $($output)"
+    }
+
+    # re-retrieve the vnet for updated object
+    $VNet = Get-FoggVirtualNetwork -ResourceGroupName $ResourceGroupName -Name $VNetName
+    if (!$?)
+    {
+        throw "Failed to re-get Virtual Network $($VNetName) in $($ResourceGroupName)"
+    }
+
+    # return vnet
+    Write-Success "Virtual Subnet $($SubnetName) updated`n"
+    return $VNet
+}
 
 function Add-FoggSubnetToVNet
 {
@@ -1999,6 +2090,7 @@ function Add-FoggSubnetToVNet
         [string]
         $Address,
 
+        [Parameter()]
         $NetworkSecurityGroup = $null
     )
 
@@ -2010,52 +2102,44 @@ function Add-FoggSubnetToVNet
 
     # get the vnet first
     $VNet = Get-FoggVirtualNetwork -ResourceGroupName $ResourceGroupName -Name $VNetName
-    if (!$?)
-    {
+    if (!$?) {
         throw "Failed to get Virtual Network $($VNetName) in $($ResourceGroupName)"
     }
 
-    # ensure the vnet doesn't already have the subnet config
-    if (($VNet.Subnets | Where-Object { $_.Name -ieq $SubnetName } | Measure-Object).Count -gt 0)
-    {
-        Write-Notice "Subnet $($SubnetName) already exists against $($VNetName)`n"
-        return $VNet
-    }
+    # ensure the vnet doesn't already have the subnet config (if so, update)
+    $snet = ($VNet.Subnets | Where-Object { $_.Name -ieq $SubnetName -or $_.AddressPrefix -ieq $Address })
 
-    if (($VNet.Subnets | Where-Object { $_.AddressPrefix -ieq $Address } | Measure-Object).Count -gt 0)
+    if ((Get-Count $snet) -gt 0)
     {
-        Write-Notice "Subnet with address $($Address) already exists against $($VNetName)`n"
+        Write-Notice "Subnet $($SubnetName) already exists on Virtual Network`n"
+        $VNet = Update-FoggSubnetOnVNet -ResourceGroupName $ResourceGroupName -VNetName $VNetName -SubnetName $SubnetName `
+            -Address $Address -NetworkSecurityGroup $NetworkSecurityGroup
         return $VNet
     }
 
     # attempt to add subnet to the vnet
-    if ($NetworkSecurityGroup -eq $null)
-    {
+    if ($NetworkSecurityGroup -eq $null) {
         $output = Add-AzureRmVirtualNetworkSubnetConfig -Name $SubnetName -VirtualNetwork $VNet `
             -AddressPrefix $Address
     }
-    else
-    {
+    else {
         $output = Add-AzureRmVirtualNetworkSubnetConfig -Name $SubnetName -VirtualNetwork $VNet `
             -AddressPrefix $Address -NetworkSecurityGroup $NetworkSecurityGroup
     }
 
-    if (!$?)
-    {
+    if (!$?) {
         throw "Failed to add subnet to virtual network: $($output)"
     }
 
     # attempt to save the vnet
     $output = Set-AzureRmVirtualNetwork -VirtualNetwork $VNet
-    if (!$?)
-    {
+    if (!$?) {
         throw "Failed to update the virtual network with new subnet: $($output)"
     }
 
     # re-retrieve the vnet for updated object
     $VNet = Get-FoggVirtualNetwork -ResourceGroupName $ResourceGroupName -Name $VNetName
-    if (!$?)
-    {
+    if (!$?) {
         throw "Failed to re-get Virtual Network $($VNetName) in $($ResourceGroupName)"
     }
 
@@ -3502,39 +3586,66 @@ function Update-FoggNetworkInterface
     $nic = Get-FoggNetworkInterface -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name
     if ($nic -eq $null)
     {
-        return
+        return $null
     }
 
     Write-Information "Updating Network Interface $($Name) in resource group $($FoggObject.ResourceGroupName)"
 
-    # assign Public IP if one doesn't already exist
-    if (!(Test-Empty $PublicIpId) -and $nic.IpConfigurations[0].PublicIpAddress -eq $null)
-    {
-        $pipName = Get-NameFromAzureId $PublicIpId
-        $pip = Get-FoggPublicIpAddress -ResourceGroupName $FoggObject.ResourceGroupName -Name $pipName
+    # assign Public IP if one doesn't already exist, is different, or needs to be removed
+    $_pipId = $null
+    if ($nic.IpConfigurations[0].PublicIpAddress -ne $null) {
+        $_pipId = $nic.IpConfigurations[0].PublicIpAddress.Id
+    }
 
-        Write-Information "> Updating $($Name) with Public IP $($pipName)"
+    if ($_pipId -ine $PublicIpId)
+    {
+        $pip = $null
+
+        if (Test-Empty $PublicIpId) {
+            Write-Information "> Removing Public IP"
+        }
+        else {
+            $pipName = Get-NameFromAzureId $PublicIpId
+            $pip = Get-FoggPublicIpAddress -ResourceGroupName $FoggObject.ResourceGroupName -Name $pipName
+            Write-Information "> Updating Public IP to $($pipName)"
+        }
+
         $nic.IpConfigurations[0].PublicIpAddress = $pip
         $changes = $true
     }
 
-    # assign NSG if one doesn't already exist
-    if (!(Test-Empty $NetworkSecurityGroupId) -and $nic.NetworkSecurityGroup -eq $null)
-    {
-        $nsgName = Get-NameFromAzureId $NetworkSecurityGroupId
-        $nsg = Get-FoggNetworkSecurityGroup -ResourceGroupName $FoggObject.ResourceGroupName -Name $nsgName
+    # assign NSG if one doesn't already exist, is different, or needs removing
+    $_nsgId = $null
+    if ($nic.NetworkSecurityGroup -ne $null) {
+        $_nsgId = $nic.NetworkSecurityGroup.Id
+    }
 
-        Write-Information "> Updating $($Name) with NSG $($nsg)"
+    if ($_nsgId -ine $NetworkSecurityGroupId)
+    {
+        $nsg = $null
+
+        if (Test-Empty $NetworkSecurityGroupId) {
+            Write-Information "> Removing Network Security Group"
+        }
+        else {
+            $nsgName = Get-NameFromAzureId $NetworkSecurityGroupId
+            $nsg = Get-FoggNetworkSecurityGroup -ResourceGroupName $FoggObject.ResourceGroupName -Name $nsgName
+            Write-Information "> Updating Network Security Group to $($nsgName)"
+        }
+
         $nic.NetworkSecurityGroup = $nsg
         $changes = $true
     }
 
     # save possible changes
-    if ($changes)
-    {
+    if ($changes) {
         Set-AzureRmNetworkInterface -NetworkInterface $nic | Out-Null
-        Write-Success "Network Interface $($Name) updated"
+        if (!$?) {
+            throw "Failed to update the NIC $($Name)"
+        }
     }
+
+    Write-Success "Network Interface $($Name) updated"
 
     # return the updated NIC
     return (Get-FoggNetworkInterface -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name)
@@ -3555,19 +3666,16 @@ function Get-FoggPublicIpAddresses
     try
     {
         $pips = Get-AzureRmPublicIpAddress -ResourceGroupName $ResourceGroupName
-        if (!$?)
-        {
+        if (!$?) {
             throw "Failed to make Azure call to retrieve Public IP Addresses in $($ResourceGroupName)"
         }
     }
     catch [exception]
     {
-        if ($_.Exception.Message -ilike '*was not found*')
-        {
+        if ($_.Exception.Message -ilike '*was not found*') {
             $pips = $null
         }
-        else
-        {
+        else {
             throw
         }
     }
@@ -3710,8 +3818,9 @@ function Update-FoggPublicIpAddress
     # save changes
     if ($changes) {
         Set-AzureRmPublicIpAddress -PublicIpAddress $pip | Out-Null
-        Write-Success "Public IP $($Name) updated"
     }
+
+    Write-Success "Public IP $($Name) updated"
 
     # return the updated ip
     return (Get-FoggPublicIpAddress -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name)

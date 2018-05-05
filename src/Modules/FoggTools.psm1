@@ -2465,7 +2465,7 @@ function New-DeployTemplateVNet
     $vnetInfo.Add('Address', $Template.address)
     $vnetInfo.Add('Subnets', @())
 
-    Write-Information "Deploying VNet for the '$($role)' template"
+    Write-Information "Deploying Virtual Network for the '$($role)' template"
 
     # create the virtual network
     $vnet = New-FoggVirtualNetwork -ResourceGroupName $FoggObject.ResourceGroupName -Name $basename `
@@ -2489,7 +2489,7 @@ function New-DeployTemplateVNet
     }
 
     # output the time taken to create VNet
-    Write-Duration $startTime -PreText 'VNet Duration'
+    Write-Duration $startTime -PreText 'Virtual Network Duration'
     Write-Host ([string]::Empty)
 }
 

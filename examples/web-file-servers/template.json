@@ -9,8 +9,12 @@
                 "web"
             ],
             "publicIp": "dynamic",
-            "loadBalance": true,
-            "port": 80,
+            "loadBalancer": {
+                "rules": {
+                    "name": "http",
+                    "port": 80
+                }
+            },
             "firewall": {
                 "http": true
             }
