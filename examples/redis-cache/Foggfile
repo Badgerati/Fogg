@@ -1,0 +1,15 @@
+{
+    "SubscriptionName": "<SUB_NAME_HERE>",
+    "Groups": [
+        {
+            "ResourceGroupName": "redis-cache-rg",
+            "Location": "westeurope",
+            "TemplatePath": ".\\template.json",
+            "VNetAddress": "10.20.0.0/16",
+            "SubnetAddresses": {
+                "sessions-redis": "10.20.0.0/24",
+                "app-vm": "10.20.1.0/24"
+            }
+        }
+    ]
+}

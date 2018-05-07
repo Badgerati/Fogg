@@ -432,7 +432,8 @@ try {
                 $subnet = $FoggObject.SubnetAddressMap[$subnetName]
 
                 # Create network security group inbound whitelist rules
-                $rules = Add-FirewallWhitelistRules -Whitelist $r.whitelist -Subnets $FoggObject.SubnetAddressMap -Arguments $FoggObject.Arguments -Role $subnetName
+                $rules = Add-FirewallWhitelistRules -Whitelist $r.whitelist -Subnets $FoggObject.SubnetAddressMap `
+                    -Arguments $FoggObject.Arguments -Role $subnetName
 
                 # Create network security group rules, and bind to the redis cache
                 $nsg = New-FoggNetworkSecurityGroup -ResourceGroupName $vnet.ResourceGroupName -Location $vnet.Location `

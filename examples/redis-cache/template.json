@@ -1,0 +1,16 @@
+{
+    "template": [
+        {
+            "type": "redis",
+            "role": "sessions",
+            "sku": "Premium",
+            "size": "P1",
+            "shards": 1,
+            "subnet": true,
+            "whitelist": {
+                "direct": "10.10.1.1 - 10.10.1.9",
+                "dynamic": "@{subnet|app-vm}"
+            }
+        }
+    ]
+}
