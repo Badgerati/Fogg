@@ -916,6 +916,121 @@ function Publish-FoggDscScript
     Write-Success "DSC script published`n"
 }
 
+function Set-ExtensionVM
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        $FoggObject,
+
+        [Parameter(Mandatory=$true)]
+        $Extensions,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $VMName,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Role,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $OSType
+    )
+
+    # check if there are any extensions
+    if (!$FoggObject.HasExtensions -or (Test-Empty $Extensions))
+    {
+        return
+    }
+
+    # loop through each extension and install appropriately
+    $Extensions.psobject.properties.name | ForEach-Object {
+        switch ($_.ToLowerInvariant()) {
+            'chef' {
+                Set-ExtensionVMChef -FoggObject $FoggObject -Extension $Extensions.$_ -VMName $VMName -Role $Role -OSType $OSType
+            }
+        }
+    }
+}
+
+function Set-ExtensionVMChef
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        $FoggObject,
+
+        [Parameter(Mandatory=$true)]
+        $Extension,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $VMName,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Role,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $OSType
+    )
+
+    Write-Information "Installing Chef Extension on VM $($VMName)"
+
+    # replace any placeholders
+    $chef_url = Get-Replace -Value $Extension.url -Arguments $FoggObject.Arguments -Role $Role
+    $chef_ver = Get-Replace -Value $Extension.version -Arguments $FoggObject.Arguments -Role $Role
+    $chef_intvl = Get-Replace -Value $Extension.interval -Arguments $FoggObject.Arguments -Role $Role
+    $val_pem = Get-Replace -Value $Extension.validation.pem -Arguments $FoggObject.Arguments -Role $Role
+    $val_name = Get-Replace -Value $Extension.validation.name -Arguments $FoggObject.Arguments -Role $Role
+
+    if (!(Test-Empty $Extension.runlist)) {
+        $runlist = ($Extension.runlist -join ', ')
+        $runlist = Get-Replace -Value $runlist -Arguments $FoggObject.Arguments -Role $Role
+    }
+
+    # default any variables not supplied
+    $chef_intvl = (?? $chef_intvl '30')
+    $chef_ver = (?? $chef_ver $null)
+    $runlist = (?? $runlist "")
+
+    switch ($OSType.ToLowerInvariant()) {
+        'windows' {
+            $output = Set-AzureRmVMChefExtension -ResourceGroupName $FoggObject.ResourceGroupName -VMName $VMName -ValidationPem $val_pem `
+                -RunList $runlist -ChefServerUrl $chef_url -ValidationClientName $val_name -Location $FoggObject.Location `
+                -ChefDaemonInterval $chef_intvl -BootstrapVersion $chef_ver -AutoUpgradeMinorVersion $true -Windows -ErrorAction 'Continue'
+        }
+
+        'linux' {
+            $output = Set-AzureRmVMChefExtension -ResourceGroupName $FoggObject.ResourceGroupName -VMName $VMName -ValidationPem $val_pem `
+                -RunList $runlist -ChefServerUrl $chef_url -ValidationClientName $val_name -Location $FoggObject.Location `
+                -ChefDaemonInterval $chef_intvl -BootstrapVersion $chef_ver -AutoUpgradeMinorVersion $true -Linux -ErrorAction 'Continue'
+        }
+    }
+
+    if ($output -eq $null -or !$output.IsSuccessStatusCode)
+    {
+        $err = 'An unexpected error occurred, this usually happens when Internet connectivity is lost'
+
+        if ($output -ne $null)
+        {
+            $err = $output.ReasonPhrase
+        }
+
+        throw "Failed to install the Chef Extension on VM $($VMName):`n$($err)"
+    }
+
+    Write-Success "Chef Extension installed`n"
+}
 
 function Set-ProvisionVM
 {
@@ -1009,7 +1124,6 @@ function Set-ProvisionVM
         }
     }
 }
-
 
 function Set-FoggDscConfig
 {

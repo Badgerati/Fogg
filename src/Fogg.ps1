@@ -222,6 +222,9 @@ function Test-Files
     # Check that the Provisioner script paths exist
     Test-Provisioners -FoggObject $FoggObject -Paths $template.provisioners
 
+    # check that the extensions values are valid
+    Test-Extensions -FoggObject $FoggObject -Extensions $template.extensions
+
     # Check the global firewall rules are valid
     Test-FirewallRules -FirewallRules $template.firewall
 

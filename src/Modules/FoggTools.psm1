@@ -387,6 +387,74 @@ function Test-VMCoresExceedMax
     return $exceeded
 }
 
+function Test-Extensions
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        $FoggObject,
+
+        [Parameter()]
+        $Extensions
+    )
+
+    # if there are no extensions, just return
+    if (Test-Empty $Extensions) {
+        $FoggObject.HasExtensions = $false
+        return
+    }
+
+    # loop through each extension and verify
+    $keys = $Extensions.psobject.properties.name
+
+    foreach ($key in $keys) {
+        switch ($key.ToLowerInvariant()) {
+            'chef' {
+                Test-ExtensionChef -Template $Extensions.$key -FoggObject $FoggObject
+            }
+
+            default {
+                throw "Unknown extension type provided: $($key)"
+            }
+        }
+    }
+
+    # set we have extensions
+    $FoggObject.HasExtensions = $true
+}
+
+function Test-ExtensionChef
+{
+    param (
+        [Parameter(Mandatory=$true)]
+        $Template,
+
+        [Parameter(Mandatory=$true)]
+        $FoggObject
+    )
+
+    $_args = $FoggObject.Arguments
+
+    # ensure there's a validation section
+    if (Test-Empty $Template.validation) {
+        throw 'No validation section has been supplied for the Chef Extension'
+    }
+
+    $pem = Get-Replace $Template.validation.pem 'none' $_args
+    if (Test-Empty $pem) {
+        throw 'A path to a pem file is required in the validation section for the Chef Extension'
+    }
+
+    $name = Get-Replace $Template.validation.name 'none' $_args
+    if (Test-Empty $name) {
+        throw 'A client name is required in the validation section for the Chef Extension'
+    }
+
+    # ensure there's a chef server url
+    $url = Get-Replace $Template.url 'none' $_args
+    if (Test-Empty $url) {
+        throw "A Chef Server URL is required for the Chef Extension"
+    }
+}
 
 function Test-Template
 {
@@ -1179,7 +1247,6 @@ function Test-FirewallRules
     }
 }
 
-
 function Test-FirewallRule
 {
     param (
@@ -1415,6 +1482,7 @@ function Test-Provisioners
         [Parameter(Mandatory=$true)]
         $FoggObject,
 
+        [Parameter()]
         $Paths
     )
 
@@ -1609,6 +1677,7 @@ function Get-FirewallPortMap
         'smb' = '445';
         'ftps' = '989-990';
         'sql' = '1433-1434';
+        'grafana' = '3000';
         'mysql' = '3306';
         'rdp' = '3389';
         'svn' = '3690';
@@ -1617,6 +1686,8 @@ function Get-FirewallPortMap
         'winrm' = '5985-5986';
         'redis' = '6379';
         'puppet' = '8139-8140';
+        'influxdb' = '8086';
+        'vault' = '8200';
         'git' = '9418';
         'octopus' = '10933';
         'redis-sentinel' ='26379';
@@ -1737,11 +1808,17 @@ function Get-Replace
                 if ($Subnets -ne $null -and $Subnets.ContainsKey($v)) {
                     $Value = ($Value -ireplace [Regex]::Escape($Matches[0]), $Subnets[$v])
                 }
+                else {
+                    $Value = ($Value -ireplace [Regex]::Escape($Matches[0]), "")
+                }
             }
 
             'args' {
                 if ($Arguments -ne $null -and $Arguments.ContainsKey($v)) {
                     $Value = ($Value -ireplace [Regex]::Escape($Matches[0]), $Arguments[$v])
+                }
+                else {
+                    $Value = ($Value -ireplace [Regex]::Escape($Matches[0]), "")
                 }
             }
 
@@ -2218,6 +2295,7 @@ function New-FoggGroupObject
     $group.TemplatePath = $TemplatePath
     $group.TemplateParent = (Split-Path -Parent -Path $TemplatePath)
     $group.HasProvisionScripts = $false
+    $group.HasExtensions = $false
     $group.ProvisionMap = @{'dsc' = @{}; 'custom' = @{}; 'choco' = @{}; 'drives' = @{}}
     $group.NsgMap = @{}
     $group.ProvisionersPath = $null
@@ -2523,6 +2601,7 @@ function New-DeployTemplateVM
     )
 
     $_args = $FoggObject.Arguments
+    $_exts = $FullTemplate.extensions
 
     $role = $Template.role.ToLowerInvariant()
     $type = $Template.type.ToLowerInvariant()
@@ -2687,6 +2766,11 @@ function New-DeployTemplateVM
 
         # due to a bug with the CustomScriptExtension, if we have any uninstall the extension
         Remove-FoggCustomScriptExtension -FoggObject $FoggObject -VMName $_vm.Name -OSType $os.type
+
+        # see if we need to attach and further extensions onto the machine
+        if ($FoggObject.HasExtensions) {
+            Set-ExtensionVM -FoggObject $FoggObject -Extensions $_exts -VMName $_vm.Name -Role $role -OSType $os.type
+        }
 
         # get VM's NIC
         $nicId = Get-NameFromAzureId $_vm.NetworkProfile.NetworkInterfaces[0].Id
