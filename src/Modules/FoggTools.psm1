@@ -520,8 +520,8 @@ function Test-Template
         $role = $role.ToLowerInvariant()
         $type = $type.ToLowerInvariant()
 
-        if ($role -inotmatch '^[a-z0-9]+$') {
-            throw "Role for template object $($role) must be a valid alphanumerical value"
+        if ($role -inotmatch '^[a-z0-9\-]+$') {
+            throw "Role for template object $($role) must be a valid alphanumerical value, including dashes"
         }
 
         if ($roleMap.ContainsKey($type)) {
@@ -1688,6 +1688,7 @@ function Get-FirewallPortMap
         'puppet' = '8139-8140';
         'influxdb' = '8086';
         'vault' = '8200';
+        'consul' = '8500';
         'git' = '9418';
         'octopus' = '10933';
         'redis-sentinel' ='26379';
@@ -2658,6 +2659,8 @@ function New-DeployTemplateVM
         $lb = $Template.loadBalancer
         $lbName = (Get-FoggLoadBalancerName $basename)
 
+        Write-Information "Setting up Load Balancer: $($lbName)"
+
         # create base rules config
         $rules = @{}
         foreach ($rule in $lb.rules) {
@@ -2695,6 +2698,9 @@ function New-DeployTemplateVM
 
         # set publicIp to none after creating public load balancer
         $publicIpType = 'none'
+    }
+    else {
+        $lb = $null
     }
 
     # work out the base index of the VM, if we're appending instead of creating

@@ -3272,7 +3272,7 @@ function Save-FoggVM
         [ValidateNotNull()]
         $VM,
 
-        $LoadBalancer
+        $LoadBalancer = $null
     )
 
     # do we have a zone?
@@ -3310,7 +3310,7 @@ function Save-FoggVM
     Write-Success "Deployed $($VM.Name)`n"
 
     # check if we need to assign a load balancer
-    if ($LoadBalancer -ne $null)
+    if (!(Test-Empty $LoadBalancer))
     {
         Write-Information "Assigning VM $($VM.Name) to Load Balancer $($LoadBalancer.Name)"
 
