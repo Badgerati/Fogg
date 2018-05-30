@@ -501,7 +501,7 @@ function Update-FoggRedisCache
     )
 
     # generate the redis cache name
-    $basename = (Join-ValuesDashed @($FoggObject.LocationCode, $FoggObject.Stamp, $FoggObject.Platform, $Role))
+    $basename = (Join-ValuesDashed @($FoggObject.LocationCode, $FoggObject.Stamp, $FoggObject.Platform, $FoggObject.Environment, $Role))
     $Name = Get-FoggRedisCacheName -Name $basename
 
     if (Test-Empty $Configuration)
@@ -624,7 +624,7 @@ function New-FoggRedisCache
     )
 
     # generate the redis cache name
-    $basename = (Join-ValuesDashed @($FoggObject.LocationCode, $FoggObject.Stamp, $FoggObject.Platform, $Role))
+    $basename = (Join-ValuesDashed @($FoggObject.LocationCode, $FoggObject.Stamp, $FoggObject.Platform, $FoggObject.Environment, $Role))
     $Name = Get-FoggRedisCacheName -Name $basename
 
     if (Test-Empty $Configuration)
@@ -763,7 +763,7 @@ function New-FoggStorageAccount
     }
 
     # generate the storage account's name
-    $basename = (Join-ValuesDashed @($FoggObject.LocationCode, $FoggObject.Stamp, $FoggObject.Platform, $Role))
+    $basename = (Join-ValuesDashed @($FoggObject.LocationCode, $FoggObject.Stamp, $FoggObject.Platform, $FoggObject.Environment, $Role))
     $Name = Get-FoggStorageAccountName -Name $basename
 
     Write-Information "Creating Storage Account $($Name) in Resource Group $($FoggObject.ResourceGroupName)"

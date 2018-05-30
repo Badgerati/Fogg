@@ -487,7 +487,7 @@ function Test-Template
     # ensure the global storage account name is valid - but only if we have VMs, and if one of them is unmanaged
     if (Test-TemplateHasType $templateObjs 'vm')
     {
-        $saName = Get-FoggStorageAccountName -Name (Join-ValuesDashed @($FoggObject.LocationCode, $FoggObject.Stamp, $FoggObject.Platform, 'gbl'))
+        $saName = Get-FoggStorageAccountName -Name (Join-ValuesDashed @($FoggObject.LocationCode, $FoggObject.Stamp, $FoggObject.Platform, $FoggObject.Environment, 'gbl'))
         Test-FoggStorageAccountName $saName
 
         if ($Online) {
@@ -595,7 +595,7 @@ function Test-TemplateRedis
     $isPrivate = [bool]$Template.private
 
     # ensure name is valid
-    $name = Get-FoggRedisCacheName -Name (Join-ValuesDashed @($FoggObject.LocationCode, $FoggObject.Stamp, $FoggObject.Platform, $role))
+    $name = Get-FoggRedisCacheName -Name (Join-ValuesDashed @($FoggObject.LocationCode, $FoggObject.Stamp, $FoggObject.Platform, $FoggObject.Environment, $role))
     Test-FoggRedisCacheName $name
 
     # ensure the sku is valid
@@ -712,7 +712,7 @@ function Test-TemplateSA
     )
 
     # ensure name is valid
-    $name = Get-FoggStorageAccountName -Name (Join-ValuesDashed @($FoggObject.LocationCode, $FoggObject.Stamp, $FoggObject.Platform, $Template.role))
+    $name = Get-FoggStorageAccountName -Name (Join-ValuesDashed @($FoggObject.LocationCode, $FoggObject.Stamp, $FoggObject.Platform, $FoggObject.Environment, $Template.role))
     Test-FoggStorageAccountName $name
 
     # if online and storage account exists, ensure it's ours
