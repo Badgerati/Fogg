@@ -2735,6 +2735,10 @@ function New-FoggLoadBalancer
         [hashtable]
         $Rules,
 
+        [Parameter(Mandatory=$true)]
+        [ValidateSet('Basic', 'Standard')]
+        $Sku,
+
         [Parameter()]
         [string]
         $SubnetId,
@@ -2846,7 +2850,7 @@ function New-FoggLoadBalancer
 
     # create the load balancer
     $lb = New-AzureRmLoadBalancer -ResourceGroupName $FoggObject.ResourceGroupName -Name $Name -Location $FoggObject.Location `
-        -FrontendIpConfiguration @($_frontends.Values) -BackendAddressPool $back -LoadBalancingRule $_rules -Probe $_probes -Sku Standard
+        -FrontendIpConfiguration @($_frontends.Values) -BackendAddressPool $back -LoadBalancingRule $_rules -Probe $_probes -Sku $Sku
 
     if (!$?) {
         throw "Failed to create $($Name) load balancer"

@@ -1027,6 +1027,14 @@ function Test-VMLoadBalancer
         $LoadBalancer
     )
 
+    # validate the sku
+    if (!(Test-Empty $LoadBalancer.sku)) {
+        $skus = @('Basic', 'Standard')
+        if ($skus -inotcontains $LoadBalancer.sku) {
+            throw "Invalid Load Balancer SKU type supplied, should be: $($skus -join ', ')"
+        }
+    }
+
     # validate load balancer frontends
     $frontends = @()
     if (!(Test-Empty $LoadBalancer.frontends)) {
@@ -2661,6 +2669,9 @@ function New-DeployTemplateVM
 
         Write-Information "Setting up Load Balancer: $($lbName)"
 
+        # the sku type
+        $skuType = (?? $lb.sku 'Standard')
+
         # create base rules config
         $rules = @{}
         foreach ($rule in $lb.rules) {
@@ -2690,7 +2701,7 @@ function New-DeployTemplateVM
 
         # create the load balancer
         $lb = New-FoggLoadBalancer -FoggObject $FoggObject -Name $lbName -SubnetId $subnetObj.Id `
-            -Rules $rules -PublicIpType $publicIpType
+            -Rules $rules -PublicIpType $publicIpType -Sku $skuType
 
         # return object details
         $vmInfo.LoadBalancer.Add('Name', $lbName)
